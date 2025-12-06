@@ -379,37 +379,39 @@ class MemoryQueryEngine:
             return []
 
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        matches = []
-        tenant_filter = "AND tenant_id = ?" if self._has_tenant_column(c, 'compound_concepts') else ""
+            matches = []
+            tenant_filter = "AND tenant_id = ?" if self._has_tenant_column(c, 'compound_concepts') else ""
 
-        for concept in concepts:
-            params = [f'%{concept}%', f'%{concept}%'] + ([self.tenant_id] if tenant_filter else [])
+            for concept in concepts:
+                params = [f'%{concept}%', f'%{concept}%'] + ([self.tenant_id] if tenant_filter else [])
 
-            c.execute(f"""
-                SELECT compound_name, component_concepts, co_occurrence_count
-                FROM compound_concepts
-                WHERE LOWER(compound_name) LIKE LOWER(?)
-                   OR LOWER(component_concepts) LIKE LOWER(?)
-                {tenant_filter}
-                ORDER BY co_occurrence_count DESC
-                LIMIT 5
-            """, params)
+                c.execute(f"""
+                    SELECT compound_name, component_concepts, co_occurrence_count
+                    FROM compound_concepts
+                    WHERE LOWER(compound_name) LIKE LOWER(?)
+                       OR LOWER(component_concepts) LIKE LOWER(?)
+                    {tenant_filter}
+                    ORDER BY co_occurrence_count DESC
+                    LIMIT 5
+                """, params)
 
-            for row in c.fetchall():
-                matches.append(MemoryMatch(
-                    name=row['compound_name'],
-                    entity_type='compound_concept',
-                    description=f"Components: {row['component_concepts']}",
-                    relevance=min(0.9, 0.5 + row['co_occurrence_count'] * 0.1),
-                    source='compound',
-                    depth=0
-                ))
+                for row in c.fetchall():
+                    matches.append(MemoryMatch(
+                        name=row['compound_name'],
+                        entity_type='compound_concept',
+                        description=f"Components: {row['component_concepts']}",
+                        relevance=min(0.9, 0.5 + row['co_occurrence_count'] * 0.1),
+                        source='compound',
+                        depth=0
+                    ))
 
-        conn.close()
-        return matches
+            return matches
+        finally:
+            conn.close()
 
     def _rank_matches(self, matches: List[MemoryMatch],
                       query_concepts: List[str]) -> List[MemoryMatch]:
@@ -448,34 +450,36 @@ class MemoryQueryEngine:
             return []
 
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        concept_set = set(concept.lower() for concept in concepts)
-        links = []
+            concept_set = set(concept.lower() for concept in concepts)
+            links = []
 
-        tenant_filter = "WHERE tenant_id = ?" if self._has_tenant_column(c, 'attention_links') else ""
-        params = [self.tenant_id] if tenant_filter else []
+            tenant_filter = "WHERE tenant_id = ?" if self._has_tenant_column(c, 'attention_links') else ""
+            params = [self.tenant_id] if tenant_filter else []
 
-        c.execute(f"""
-            SELECT concept_a, concept_b, link_type, strength
-            FROM attention_links
-            {tenant_filter}
-            ORDER BY strength DESC
-        """, params)
+            c.execute(f"""
+                SELECT concept_a, concept_b, link_type, strength
+                FROM attention_links
+                {tenant_filter}
+                ORDER BY strength DESC
+            """, params)
 
-        for row in c.fetchall():
-            if (row['concept_a'].lower() in concept_set and
-                row['concept_b'].lower() in concept_set):
-                links.append({
-                    'from': row['concept_a'],
-                    'to': row['concept_b'],
-                    'type': row['link_type'],
-                    'strength': row['strength']
-                })
+            for row in c.fetchall():
+                if (row['concept_a'].lower() in concept_set and
+                    row['concept_b'].lower() in concept_set):
+                    links.append({
+                        'from': row['concept_a'],
+                        'to': row['concept_b'],
+                        'type': row['link_type'],
+                        'strength': row['strength']
+                    })
 
-        conn.close()
-        return links[:20]  # Limit to top 20 links
+            return links[:20]  # Limit to top 20 links
+        finally:
+            conn.close()
 
     def _format_context(self, matches: List[MemoryMatch],
                         links: List[Dict]) -> str:
