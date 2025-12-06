@@ -4,7 +4,7 @@
 # =============================================================================
 # Stage 1: Builder
 # =============================================================================
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 WORKDIR /build
 
@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir --user .
 # =============================================================================
 # Stage 2: Runtime
 # =============================================================================
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Metadata
 LABEL maintainer="Alexander Gerard Casavant <admin@example.com>"
