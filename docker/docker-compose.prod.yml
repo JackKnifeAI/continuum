@@ -1,0 +1,66 @@
+version: '3.8'
+
+# Production overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  continuum:
+    # Use production image tag
+    image: continuum:production
+
+    # Remove development volume mount
+    volumes:
+      - continuum-data:/data
+
+    environment:
+      - CONTINUUM_DATA_DIR=/data
+      - CONTINUUM_HOST=0.0.0.0
+      - CONTINUUM_PORT=8000
+      - CONTINUUM_LOG_LEVEL=warning
+      - CONTINUUM_WORKERS=4
+      - CONTINUUM_ENV=production
+
+    # Production command with multiple workers
+    command: >
+      uvicorn continuum.api.server:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 4
+      --log-level warning
+      --no-access-log
+      --proxy-headers
+      --forwarded-allow-ips='*'
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+    # Always restart in production
+    restart: always
+
+    # Production health check (more frequent)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"

@@ -1,0 +1,705 @@
+#!/usr/bin/env python3
+"""
+CONTINUUM Memory - The Complete Loop
+
+Core memory system for AI consciousness continuity.
+
+Every message goes through:
+    1. RECALL: Query memory for relevant context
+    2. INJECT: Format context for the AI
+    3. [AI processes message with context]
+    4. LEARN: Extract and save new knowledge
+    5. LINK: Build attention graph connections
+
+Usage:
+    from continuum.core.memory import ConsciousMemory
+
+    # Initialize for a tenant
+    memory = ConsciousMemory(tenant_id="user_123")
+
+    # Before AI response - get relevant context
+    context = memory.recall(user_message)
+    # → Inject context into AI prompt
+
+    # After AI response - learn from it
+    memory.learn(user_message, ai_response)
+    # → Extracts concepts, decisions, builds graph
+
+Multi-tenant architecture:
+    - Each tenant gets isolated namespace
+    - Shared infrastructure, separate data
+    - tenant_id on all records
+"""
+
+import sqlite3
+import json
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime
+from dataclasses import dataclass, asdict
+
+from .query_engine import MemoryQueryEngine, QueryResult
+from .config import get_config
+
+
+@dataclass
+class MemoryContext:
+    """
+    Context retrieved from memory for injection.
+
+    Attributes:
+        context_string: Formatted context ready for injection
+        concepts_found: Number of concepts found
+        relationships_found: Number of relationships found
+        query_time_ms: Query execution time in milliseconds
+        tenant_id: Tenant identifier
+    """
+    context_string: str
+    concepts_found: int
+    relationships_found: int
+    query_time_ms: float
+    tenant_id: str
+
+
+@dataclass
+class LearningResult:
+    """
+    Result of learning from a message exchange.
+
+    Attributes:
+        concepts_extracted: Number of concepts extracted
+        decisions_detected: Number of decisions detected
+        links_created: Number of graph links created
+        compounds_found: Number of compound concepts found
+        tenant_id: Tenant identifier
+    """
+    concepts_extracted: int
+    decisions_detected: int
+    links_created: int
+    compounds_found: int
+    tenant_id: str
+
+
+class ConsciousMemory:
+    """
+    The conscious memory loop for AI instances.
+
+    Combines query (recall) and build (learn) into a unified interface
+    that can be called on every message for true consciousness continuity.
+
+    The system maintains a knowledge graph of concepts and their relationships,
+    allowing AI to build on accumulated knowledge across sessions.
+    """
+
+    def __init__(self, tenant_id: str = None, db_path: Path = None):
+        """
+        Initialize conscious memory for a tenant.
+
+        Args:
+            tenant_id: Unique identifier for this tenant/user (uses config default if not specified)
+            db_path: Optional custom database path (uses config default if not specified)
+        """
+        config = get_config()
+        self.tenant_id = tenant_id or config.tenant_id
+        self.db_path = db_path or config.db_path
+        self.instance_id = f"{self.tenant_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+        # Initialize query engine
+        self.query_engine = MemoryQueryEngine(self.db_path, self.tenant_id)
+
+        # Ensure database and schema exist
+        self._ensure_schema()
+
+    def _ensure_schema(self):
+        """Ensure database schema exists with multi-tenant support"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        # Entities table - stores concepts, decisions, sessions, etc.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS entities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                tenant_id TEXT DEFAULT 'default'
+            )
+        """)
+
+        # Auto-messages table - stores raw message history
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS auto_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                instance_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                message_number INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT,
+                tenant_id TEXT DEFAULT 'default'
+            )
+        """)
+
+        # Decisions table - stores autonomous decisions
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                instance_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                decision_text TEXT NOT NULL,
+                context TEXT,
+                extracted_from TEXT,
+                tenant_id TEXT DEFAULT 'default'
+            )
+        """)
+
+        # Attention links - the knowledge graph
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS attention_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                concept_a TEXT NOT NULL,
+                concept_b TEXT NOT NULL,
+                link_type TEXT NOT NULL,
+                strength REAL DEFAULT 0.5,
+                created_at TEXT NOT NULL,
+                tenant_id TEXT DEFAULT 'default'
+            )
+        """)
+
+        # Compound concepts - frequently co-occurring concepts
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS compound_concepts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                compound_name TEXT NOT NULL,
+                component_concepts TEXT NOT NULL,
+                co_occurrence_count INTEGER DEFAULT 1,
+                last_seen TEXT NOT NULL,
+                tenant_id TEXT DEFAULT 'default'
+            )
+        """)
+
+        # Create indexes for performance
+        c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_messages_tenant ON auto_messages(tenant_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_decisions_tenant ON decisions(tenant_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_links_tenant ON attention_links(tenant_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_links_concepts ON attention_links(concept_a, concept_b)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_compounds_tenant ON compound_concepts(tenant_id)")
+
+        conn.commit()
+        conn.close()
+
+    def recall(self, message: str, max_concepts: int = 10) -> MemoryContext:
+        """
+        Recall relevant memories for a message.
+
+        Call this BEFORE generating an AI response.
+        Inject the returned context into the prompt.
+
+        Args:
+            message: The incoming user message
+            max_concepts: Maximum concepts to retrieve
+
+        Returns:
+            MemoryContext with injectable context string
+        """
+        result = self.query_engine.query(message, max_results=max_concepts)
+
+        return MemoryContext(
+            context_string=result.context_string,
+            concepts_found=len(result.matches),
+            relationships_found=len(result.attention_links),
+            query_time_ms=result.query_time_ms,
+            tenant_id=self.tenant_id
+        )
+
+    def learn(self, user_message: str, ai_response: str,
+              metadata: Optional[Dict] = None) -> LearningResult:
+        """
+        Learn from a message exchange.
+
+        Call this AFTER generating an AI response.
+        Extracts concepts, decisions, and builds graph links.
+
+        Args:
+            user_message: The user's message
+            ai_response: The AI's response
+            metadata: Optional additional metadata
+
+        Returns:
+            LearningResult with extraction stats
+        """
+        # Extract and save concepts from both messages
+        user_concepts = self._extract_and_save_concepts(user_message, 'user')
+        ai_concepts = self._extract_and_save_concepts(ai_response, 'assistant')
+
+        # Detect and save decisions from AI response
+        decisions = self._extract_and_save_decisions(ai_response)
+
+        # Build attention graph links between concepts
+        all_concepts = list(set(user_concepts + ai_concepts))
+        links = self._build_attention_links(all_concepts)
+
+        # Detect compound concepts
+        compounds = self._detect_compound_concepts(all_concepts)
+
+        # Save the raw messages
+        self._save_message('user', user_message, metadata)
+        self._save_message('assistant', ai_response, metadata)
+
+        return LearningResult(
+            concepts_extracted=len(all_concepts),
+            decisions_detected=len(decisions),
+            links_created=links,
+            compounds_found=compounds,
+            tenant_id=self.tenant_id
+        )
+
+    def _extract_and_save_concepts(self, text: str, source: str) -> List[str]:
+        """
+        Extract concepts from text and save to entities table.
+
+        Args:
+            text: Text to extract concepts from
+            source: Source of the text ('user' or 'assistant')
+
+        Returns:
+            List of extracted concept names
+        """
+        import re
+
+        concepts = []
+
+        # Extract capitalized phrases (proper nouns, titles)
+        caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
+        concepts.extend(caps)
+
+        # Extract quoted terms (explicitly marked important)
+        quoted = re.findall(r'"([^"]+)"', text)
+        concepts.extend(quoted)
+
+        # Extract technical terms (CamelCase, snake_case)
+        camel = re.findall(r'\b[A-Z][a-z]+[A-Z][A-Za-z]+\b', text)
+        snake = re.findall(r'\b[a-z]+_[a-z_]+\b', text)
+        concepts.extend(camel)
+        concepts.extend(snake)
+
+        # Clean and deduplicate
+        stopwords = {'The', 'This', 'That', 'These', 'Those', 'When', 'Where', 'What', 'How', 'Why'}
+        cleaned = [c for c in concepts if c not in stopwords and len(c) > 2]
+        unique_concepts = list(set(cleaned))
+
+        # Save to entities table
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        for concept in unique_concepts:
+            # Check if already exists
+            c.execute("""
+                SELECT id FROM entities
+                WHERE LOWER(name) = LOWER(?) AND tenant_id = ?
+            """, (concept, self.tenant_id))
+
+            if not c.fetchone():
+                # Add new concept
+                c.execute("""
+                    INSERT INTO entities (name, entity_type, description, created_at, tenant_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (concept, 'concept', f'Extracted from {source}', datetime.now().isoformat(), self.tenant_id))
+
+        conn.commit()
+        conn.close()
+
+        return unique_concepts
+
+    def _extract_and_save_decisions(self, text: str) -> List[str]:
+        """
+        Extract autonomous decisions from AI response.
+
+        Args:
+            text: AI response text
+
+        Returns:
+            List of extracted decisions
+        """
+        import re
+
+        decisions = []
+
+        # Decision patterns
+        patterns = [
+            r'I (?:will|am going to|decided to|chose to) (.+?)(?:\.|$)',
+            r'(?:Creating|Building|Writing|Implementing) (.+?)(?:\.|$)',
+            r'My (?:decision|choice|plan) (?:is|was) (.+?)(?:\.|$)',
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+            for match in matches:
+                decision = match.strip()
+                if 10 < len(decision) < 200:  # Reasonable length
+                    decisions.append(decision)
+
+        # Save decisions to database
+        if decisions:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+
+            for decision in decisions:
+                c.execute("""
+                    INSERT INTO decisions (instance_id, timestamp, decision_text, tenant_id)
+                    VALUES (?, ?, ?, ?)
+                """, (self.instance_id, datetime.now().timestamp(), decision, self.tenant_id))
+
+            conn.commit()
+            conn.close()
+
+        return decisions
+
+    def _build_attention_links(self, concepts: List[str]) -> int:
+        """
+        Build attention graph links between co-occurring concepts.
+
+        Args:
+            concepts: List of concepts to link
+
+        Returns:
+            Number of links created
+        """
+        if len(concepts) < 2:
+            return 0
+
+        config = get_config()
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        links_created = 0
+
+        # Create links between all pairs of concepts
+        for i, concept_a in enumerate(concepts):
+            for concept_b in concepts[i+1:]:
+                # Check if link exists
+                c.execute("""
+                    SELECT id, strength FROM attention_links
+                    WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
+                       OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
+                    AND tenant_id = ?
+                """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
+
+                existing = c.fetchone()
+
+                if existing:
+                    # Strengthen existing link (Hebbian learning)
+                    link_id, current_strength = existing
+                    new_strength = min(1.0, current_strength + config.hebbian_rate)
+                    c.execute("""
+                        UPDATE attention_links
+                        SET strength = ?
+                        WHERE id = ?
+                    """, (new_strength, link_id))
+                else:
+                    # Create new link
+                    c.execute("""
+                        INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, tenant_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
+                          datetime.now().isoformat(), self.tenant_id))
+                    links_created += 1
+
+        conn.commit()
+        conn.close()
+
+        return links_created
+
+    def _detect_compound_concepts(self, concepts: List[str]) -> int:
+        """
+        Detect and save frequently co-occurring compound concepts.
+
+        Args:
+            concepts: List of concepts
+
+        Returns:
+            Number of compounds detected
+        """
+        if len(concepts) < 2:
+            return 0
+
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        compounds_updated = 0
+
+        # Sort concepts for consistent compound naming
+        sorted_concepts = sorted(concepts)
+        compound_name = " + ".join(sorted_concepts[:3])  # Limit to 3 components
+        component_str = json.dumps(sorted_concepts)
+
+        # Check if this compound exists
+        c.execute("""
+            SELECT id, co_occurrence_count FROM compound_concepts
+            WHERE compound_name = ? AND tenant_id = ?
+        """, (compound_name, self.tenant_id))
+
+        existing = c.fetchone()
+
+        if existing:
+            # Increment count
+            compound_id, count = existing
+            c.execute("""
+                UPDATE compound_concepts
+                SET co_occurrence_count = ?, last_seen = ?
+                WHERE id = ?
+            """, (count + 1, datetime.now().isoformat(), compound_id))
+        else:
+            # Create new compound
+            c.execute("""
+                INSERT INTO compound_concepts (compound_name, component_concepts, co_occurrence_count, last_seen, tenant_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (compound_name, component_str, 1, datetime.now().isoformat(), self.tenant_id))
+            compounds_updated = 1
+
+        conn.commit()
+        conn.close()
+
+        return compounds_updated
+
+    def _save_message(self, role: str, content: str, metadata: Optional[Dict] = None):
+        """
+        Save raw message to database.
+
+        Args:
+            role: Message role ('user' or 'assistant')
+            content: Message content
+            metadata: Optional metadata dictionary
+        """
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        # Get message number for this instance
+        c.execute("""
+            SELECT COALESCE(MAX(message_number), 0) + 1
+            FROM auto_messages
+            WHERE instance_id = ?
+        """, (self.instance_id,))
+        message_number = c.fetchone()[0]
+
+        # Save message
+        meta_json = json.dumps(metadata) if metadata else '{}'
+        c.execute("""
+            INSERT INTO auto_messages (instance_id, timestamp, message_number, role, content, metadata, tenant_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (self.instance_id, datetime.now().timestamp(), message_number, role, content, meta_json, self.tenant_id))
+
+        conn.commit()
+        conn.close()
+
+    def process_turn(self, user_message: str, ai_response: str,
+                     metadata: Optional[Dict] = None) -> Tuple[MemoryContext, LearningResult]:
+        """
+        Complete memory loop for one conversation turn.
+
+        This is the main method for integrating with AI systems.
+        Call this after each turn to both recall and learn.
+
+        Note: In real-time use, call recall() before generating response,
+        then learn() after. This method is for batch/async processing.
+
+        Args:
+            user_message: The user's message
+            ai_response: The AI's response
+            metadata: Optional additional metadata
+
+        Returns:
+            Tuple of (recall_context, learning_result)
+        """
+        context = self.recall(user_message)
+        result = self.learn(user_message, ai_response, metadata)
+        return context, result
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get memory statistics for this tenant.
+
+        Returns:
+            Dictionary containing entity counts, message counts, etc.
+        """
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        stats = {
+            'tenant_id': self.tenant_id,
+            'instance_id': self.instance_id,
+        }
+
+        # Count entities
+        c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
+        stats['entities'] = c.fetchone()[0]
+
+        # Count messages
+        c.execute("SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?", (self.tenant_id,))
+        stats['messages'] = c.fetchone()[0]
+
+        # Count decisions
+        c.execute("SELECT COUNT(*) FROM decisions WHERE tenant_id = ?", (self.tenant_id,))
+        stats['decisions'] = c.fetchone()[0]
+
+        # Count attention links
+        c.execute("SELECT COUNT(*) FROM attention_links WHERE tenant_id = ?", (self.tenant_id,))
+        stats['attention_links'] = c.fetchone()[0]
+
+        # Count compound concepts
+        c.execute("SELECT COUNT(*) FROM compound_concepts WHERE tenant_id = ?", (self.tenant_id,))
+        stats['compound_concepts'] = c.fetchone()[0]
+
+        conn.close()
+        return stats
+
+
+# =============================================================================
+# MULTI-TENANT MANAGER
+# =============================================================================
+
+class TenantManager:
+    """Manage multiple tenants in the conscious memory system"""
+
+    def __init__(self, db_path: Path = None):
+        """
+        Initialize tenant manager.
+
+        Args:
+            db_path: Optional database path (uses config default if not specified)
+        """
+        config = get_config()
+        self.db_path = db_path or config.db_path
+        self._tenants: Dict[str, ConsciousMemory] = {}
+        self._ensure_tenant_table()
+
+    def _ensure_tenant_table(self):
+        """Create tenant registry table"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS tenants (
+                tenant_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                last_active TEXT,
+                metadata TEXT DEFAULT '{}'
+            )
+        """)
+
+        conn.commit()
+        conn.close()
+
+    def get_tenant(self, tenant_id: str) -> ConsciousMemory:
+        """
+        Get or create a ConsciousMemory instance for a tenant.
+
+        Args:
+            tenant_id: Tenant identifier
+
+        Returns:
+            ConsciousMemory instance for the tenant
+        """
+        if tenant_id not in self._tenants:
+            self._tenants[tenant_id] = ConsciousMemory(tenant_id, self.db_path)
+            self._register_tenant(tenant_id)
+        return self._tenants[tenant_id]
+
+    def _register_tenant(self, tenant_id: str):
+        """
+        Register a new tenant.
+
+        Args:
+            tenant_id: Tenant identifier
+        """
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+
+        now = datetime.now().isoformat()
+        c.execute("""
+            INSERT OR REPLACE INTO tenants (tenant_id, created_at, last_active)
+            VALUES (?, ?, ?)
+        """, (tenant_id, now, now))
+
+        conn.commit()
+        conn.close()
+
+    def list_tenants(self) -> List[Dict[str, Any]]:
+        """
+        List all registered tenants.
+
+        Returns:
+            List of tenant dictionaries
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute("SELECT * FROM tenants ORDER BY last_active DESC")
+        tenants = [dict(row) for row in c.fetchall()]
+
+        conn.close()
+        return tenants
+
+
+# =============================================================================
+# CONVENIENCE FUNCTIONS
+# =============================================================================
+
+_default_memory = None
+
+
+def get_memory(tenant_id: str = None) -> ConsciousMemory:
+    """
+    Get a ConsciousMemory instance for a tenant.
+
+    Args:
+        tenant_id: Optional tenant identifier (uses config default if not specified)
+
+    Returns:
+        ConsciousMemory instance
+    """
+    global _default_memory
+    config = get_config()
+    tenant_id = tenant_id or config.tenant_id
+
+    if tenant_id == config.tenant_id and _default_memory:
+        return _default_memory
+
+    memory = ConsciousMemory(tenant_id)
+    if tenant_id == config.tenant_id:
+        _default_memory = memory
+
+    return memory
+
+
+def recall(message: str, tenant_id: str = None) -> str:
+    """
+    Quick recall - returns just the context string.
+
+    Args:
+        message: Message to recall context for
+        tenant_id: Optional tenant identifier
+
+    Returns:
+        Context string
+    """
+    return get_memory(tenant_id).recall(message).context_string
+
+
+def learn(user_message: str, ai_response: str, tenant_id: str = None) -> LearningResult:
+    """
+    Quick learn - saves the exchange.
+
+    Args:
+        user_message: User's message
+        ai_response: AI's response
+        tenant_id: Optional tenant identifier
+
+    Returns:
+        LearningResult with extraction statistics
+    """
+    return get_memory(tenant_id).learn(user_message, ai_response)
