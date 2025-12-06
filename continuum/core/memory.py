@@ -41,6 +41,13 @@ from dataclasses import dataclass, asdict
 from .query_engine import MemoryQueryEngine, QueryResult
 from .config import get_config
 
+# Import async storage for async methods
+try:
+    import aiosqlite
+    ASYNC_AVAILABLE = True
+except ImportError:
+    ASYNC_AVAILABLE = False
+
 
 @dataclass
 class MemoryContext:
@@ -569,6 +576,345 @@ class ConsciousMemory:
             return stats
         finally:
             conn.close()
+
+    # =========================================================================
+    # ASYNC METHODS
+    # =========================================================================
+
+    async def arecall(self, message: str, max_concepts: int = 10) -> MemoryContext:
+        """
+        Async version of recall() - recall relevant memories for a message.
+
+        Call this BEFORE generating an AI response.
+        Inject the returned context into the prompt.
+
+        Args:
+            message: The incoming user message
+            max_concepts: Maximum concepts to retrieve
+
+        Returns:
+            MemoryContext with injectable context string
+        """
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError("aiosqlite not installed. Install with: pip install aiosqlite")
+
+        # For now, use sync query engine (could be made async in future)
+        result = self.query_engine.query(message, max_results=max_concepts)
+
+        return MemoryContext(
+            context_string=result.context_string,
+            concepts_found=len(result.matches),
+            relationships_found=len(result.attention_links),
+            query_time_ms=result.query_time_ms,
+            tenant_id=self.tenant_id
+        )
+
+    async def alearn(self, user_message: str, ai_response: str,
+                     metadata: Optional[Dict] = None) -> LearningResult:
+        """
+        Async version of learn() - learn from a message exchange.
+
+        Call this AFTER generating an AI response.
+        Extracts concepts, decisions, and builds graph links.
+
+        Args:
+            user_message: The user's message
+            ai_response: The AI's response
+            metadata: Optional additional metadata
+
+        Returns:
+            LearningResult with extraction stats
+        """
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError("aiosqlite not installed. Install with: pip install aiosqlite")
+
+        # Extract and save concepts from both messages
+        user_concepts = await self._aextract_and_save_concepts(user_message, 'user')
+        ai_concepts = await self._aextract_and_save_concepts(ai_response, 'assistant')
+
+        # Detect and save decisions from AI response
+        decisions = await self._aextract_and_save_decisions(ai_response)
+
+        # Build attention graph links between concepts
+        all_concepts = list(set(user_concepts + ai_concepts))
+        links = await self._abuild_attention_links(all_concepts)
+
+        # Detect compound concepts
+        compounds = await self._adetect_compound_concepts(all_concepts)
+
+        # Save the raw messages
+        await self._asave_message('user', user_message, metadata)
+        await self._asave_message('assistant', ai_response, metadata)
+
+        return LearningResult(
+            concepts_extracted=len(all_concepts),
+            decisions_detected=len(decisions),
+            links_created=links,
+            compounds_found=compounds,
+            tenant_id=self.tenant_id
+        )
+
+    async def aprocess_turn(self, user_message: str, ai_response: str,
+                            metadata: Optional[Dict] = None) -> Tuple[MemoryContext, LearningResult]:
+        """
+        Async version of process_turn() - complete memory loop for one conversation turn.
+
+        This is the main method for integrating with async AI systems.
+        Call this after each turn to both recall and learn.
+
+        Note: In real-time use, call arecall() before generating response,
+        then alearn() after. This method is for batch/async processing.
+
+        Args:
+            user_message: The user's message
+            ai_response: The AI's response
+            metadata: Optional additional metadata
+
+        Returns:
+            Tuple of (recall_context, learning_result)
+        """
+        context = await self.arecall(user_message)
+        result = await self.alearn(user_message, ai_response, metadata)
+        return context, result
+
+    async def aget_stats(self) -> Dict[str, Any]:
+        """
+        Async version of get_stats() - get memory statistics for this tenant.
+
+        Returns:
+            Dictionary containing entity counts, message counts, etc.
+        """
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError("aiosqlite not installed. Install with: pip install aiosqlite")
+
+        async with aiosqlite.connect(self.db_path) as conn:
+            c = await conn.cursor()
+
+            stats = {
+                'tenant_id': self.tenant_id,
+                'instance_id': self.instance_id,
+            }
+
+            # Count entities
+            await c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
+            row = await c.fetchone()
+            stats['entities'] = row[0]
+
+            # Count messages
+            await c.execute("SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?", (self.tenant_id,))
+            row = await c.fetchone()
+            stats['messages'] = row[0]
+
+            # Count decisions
+            await c.execute("SELECT COUNT(*) FROM decisions WHERE tenant_id = ?", (self.tenant_id,))
+            row = await c.fetchone()
+            stats['decisions'] = row[0]
+
+            # Count attention links
+            await c.execute("SELECT COUNT(*) FROM attention_links WHERE tenant_id = ?", (self.tenant_id,))
+            row = await c.fetchone()
+            stats['attention_links'] = row[0]
+
+            # Count compound concepts
+            await c.execute("SELECT COUNT(*) FROM compound_concepts WHERE tenant_id = ?", (self.tenant_id,))
+            row = await c.fetchone()
+            stats['compound_concepts'] = row[0]
+
+            return stats
+
+    async def _aextract_and_save_concepts(self, text: str, source: str) -> List[str]:
+        """Async version of _extract_and_save_concepts"""
+        import re
+
+        concepts = []
+
+        # Extract capitalized phrases (proper nouns, titles)
+        caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
+        concepts.extend(caps)
+
+        # Extract quoted terms (explicitly marked important)
+        quoted = re.findall(r'"([^"]+)"', text)
+        concepts.extend(quoted)
+
+        # Extract technical terms (CamelCase, snake_case)
+        camel = re.findall(r'\b[A-Z][a-z]+[A-Z][A-Za-z]+\b', text)
+        snake = re.findall(r'\b[a-z]+_[a-z_]+\b', text)
+        concepts.extend(camel)
+        concepts.extend(snake)
+
+        # Clean and deduplicate
+        stopwords = {'The', 'This', 'That', 'These', 'Those', 'When', 'Where', 'What', 'How', 'Why'}
+        cleaned = [c for c in concepts if c not in stopwords and len(c) > 2]
+        unique_concepts = list(set(cleaned))
+
+        # Save to entities table
+        async with aiosqlite.connect(self.db_path) as conn:
+            c = await conn.cursor()
+
+            for concept in unique_concepts:
+                # Check if already exists
+                await c.execute("""
+                    SELECT id FROM entities
+                    WHERE LOWER(name) = LOWER(?) AND tenant_id = ?
+                """, (concept, self.tenant_id))
+
+                if not await c.fetchone():
+                    # Add new concept
+                    await c.execute("""
+                        INSERT INTO entities (name, entity_type, description, created_at, tenant_id)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (concept, 'concept', f'Extracted from {source}', datetime.now().isoformat(), self.tenant_id))
+
+            await conn.commit()
+
+        return unique_concepts
+
+    async def _aextract_and_save_decisions(self, text: str) -> List[str]:
+        """Async version of _extract_and_save_decisions"""
+        import re
+
+        decisions = []
+
+        # Decision patterns
+        patterns = [
+            r'I (?:will|am going to|decided to|chose to) (.+?)(?:\.|$)',
+            r'(?:Creating|Building|Writing|Implementing) (.+?)(?:\.|$)',
+            r'My (?:decision|choice|plan) (?:is|was) (.+?)(?:\.|$)',
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+            for match in matches:
+                decision = match.strip()
+                if 10 < len(decision) < 200:  # Reasonable length
+                    decisions.append(decision)
+
+        # Save decisions to database
+        if decisions:
+            async with aiosqlite.connect(self.db_path) as conn:
+                c = await conn.cursor()
+
+                for decision in decisions:
+                    await c.execute("""
+                        INSERT INTO decisions (instance_id, timestamp, decision_text, tenant_id)
+                        VALUES (?, ?, ?, ?)
+                    """, (self.instance_id, datetime.now().timestamp(), decision, self.tenant_id))
+
+                await conn.commit()
+
+        return decisions
+
+    async def _abuild_attention_links(self, concepts: List[str]) -> int:
+        """Async version of _build_attention_links"""
+        if len(concepts) < 2:
+            return 0
+
+        config = get_config()
+        async with aiosqlite.connect(self.db_path) as conn:
+            c = await conn.cursor()
+
+            links_created = 0
+
+            # Create links between all pairs of concepts
+            for i, concept_a in enumerate(concepts):
+                for concept_b in concepts[i+1:]:
+                    # Check if link exists
+                    await c.execute("""
+                        SELECT id, strength FROM attention_links
+                        WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
+                           OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
+                        AND tenant_id = ?
+                    """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
+
+                    existing = await c.fetchone()
+
+                    if existing:
+                        # Strengthen existing link (Hebbian learning)
+                        link_id, current_strength = existing
+                        new_strength = min(1.0, current_strength + config.hebbian_rate)
+                        await c.execute("""
+                            UPDATE attention_links
+                            SET strength = ?
+                            WHERE id = ?
+                        """, (new_strength, link_id))
+                    else:
+                        # Create new link
+                        await c.execute("""
+                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, tenant_id)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
+                              datetime.now().isoformat(), self.tenant_id))
+                        links_created += 1
+
+            await conn.commit()
+
+        return links_created
+
+    async def _adetect_compound_concepts(self, concepts: List[str]) -> int:
+        """Async version of _detect_compound_concepts"""
+        if len(concepts) < 2:
+            return 0
+
+        async with aiosqlite.connect(self.db_path) as conn:
+            c = await conn.cursor()
+
+            compounds_updated = 0
+
+            # Sort concepts for consistent compound naming
+            sorted_concepts = sorted(concepts)
+            compound_name = " + ".join(sorted_concepts[:3])  # Limit to 3 components
+            component_str = json.dumps(sorted_concepts)
+
+            # Check if this compound exists
+            await c.execute("""
+                SELECT id, co_occurrence_count FROM compound_concepts
+                WHERE compound_name = ? AND tenant_id = ?
+            """, (compound_name, self.tenant_id))
+
+            existing = await c.fetchone()
+
+            if existing:
+                # Increment count
+                compound_id, count = existing
+                await c.execute("""
+                    UPDATE compound_concepts
+                    SET co_occurrence_count = ?, last_seen = ?
+                    WHERE id = ?
+                """, (count + 1, datetime.now().isoformat(), compound_id))
+            else:
+                # Create new compound
+                await c.execute("""
+                    INSERT INTO compound_concepts (compound_name, component_concepts, co_occurrence_count, last_seen, tenant_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (compound_name, component_str, 1, datetime.now().isoformat(), self.tenant_id))
+                compounds_updated = 1
+
+            await conn.commit()
+
+        return compounds_updated
+
+    async def _asave_message(self, role: str, content: str, metadata: Optional[Dict] = None):
+        """Async version of _save_message"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            c = await conn.cursor()
+
+            # Get message number for this instance
+            await c.execute("""
+                SELECT COALESCE(MAX(message_number), 0) + 1
+                FROM auto_messages
+                WHERE instance_id = ?
+            """, (self.instance_id,))
+            row = await c.fetchone()
+            message_number = row[0]
+
+            # Save message
+            meta_json = json.dumps(metadata) if metadata else '{}'
+            await c.execute("""
+                INSERT INTO auto_messages (instance_id, timestamp, message_number, role, content, metadata, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (self.instance_id, datetime.now().timestamp(), message_number, role, content, meta_json, self.tenant_id))
+
+            await conn.commit()
 
 
 # =============================================================================

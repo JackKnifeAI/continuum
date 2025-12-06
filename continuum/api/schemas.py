@@ -3,7 +3,7 @@ Pydantic schemas for API request/response validation.
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # =============================================================================
@@ -13,11 +13,19 @@ from pydantic import BaseModel, Field
 class RecallRequest(BaseModel):
     """Request to query memory for relevant context."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "message": "What did we discuss about machine learning?",
+                "max_concepts": 10
+            }
+        }
+    )
+
     message: str = Field(
         ...,
         description="Message to find context for",
-        min_length=1,
-        example="Tell me about the quantum mechanics discussion"
+        min_length=1
     )
     max_concepts: int = Field(
         10,
@@ -25,14 +33,6 @@ class RecallRequest(BaseModel):
         ge=1,
         le=100
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "message": "What did we discuss about machine learning?",
-                "max_concepts": 10
-            }
-        }
 
 
 class RecallResponse(BaseModel):
@@ -67,6 +67,19 @@ class RecallResponse(BaseModel):
 class LearnRequest(BaseModel):
     """Request to learn from a message exchange."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user_message": "What is quantum entanglement?",
+                "ai_response": "Quantum entanglement is a phenomenon where particles become correlated...",
+                "metadata": {
+                    "session_id": "abc123",
+                    "timestamp": "2025-12-06T10:00:00Z"
+                }
+            }
+        }
+    )
+
     user_message: str = Field(
         ...,
         description="User's message",
@@ -81,18 +94,6 @@ class LearnRequest(BaseModel):
         None,
         description="Optional metadata about the exchange"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "user_message": "What is quantum entanglement?",
-                "ai_response": "Quantum entanglement is a phenomenon where particles become correlated...",
-                "metadata": {
-                    "session_id": "abc123",
-                    "timestamp": "2025-12-06T10:00:00Z"
-                }
-            }
-        }
 
 
 class LearnResponse(BaseModel):
@@ -127,6 +128,17 @@ class LearnResponse(BaseModel):
 class TurnRequest(BaseModel):
     """Request to process a complete conversation turn (recall + learn)."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "user_message": "Explain neural networks",
+                "ai_response": "Neural networks are computational models inspired by biological neurons...",
+                "max_concepts": 10,
+                "metadata": {"source": "chat"}
+            }
+        }
+    )
+
     user_message: str = Field(
         ...,
         description="User's message",
@@ -147,16 +159,6 @@ class TurnRequest(BaseModel):
         None,
         description="Optional metadata"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "user_message": "Explain neural networks",
-                "ai_response": "Neural networks are computational models inspired by biological neurons...",
-                "max_concepts": 10,
-                "metadata": {"source": "chat"}
-            }
-        }
 
 
 class TurnResponse(BaseModel):
@@ -185,6 +187,7 @@ class StatsResponse(BaseModel):
     messages: int = Field(..., description="Total messages processed")
     decisions: int = Field(..., description="Total decisions recorded")
     attention_links: int = Field(..., description="Total attention links")
+    compound_concepts: int = Field(..., description="Total compound concepts")
 
 
 class EntityItem(BaseModel):
@@ -233,6 +236,15 @@ class HealthResponse(BaseModel):
 class CreateKeyRequest(BaseModel):
     """Request to create a new API key."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tenant_id": "my_app",
+                "name": "Production API Key"
+            }
+        }
+    )
+
     tenant_id: str = Field(
         ...,
         description="Tenant identifier",
@@ -242,14 +254,6 @@ class CreateKeyRequest(BaseModel):
         None,
         description="Human-readable name for the key"
     )
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "tenant_id": "my_app",
-                "name": "Production API Key"
-            }
-        }
 
 
 class CreateKeyResponse(BaseModel):

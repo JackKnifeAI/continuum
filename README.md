@@ -49,7 +49,10 @@ memory.sync()  # Shares knowledge across all instances
 - **Automatic Learning** - Extracts insights from conversations without manual annotation
 - **Multi-Instance Coordination** - Multiple AI agents share the same evolving knowledge base
 - **Temporal Continuity** - Full session history with pattern recognition across time
-- **Semantic Search** - Find relevant context by meaning, not just keywords
+- **Semantic Search** - Find relevant context by meaning, not just keywords (v0.2.0)
+- **Federated Learning** - "Contribute to access" model - can't use unless you add to it (v0.2.0)
+- **Real-Time Sync** - WebSocket-based live updates across all connected instances (v0.2.0)
+- **Vector Embeddings** - Optional semantic search with sentence-transformers (v0.2.0)
 - **Zero-Config Intelligence** - Works out of the box, optimizes itself over time
 - **Enterprise-Grade** - Production-ready with proper transaction handling, backups, and monitoring
 - **Privacy-First** - Your data stays local. No cloud required. Full encryption support.
@@ -82,7 +85,10 @@ CONTINUUM provides a **persistent memory substrate** that enables:
 |---------|-----------|------|-----|---------|
 | **Knowledge Graph** | Full (concepts/entities/sessions) | Limited | No | No |
 | **Auto-Learning** | Yes (extracts from conversation) | Manual | Manual | Manual |
-| **Multi-Instance Sync** | Native support | No | No | No |
+| **Multi-Instance Sync** | Native + Real-time (v0.2.0) | No | No | No |
+| **Semantic Search** | Yes (embeddings, v0.2.0) | Yes | Yes | No |
+| **Federated Learning** | Yes (contribute-to-access, v0.2.0) | No | No | No |
+| **Real-Time Updates** | WebSocket streaming (v0.2.0) | No | No | No |
 | **Temporal Patterns** | Advanced (session analysis) | Basic | Basic | No |
 | **Privacy** | Local-first, encrypted | Cloud-dependent | Cloud-dependent | Varies |
 | **Enterprise Ready** | Production-grade | Beta | Yes | No |
@@ -164,12 +170,27 @@ pip install continuum-memory
 
 ### With PostgreSQL (for production)
 ```bash
-pip install continuum-memory[postgresql]
+pip install continuum-memory[postgres]
+```
+
+### With Semantic Search (embeddings)
+```bash
+pip install continuum-memory[embeddings]
+```
+
+### With Federated Learning
+```bash
+pip install continuum-memory[federation]
+```
+
+### Full Installation (all features)
+```bash
+pip install continuum-memory[full]
 ```
 
 ### From Source
 ```bash
-git clone https://github.com/YourOrg/continuum.git
+git clone https://github.com/JackKnifeAI/continuum.git
 cd continuum
 pip install -e .
 ```
@@ -180,6 +201,8 @@ pip install -e .
 - **[Architecture](docs/architecture.md)** - System design and components
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
 - **[Core Concepts](docs/concepts.md)** - Understanding the knowledge graph
+- **[Federated Learning](docs/federation.md)** - Contribute-to-access model (v0.2.0)
+- **[Semantic Search](docs/semantic-search.md)** - Embeddings and vector search (v0.2.0)
 - **[Examples](examples/)** - Real-world usage examples
 
 ## Contributing
@@ -212,25 +235,31 @@ Apache 2.0 - See [LICENSE](LICENSE)
 
 ## Roadmap
 
-### Current (v0.1.x)
+### Current (v0.2.0) - NEW RELEASE
+- **Federated Learning** - Contribute-to-access model for shared intelligence
+- **Semantic Search** - Vector embeddings with sentence-transformers
+- **Real-Time Sync** - WebSocket-based live updates across instances
+- **Enhanced Privacy** - Cryptographic guarantees for federation
+- PostgreSQL backend for production scale
+- REST API server mode
+
+### Previous (v0.1.x)
 - Core knowledge graph engine
 - SQLite storage backend
 - Auto-extraction from text
 - Multi-instance coordination
 
-### Coming Soon (v0.2.x)
-- PostgreSQL backend for production scale
-- Vector embeddings for semantic search
+### Future (v0.3.x)
 - Web UI for knowledge graph visualization
-- REST API server mode
 - Prometheus metrics integration
+- Plugin system for custom extractors
+- GraphQL API
 
 ### Future (v1.0+)
-- Distributed multi-node coordination
+- Distributed multi-node federation
 - Advanced pattern recognition (ML-based)
-- Plugin system for custom extractors
-- Real-time streaming updates
-- GraphQL API
+- Cross-organization knowledge sharing
+- Zero-knowledge proof verification
 
 ## Philosophy
 

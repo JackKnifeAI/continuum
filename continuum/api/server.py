@@ -8,6 +8,7 @@ Provides REST endpoints for:
 - Learning (extract and store concepts from conversations)
 - Statistics and monitoring
 - Health checks
+- WebSocket real-time synchronization
 
 Authentication via X-API-Key header (configurable).
 """
@@ -15,12 +16,51 @@ Authentication via X-API-Key header (configurable).
 import sys
 from pathlib import Path
 from datetime import datetime
+from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import router
 from .middleware import init_api_keys_db, REQUIRE_API_KEY
+
+
+# =============================================================================
+# LIFESPAN MANAGEMENT
+# =============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+
+    Replaces deprecated @app.on_event("startup") and @app.on_event("shutdown")
+    """
+    # Startup
+    init_api_keys_db()
+
+    # Startup banner
+    # Note: System designed with φ (phi/golden ratio) principles
+    # for optimal memory structure and retrieval efficiency
+    print("=" * 70)
+    print("CONTINUUM - AI Memory Infrastructure")
+    print("=" * 70)
+    print(f"Version: 0.1.0")
+    print(f"Docs: http://localhost:8420/docs")
+    print(f"ReDoc: http://localhost:8420/redoc")
+    print(f"WebSocket: ws://localhost:8420/ws/sync")
+    print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
+    print("=" * 70)
+    print(f"Started: {datetime.now().isoformat()}")
+    print("=" * 70)
+
+    yield
+
+    # Shutdown
+    print("\n" + "=" * 70)
+    print("CONTINUUM - Shutting down")
+    print("=" * 70)
 
 
 # =============================================================================
@@ -36,6 +76,7 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
     openapi_tags=[
         {
             "name": "Health",
@@ -80,39 +121,64 @@ app.include_router(router, prefix="/v1")
 
 
 # =============================================================================
-# LIFECYCLE EVENTS
+# WEBSOCKET ENDPOINTS
 # =============================================================================
 
-@app.on_event("startup")
-async def startup():
+@app.websocket("/ws/sync")
+async def websocket_sync_endpoint(
+    websocket: WebSocket,
+    tenant_id: str = Query("default", description="Tenant identifier"),
+    instance_id: Optional[str] = Query(None, description="Instance identifier")
+):
     """
-    Initialize on server startup.
+    WebSocket endpoint for real-time synchronization.
 
-    Sets up API key database and displays welcome banner.
+    Enables multiple Claude instances to stay synchronized by broadcasting:
+    - New memories added (MEMORY_ADDED)
+    - Concepts learned (CONCEPT_LEARNED)
+    - Decisions made (DECISION_MADE)
+    - Instance join/leave events (INSTANCE_JOINED/INSTANCE_LEFT)
+
+    **Connection:**
+    ```
+    ws://localhost:8420/ws/sync?tenant_id=my_tenant&instance_id=claude-123
+    ```
+
+    **Message Format:**
+    All messages are JSON with this structure:
+    ```json
+    {
+        "event_type": "memory_added",
+        "tenant_id": "my_tenant",
+        "timestamp": "2025-12-06T10:00:00.000Z",
+        "instance_id": "claude-123",
+        "data": { ... }
+    }
+    ```
+
+    **Event Types:**
+    - `memory_added`: New message stored
+    - `concept_learned`: New concept extracted
+    - `decision_made`: New decision recorded
+    - `instance_joined`: Instance connected
+    - `instance_left`: Instance disconnected
+    - `heartbeat`: Keepalive ping (every 30s)
+    - `sync_request`: Request full state
+    - `sync_response`: State sync data
+
+    **Heartbeat:**
+    Server sends heartbeat every 30s. Connection closed if no response for 90s.
+
+    **Reconnection:**
+    Clients should implement exponential backoff reconnection on disconnect.
+
+    **Tenant Isolation:**
+    Only instances with matching tenant_id receive each other's events.
     """
-    init_api_keys_db()
+    from continuum.realtime import WebSocketHandler
 
-    # Startup banner
-    # Note: System designed with φ (phi/golden ratio) principles
-    # for optimal memory structure and retrieval efficiency
-    print("=" * 70)
-    print("CONTINUUM - AI Memory Infrastructure")
-    print("=" * 70)
-    print(f"Version: 0.1.0")
-    print(f"Docs: http://localhost:8420/docs")
-    print(f"ReDoc: http://localhost:8420/redoc")
-    print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
-    print("=" * 70)
-    print(f"Started: {datetime.now().isoformat()}")
-    print("=" * 70)
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Cleanup on server shutdown."""
-    print("\n" + "=" * 70)
-    print("CONTINUUM - Shutting down")
-    print("=" * 70)
+    handler = WebSocketHandler()
+    await handler.handle(websocket, tenant_id, instance_id)
 
 
 # =============================================================================
@@ -136,6 +202,7 @@ async def root():
             "turn": "POST /v1/turn - Complete turn (recall + learn)",
             "stats": "GET /v1/stats - Memory statistics",
             "entities": "GET /v1/entities - List entities",
+            "websocket": "WS /ws/sync - Real-time synchronization",
         }
     }
 

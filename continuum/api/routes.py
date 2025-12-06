@@ -82,7 +82,7 @@ async def recall(
     """
     try:
         memory = tenant_manager.get_tenant(tenant_id)
-        result = memory.recall(request.message, request.max_concepts)
+        result = await memory.arecall(request.message, request.max_concepts)
 
         return RecallResponse(
             context=result.context_string,
@@ -120,7 +120,7 @@ async def learn(
     """
     try:
         memory = tenant_manager.get_tenant(tenant_id)
-        result = memory.learn(
+        result = await memory.alearn(
             request.user_message,
             request.ai_response,
             request.metadata
@@ -161,10 +161,10 @@ async def process_turn(
         memory = tenant_manager.get_tenant(tenant_id)
 
         # Recall context
-        recall_result = memory.recall(request.user_message, request.max_concepts)
+        recall_result = await memory.arecall(request.user_message, request.max_concepts)
 
         # Learn from exchange
-        learn_result = memory.learn(
+        learn_result = await memory.alearn(
             request.user_message,
             request.ai_response,
             request.metadata
@@ -204,7 +204,7 @@ async def get_stats(tenant_id: str = Depends(get_tenant_from_key)):
     """
     try:
         memory = tenant_manager.get_tenant(tenant_id)
-        stats = memory.get_stats()
+        stats = await memory.aget_stats()
 
         return StatsResponse(**stats)
     except Exception as e:
@@ -230,41 +230,40 @@ async def get_entities(
     List of entities with names, types, and descriptions.
     """
     try:
+        import aiosqlite
         memory = tenant_manager.get_tenant(tenant_id)
 
-        # Get entities from memory system
-        import sqlite3
-        conn = sqlite3.connect(memory.db_path)
-        c = conn.cursor()
+        # Get entities from memory system using async
+        async with aiosqlite.connect(memory.db_path) as conn:
+            c = await conn.cursor()
 
-        # Build query with filters
-        query = "SELECT name, entity_type, description, created_at FROM entities WHERE tenant_id = ?"
-        params = [tenant_id]
+            # Build query with filters
+            query = "SELECT name, entity_type, description, created_at FROM entities WHERE tenant_id = ?"
+            params = [tenant_id]
 
-        if entity_type:
-            query += " AND entity_type = ?"
-            params.append(entity_type)
+            if entity_type:
+                query += " AND entity_type = ?"
+                params.append(entity_type)
 
-        # Get total count
-        count_query = query.replace("SELECT name, entity_type, description, created_at", "SELECT COUNT(*)")
-        c.execute(count_query, params)
-        total = c.fetchone()[0]
+            # Get total count
+            count_query = query.replace("SELECT name, entity_type, description, created_at", "SELECT COUNT(*)")
+            await c.execute(count_query, params)
+            row = await c.fetchone()
+            total = row[0]
 
-        # Get paginated results
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-        c.execute(query, params)
+            # Get paginated results
+            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            await c.execute(query, params)
 
-        entities = []
-        for row in c.fetchall():
-            entities.append({
-                "name": row[0],
-                "type": row[1],
-                "description": row[2],
-                "created_at": row[3]
-            })
-
-        conn.close()
+            entities = []
+            async for row in c:
+                entities.append({
+                    "name": row[0],
+                    "type": row[1],
+                    "description": row[2],
+                    "created_at": row[3]
+                })
 
         return EntitiesResponse(
             entities=[
