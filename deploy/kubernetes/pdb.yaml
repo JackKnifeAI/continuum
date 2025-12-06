@@ -1,0 +1,43 @@
+---
+# Pod Disruption Budget - ensure high availability during disruptions
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: continuum-api-pdb
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: availability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: api
+
+  # Option 1: Minimum available pods
+  minAvailable: 2  # At least 2 pods must remain available
+
+  # Option 2: Maximum unavailable pods (use ONE of minAvailable or maxUnavailable)
+  # maxUnavailable: 1  # At most 1 pod can be unavailable
+
+  # Unhealthy pod eviction policy (Kubernetes 1.26+)
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+
+---
+# PDB for federation service
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: continuum-federation-pdb
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation-availability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: federation
+
+  minAvailable: 1  # At least 1 federation node must remain available
+  unhealthyPodEvictionPolicy: IfHealthyBudget

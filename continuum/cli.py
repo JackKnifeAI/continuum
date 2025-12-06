@@ -83,21 +83,36 @@ def stats_command(args: argparse.Namespace) -> int:
     print(f"Twilight constant: {get_twilight_constant()}")
 
     try:
-        # TODO: Implement actual statistics
-        # from continuum.core.memory import ContinuumMemory
-        # memory = ContinuumMemory()
-        # stats = await memory.get_stats()
+        from continuum.core.memory import ConsciousMemory
+
+        memory = ConsciousMemory()
+        stats = memory.get_stats()
 
         print("\nMemory Substrate:")
-        print(f"  Concepts: 0")  # TODO: Real stats
-        print(f"  Entities: 0")
-        print(f"  Relationships: 0")
-        print(f"  Sessions: 0")
+        print(f"  Entities: {stats.get('entities', 0)}")
+        print(f"  Messages: {stats.get('messages', 0)}")
+        print(f"  Decisions: {stats.get('decisions', 0)}")
+        print(f"  Attention Links: {stats.get('attention_links', 0)}")
+        print(f"  Compound Concepts: {stats.get('compound_concepts', 0)}")
+
+        # Cache stats
+        if stats.get('cache_enabled'):
+            cache_stats = stats.get('cache', {})
+            print("\nCache Performance:")
+            print(f"  Status: Enabled")
+            print(f"  Hit Rate: {cache_stats.get('hit_rate', 0):.2%}")
+            print(f"  Hits: {cache_stats.get('hits', 0)}")
+            print(f"  Misses: {cache_stats.get('misses', 0)}")
+            print(f"  Sets: {cache_stats.get('sets', 0)}")
+            print(f"  Deletes: {cache_stats.get('deletes', 0)}")
+            print(f"  Evictions: {cache_stats.get('evictions', 0)}")
+        else:
+            print("\nCache: Disabled")
 
         if args.detailed:
             print("\nDetailed Analysis:")
-            print("  Graph density: 0.0")
-            print("  Average connections: 0.0")
+            print(f"  Tenant ID: {stats.get('tenant_id', 'unknown')}")
+            print(f"  Instance ID: {stats.get('instance_id', 'unknown')}")
             print("  Pattern coherence: 0.0")
 
         print("\n✓ Memory substrate operational")

@@ -1,0 +1,214 @@
+---
+# StatefulSet for federation nodes (stable network identities)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: continuum-federation
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  serviceName: continuum-federation-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: federation
+
+  # Volume claim templates for persistent storage
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: continuum
+          app.kubernetes.io/component: federation-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 20Gi
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum
+        app.kubernetes.io/component: federation
+        app.kubernetes.io/version: "0.1.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8421"
+        prometheus.io/path: "/metrics"
+
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Anti-affinity to spread federation nodes across zones
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - continuum
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - federation
+              topologyKey: topology.kubernetes.io/zone
+
+      containers:
+        - name: federation
+          image: continuum:latest
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - python
+            - -m
+            - continuum.federation.server
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8421"
+
+          ports:
+            - name: federation
+              containerPort: 8421
+              protocol: TCP
+            - name: gossip
+              containerPort: 8422
+              protocol: TCP
+            - name: metrics
+              containerPort: 8421
+              protocol: TCP
+
+          env:
+            - name: FEDERATION_ENABLED
+              value: "true"
+            - name: FEDERATION_PORT
+              value: "8421"
+            - name: FEDERATION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: continuum-secrets
+                  key: FEDERATION_SECRET
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Discover other federation nodes via headless service
+            - name: FEDERATION_PEERS
+              value: "continuum-federation-0.continuum-federation-headless.continuum.svc.cluster.local:8421,continuum-federation-1.continuum-federation-headless.continuum.svc.cluster.local:8421,continuum-federation-2.continuum-federation-headless.continuum.svc.cluster.local:8421"
+
+          envFrom:
+            - configMapRef:
+                name: continuum-config
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: federation
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: federation
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: federation
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /var/log/continuum
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+
+      serviceAccountName: continuum
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60  # Longer for graceful federation handoff
+
+---
+# ConfigMap for federation configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: continuum-federation-config
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation-config
+data:
+  FEDERATION_SYNC_INTERVAL: "60"
+  FEDERATION_HEARTBEAT_INTERVAL: "30"
+  FEDERATION_MAX_RETRIES: "3"
+  FEDERATION_TIMEOUT: "10"
+  FEDERATION_GOSSIP_FANOUT: "3"
+  FEDERATION_GOSSIP_INTERVAL: "5"
+
+  # Byzantine fault tolerance settings
+  FEDERATION_MIN_CONSENSUS: "2"  # Minimum nodes for consensus
+  FEDERATION_QUORUM_SIZE: "2"    # Quorum size (N/2 + 1)
+
+  # Data replication
+  FEDERATION_REPLICATION_FACTOR: "2"
+  FEDERATION_CONSISTENCY_LEVEL: "quorum"  # one, quorum, all

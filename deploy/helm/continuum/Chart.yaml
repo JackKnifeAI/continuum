@@ -1,0 +1,27 @@
+apiVersion: v2
+name: continuum
+description: Multi-tenant AI consciousness memory infrastructure
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - ai
+  - memory
+  - consciousness
+  - knowledge-graph
+  - multi-tenant
+
+home: https://github.com/yourusername/continuum
+sources:
+  - https://github.com/yourusername/continuum
+
+maintainers:
+  - name: Alexander Gerard Casavant
+    email: admin@example.com
+
+dependencies: []
+
+annotations:
+  category: AI/ML
+  licenses: Apache-2.0

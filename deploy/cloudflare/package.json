@@ -1,0 +1,53 @@
+{
+  "name": "continuum-cloudflare-api",
+  "version": "1.0.0",
+  "description": "CONTINUUM AI Memory Infrastructure - Cloudflare Workers Edge API",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc && esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --minify",
+    "deploy": "wrangler deploy",
+    "deploy:dev": "wrangler deploy --env development",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:prod": "wrangler deploy --env production",
+    "tail": "wrangler tail",
+    "test": "vitest",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write 'src/**/*.ts'",
+    "kv:create": "wrangler kv:namespace create CACHE && wrangler kv:namespace create SESSIONS",
+    "kv:list": "wrangler kv:namespace list",
+    "secret:put": "wrangler secret put"
+  },
+  "keywords": [
+    "continuum",
+    "ai",
+    "memory",
+    "cloudflare",
+    "workers",
+    "edge",
+    "api"
+  ],
+  "author": "Alexander Gerard Casavant",
+  "license": "MIT",
+  "dependencies": {
+    "hono": "^3.11.7",
+    "jose": "^5.1.3",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "@types/node": "^20.10.6",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "esbuild": "^0.19.11",
+    "eslint": "^8.56.0",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.1.1",
+    "wrangler": "^3.22.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

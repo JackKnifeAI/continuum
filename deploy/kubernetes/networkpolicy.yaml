@@ -1,0 +1,246 @@
+---
+# NetworkPolicy - Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security
+spec:
+  podSelector: {}  # Apply to all pods in namespace
+  policyTypes:
+    - Ingress
+
+---
+# NetworkPolicy - Allow API ingress from ingress controller
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-api-ingress
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: api
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8420
+
+    # Allow traffic from other API pods (for internal load balancing)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 8420
+
+    # Allow traffic from federation nodes
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+              app.kubernetes.io/component: federation
+      ports:
+        - protocol: TCP
+          port: 8420
+
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8420
+
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow PostgreSQL (if external)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Allow federation nodes
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+              app.kubernetes.io/component: federation
+      ports:
+        - protocol: TCP
+          port: 8421
+        - protocol: TCP
+          port: 8422
+
+    # Allow external API calls (embeddings, etc.)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+---
+# NetworkPolicy - Federation node communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: continuum-federation-policy
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security-federation
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: federation
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow from API pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 8421
+
+    # Allow from other federation nodes
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+              app.kubernetes.io/component: federation
+      ports:
+        - protocol: TCP
+          port: 8421
+        - protocol: TCP
+          port: 8422
+
+    # Allow from external (cross-cluster federation)
+    - from: []  # Allow all
+      ports:
+        - protocol: TCP
+          port: 8421
+
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8421
+
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow to other federation nodes
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+              app.kubernetes.io/component: federation
+      ports:
+        - protocol: TCP
+          port: 8421
+        - protocol: TCP
+          port: 8422
+
+    # Allow to database
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Allow external federation (cross-cluster)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8421
+
+---
+# NetworkPolicy - Database access
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgresql-policy
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security-db
+spec:
+  podSelector:
+    matchLabels:
+      app: postgresql
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    # Only allow from CONTINUUM API and federation pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: continuum
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -1,0 +1,239 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  pr-validation:
+    name: Validate PR
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check PR title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            didn't match the configured pattern. Please ensure that the subject
+            doesn't start with an uppercase character.
+
+      - name: Check PR size
+        run: |
+          FILES_CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | wc -l)
+          LINES_CHANGED=$(git diff --stat origin/${{ github.base_ref }}...HEAD | tail -1 | awk '{print $4+$6}')
+
+          echo "Files changed: ${FILES_CHANGED}"
+          echo "Lines changed: ${LINES_CHANGED}"
+
+          if [[ ${FILES_CHANGED} -gt 50 ]]; then
+            echo "⚠️  Warning: Large PR with ${FILES_CHANGED} files changed"
+            echo "::warning::Consider breaking this PR into smaller ones"
+          fi
+
+          if [[ ${LINES_CHANGED} -gt 1000 ]]; then
+            echo "⚠️  Warning: Large PR with ${LINES_CHANGED} lines changed"
+            echo "::warning::Consider breaking this PR into smaller ones"
+          fi
+
+      - name: Check for breaking changes
+        run: |
+          if git diff origin/${{ github.base_ref }}...HEAD | grep -E "^-.*def |^-.*class "; then
+            echo "⚠️  Warning: Potential breaking changes detected"
+            echo "::warning::This PR may contain breaking changes. Please update CHANGELOG.md"
+          fi
+
+  label-pr:
+    name: Auto-label PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Label based on files changed
+        uses: actions/labeler@v5
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/labeler.yml
+
+  check-changelog:
+    name: Check CHANGELOG
+    runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if CHANGELOG was updated
+        run: |
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "CHANGELOG.md"; then
+            echo "✅ CHANGELOG.md was updated"
+          else
+            echo "⚠️  CHANGELOG.md was not updated"
+            echo "::warning::Consider updating CHANGELOG.md with your changes"
+          fi
+
+  conventional-commits:
+    name: Check Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        run: |
+          COMMITS=$(git log --format=%s origin/${{ github.base_ref }}..HEAD)
+          INVALID_COMMITS=""
+
+          while IFS= read -r commit; do
+            if ! echo "$commit" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
+              INVALID_COMMITS="${INVALID_COMMITS}\n  - ${commit}"
+            fi
+          done <<< "$COMMITS"
+
+          if [[ -n "$INVALID_COMMITS" ]]; then
+            echo "⚠️  Non-conventional commits found:"
+            echo -e "$INVALID_COMMITS"
+            echo "::warning::Some commits don't follow conventional commit format"
+          else
+            echo "✅ All commits follow conventional commit format"
+          fi
+
+  code-coverage:
+    name: Code Coverage Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --cov=continuum --cov-report=xml --cov-report=term
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(root.attrib['line-rate'])")
+          COVERAGE_PERCENT=$(python -c "print(int(float($COVERAGE) * 100))")
+
+          echo "Code coverage: ${COVERAGE_PERCENT}%"
+
+          if [[ ${COVERAGE_PERCENT} -lt 70 ]]; then
+            echo "❌ Coverage is below 70% threshold"
+            echo "::error::Code coverage (${COVERAGE_PERCENT}%) is below required threshold (70%)"
+            exit 1
+          else
+            echo "✅ Coverage meets threshold: ${COVERAGE_PERCENT}%"
+          fi
+
+      - name: Comment coverage on PR
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 80
+          MINIMUM_ORANGE: 70
+
+  performance-check:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Run benchmarks
+        run: |
+          if [[ -d "benchmarks" ]]; then
+            python -m pytest benchmarks/ -v --benchmark-only
+          else
+            echo "No benchmarks directory found, skipping..."
+          fi
+        continue-on-error: true
+
+  pr-comment:
+    name: PR Summary Comment
+    runs-on: ubuntu-latest
+    needs: [pr-validation, check-changelog, code-coverage]
+    if: always()
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Create PR comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prValidation = '${{ needs.pr-validation.result }}';
+            const changelog = '${{ needs.check-changelog.result }}';
+            const coverage = '${{ needs.code-coverage.result }}';
+
+            let body = '## 🤖 PR Checks Summary\n\n';
+
+            body += `| Check | Status |\n`;
+            body += `|-------|--------|\n`;
+            body += `| PR Validation | ${prValidation === 'success' ? '✅' : '❌'} |\n`;
+            body += `| Changelog | ${changelog === 'success' ? '✅' : '⚠️'} |\n`;
+            body += `| Code Coverage | ${coverage === 'success' ? '✅' : '❌'} |\n`;
+
+            body += '\n---\n';
+            body += '*The pattern persists* • π×φ = 5.083203692315260\n';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

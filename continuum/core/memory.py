@@ -33,10 +33,13 @@ Multi-tenant architecture:
 
 import sqlite3
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 from dataclasses import dataclass, asdict
+
+logger = logging.getLogger(__name__)
 
 from .query_engine import MemoryQueryEngine, QueryResult
 from .config import get_config
@@ -47,6 +50,15 @@ try:
     ASYNC_AVAILABLE = True
 except ImportError:
     ASYNC_AVAILABLE = False
+
+# Import cache layer
+try:
+    from ..cache import MemoryCache, RedisCacheConfig
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("Cache module not available. Install redis to enable caching.")
 
 
 @dataclass
@@ -98,13 +110,14 @@ class ConsciousMemory:
     allowing AI to build on accumulated knowledge across sessions.
     """
 
-    def __init__(self, tenant_id: str = None, db_path: Path = None):
+    def __init__(self, tenant_id: str = None, db_path: Path = None, enable_cache: bool = None):
         """
         Initialize conscious memory for a tenant.
 
         Args:
             tenant_id: Unique identifier for this tenant/user (uses config default if not specified)
             db_path: Optional custom database path (uses config default if not specified)
+            enable_cache: Optional override for cache enablement (uses config default if not specified)
         """
         config = get_config()
         self.tenant_id = tenant_id or config.tenant_id
@@ -113,6 +126,29 @@ class ConsciousMemory:
 
         # Initialize query engine
         self.query_engine = MemoryQueryEngine(self.db_path, self.tenant_id)
+
+        # Initialize cache if enabled and available
+        self.cache_enabled = enable_cache if enable_cache is not None else config.cache_enabled
+        self.cache = None
+
+        if self.cache_enabled and CACHE_AVAILABLE:
+            try:
+                cache_config = RedisCacheConfig(
+                    host=config.cache_host,
+                    port=config.cache_port,
+                    password=config.cache_password,
+                    ssl=config.cache_ssl,
+                    max_connections=config.cache_max_connections,
+                    default_ttl=config.cache_ttl,
+                )
+                self.cache = MemoryCache(self.tenant_id, cache_config)
+                logger.info(f"Cache enabled for tenant {self.tenant_id}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize cache: {e}. Cache disabled.")
+                self.cache_enabled = False
+        elif self.cache_enabled and not CACHE_AVAILABLE:
+            logger.warning("Cache requested but not available. Install redis package.")
+            self.cache_enabled = False
 
         # Ensure database and schema exist
         self._ensure_schema()
@@ -214,15 +250,36 @@ class ConsciousMemory:
         Returns:
             MemoryContext with injectable context string
         """
+        # Try cache first if enabled
+        if self.cache_enabled and self.cache:
+            cached_result = self.cache.get_search(message, max_concepts)
+            if cached_result:
+                logger.debug(f"Cache hit for recall query")
+                # Reconstruct MemoryContext from cached data
+                return MemoryContext(
+                    context_string=cached_result.get('context_string', ''),
+                    concepts_found=cached_result.get('concepts_found', 0),
+                    relationships_found=cached_result.get('relationships_found', 0),
+                    query_time_ms=cached_result.get('query_time_ms', 0),
+                    tenant_id=self.tenant_id
+                )
+
+        # Cache miss - query database
         result = self.query_engine.query(message, max_results=max_concepts)
 
-        return MemoryContext(
+        context = MemoryContext(
             context_string=result.context_string,
             concepts_found=len(result.matches),
             relationships_found=len(result.attention_links),
             query_time_ms=result.query_time_ms,
             tenant_id=self.tenant_id
         )
+
+        # Cache the result
+        if self.cache_enabled and self.cache:
+            self.cache.set_search(message, asdict(context), max_concepts, ttl=300)
+
+        return context
 
     def learn(self, user_message: str, ai_response: str,
               metadata: Optional[Dict] = None) -> LearningResult:
@@ -257,6 +314,14 @@ class ConsciousMemory:
         # Save the raw messages
         self._save_message('user', user_message, metadata)
         self._save_message('assistant', ai_response, metadata)
+
+        # Invalidate caches since new data was added
+        if self.cache_enabled and self.cache:
+            self.cache.invalidate_search()  # Search results are stale
+            self.cache.invalidate_stats()   # Stats are stale
+            # Invalidate graph links for new concepts
+            for concept in all_concepts:
+                self.cache.invalidate_graph(concept)
 
         return LearningResult(
             concepts_extracted=len(all_concepts),
@@ -542,8 +607,15 @@ class ConsciousMemory:
         Get memory statistics for this tenant.
 
         Returns:
-            Dictionary containing entity counts, message counts, etc.
+            Dictionary containing entity counts, message counts, cache stats, etc.
         """
+        # Try cache first
+        if self.cache_enabled and self.cache:
+            cached_stats = self.cache.get_stats_cache()
+            if cached_stats:
+                logger.debug("Cache hit for stats")
+                return cached_stats
+
         conn = sqlite3.connect(self.db_path)
         try:
             c = conn.cursor()
@@ -572,6 +644,18 @@ class ConsciousMemory:
             # Count compound concepts
             c.execute("SELECT COUNT(*) FROM compound_concepts WHERE tenant_id = ?", (self.tenant_id,))
             stats['compound_concepts'] = c.fetchone()[0]
+
+            # Add cache stats if enabled
+            if self.cache_enabled and self.cache:
+                cache_stats = self.cache.get_stats()
+                stats['cache'] = cache_stats.to_dict()
+                stats['cache_enabled'] = True
+            else:
+                stats['cache_enabled'] = False
+
+            # Cache the stats
+            if self.cache_enabled and self.cache:
+                self.cache.set_stats_cache(stats, ttl=60)
 
             return stats
         finally:

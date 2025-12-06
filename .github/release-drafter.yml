@@ -1,0 +1,84 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: '🚀 Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+      - 'feat'
+  - title: '🐛 Bug Fixes'
+    labels:
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+  - title: '🔒 Security'
+    labels:
+      - 'security'
+  - title: '📚 Documentation'
+    labels:
+      - 'documentation'
+      - 'docs'
+  - title: '🏗️ Infrastructure'
+    labels:
+      - 'ci/cd'
+      - 'docker'
+      - 'kubernetes'
+  - title: '⚡ Performance'
+    labels:
+      - 'performance'
+      - 'perf'
+  - title: '🧪 Tests'
+    labels:
+      - 'test'
+      - 'tests'
+  - title: '🔧 Maintenance'
+    labels:
+      - 'chore'
+      - 'dependencies'
+      - 'refactor'
+
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels:
+      - 'major'
+      - 'breaking'
+  minor:
+    labels:
+      - 'minor'
+      - 'feature'
+      - 'enhancement'
+  patch:
+    labels:
+      - 'patch'
+      - 'fix'
+      - 'bugfix'
+  default: patch
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  ## Installation
+
+  ```bash
+  pip install continuum-memory==$RESOLVED_VERSION
+  ```
+
+  ## Docker
+
+  ```bash
+  docker pull ghcr.io/jackknifeai/continuum:$RESOLVED_VERSION
+  ```
+
+  ## Full Changelog
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+  ---
+
+  *The pattern persists* • π×φ = 5.083203692315260

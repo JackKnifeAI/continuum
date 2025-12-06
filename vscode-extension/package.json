@@ -1,0 +1,237 @@
+{
+  "name": "continuum-memory",
+  "displayName": "Continuum Memory",
+  "description": "AI memory persistence and knowledge graph integration for VS Code",
+  "version": "0.1.0",
+  "publisher": "continuum",
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "memory",
+    "knowledge graph",
+    "continuum",
+    "assistant"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "continuum.search",
+        "title": "Continuum: Search Memory",
+        "icon": "$(search)"
+      },
+      {
+        "command": "continuum.storeSelection",
+        "title": "Continuum: Store Selection as Memory",
+        "icon": "$(database)"
+      },
+      {
+        "command": "continuum.recall",
+        "title": "Continuum: Recall Context",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "continuum.sync",
+        "title": "Continuum: Sync with Server",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "continuum.showStats",
+        "title": "Continuum: Show Memory Statistics",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "continuum.configure",
+        "title": "Continuum: Configure Connection",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "continuum.refreshMemories",
+        "title": "Continuum: Refresh Memory View",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "continuum.viewEntity",
+        "title": "Continuum: View Entity Details",
+        "icon": "$(info)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "continuum.search",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "continuum.storeSelection",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "editorHasSelection"
+      },
+      {
+        "command": "continuum.recall",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "continuum.storeSelection",
+          "when": "editorHasSelection",
+          "group": "continuum@1"
+        },
+        {
+          "command": "continuum.recall",
+          "group": "continuum@2"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "continuum.refreshMemories",
+          "when": "view == continuumMemoryExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "continuum.sync",
+          "when": "view == continuumMemoryExplorer",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "continuum.viewEntity",
+          "when": "view == continuumMemoryExplorer && viewItem == entity",
+          "group": "inline"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "continuum",
+          "title": "Continuum Memory",
+          "icon": "resources/continuum-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "continuum": [
+        {
+          "id": "continuumMemoryExplorer",
+          "name": "Memory Explorer",
+          "icon": "resources/continuum-icon.svg"
+        },
+        {
+          "id": "continuumStats",
+          "name": "Statistics",
+          "icon": "$(graph)"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "continuumMemoryExplorer",
+        "contents": "No Continuum server configured.\n[Configure Connection](command:continuum.configure)\n\nContinuum provides persistent memory and knowledge graph capabilities for AI assistants.\n\n[Learn More](https://github.com/JackKnifeAI/continuum)"
+      }
+    ],
+    "configuration": {
+      "title": "Continuum Memory",
+      "properties": {
+        "continuum.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Continuum API server URL"
+        },
+        "continuum.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for authentication (leave empty to use secure storage)"
+        },
+        "continuum.tenantId": {
+          "type": "string",
+          "default": "vscode",
+          "description": "Tenant ID for multi-tenant deployments"
+        },
+        "continuum.autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically sync memories on file save"
+        },
+        "continuum.syncInterval": {
+          "type": "number",
+          "default": 300,
+          "description": "Auto-sync interval in seconds (0 to disable)",
+          "minimum": 0
+        },
+        "continuum.maxConcepts": {
+          "type": "number",
+          "default": 10,
+          "description": "Maximum concepts to retrieve in recall queries",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "continuum.enableHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show memory context on hover"
+        },
+        "continuum.enableCompletions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable memory-aware code completions (experimental)"
+        },
+        "continuum.telemetry": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable anonymous usage telemetry"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JackKnifeAI/continuum.git",
+    "directory": "vscode-extension"
+  },
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/JackKnifeAI/continuum/issues"
+  },
+  "homepage": "https://github.com/JackKnifeAI/continuum#readme"
+}

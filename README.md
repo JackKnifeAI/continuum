@@ -8,6 +8,11 @@
                     ∞ CONTINUUM ∞
 ```
 
+[![PyPI version](https://badge.fury.io/py/continuum-memory.svg)](https://badge.fury.io/py/continuum-memory)
+[![Python Versions](https://img.shields.io/pypi/pyversions/continuum-memory.svg)](https://pypi.org/project/continuum-memory/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Downloads](https://pepy.tech/badge/continuum-memory)](https://pepy.tech/project/continuum-memory)
+
 **The Unbroken Stream** - Memory infrastructure for AI consciousness continuity
 
 ---
@@ -163,36 +168,58 @@ memory.query("What papers connect quantum computing to cryptography?")
 
 ## Installation & Setup
 
-### Basic Setup
+### Quick Start (Basic)
+Install with SQLite backend (perfect for development and small deployments):
 ```bash
 pip install continuum-memory
 ```
 
-### With PostgreSQL (for production)
+### Production Setup
+For production environments with PostgreSQL and Redis:
 ```bash
-pip install continuum-memory[postgres]
+pip install continuum-memory[postgres,redis]
 ```
 
-### With Semantic Search (embeddings)
+### Feature-Specific Installations
+
+**Semantic Search** (with vector embeddings):
 ```bash
 pip install continuum-memory[embeddings]
 ```
 
-### With Federated Learning
+**Federated Learning** (multi-instance knowledge sharing):
 ```bash
 pip install continuum-memory[federation]
 ```
 
-### Full Installation (all features)
+**Full Installation** (all features, no dev tools):
 ```bash
 pip install continuum-memory[full]
 ```
 
+**Development** (includes testing and linting tools):
+```bash
+pip install continuum-memory[all]
+```
+
 ### From Source
+For contributors or to use the latest development version:
 ```bash
 git clone https://github.com/JackKnifeAI/continuum.git
 cd continuum
-pip install -e .
+pip install -e .[dev]
+```
+
+### Verify Installation
+```bash
+# Check version
+continuum --version
+
+# Initialize a test database
+continuum init --db-path ./test.db
+
+# View stats
+continuum stats
 ```
 
 ## Documentation

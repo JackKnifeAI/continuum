@@ -2,12 +2,11 @@
 
 ## Supported Versions
 
-We take security seriously and actively maintain the following versions:
+Currently supporting security updates for:
 
 | Version | Supported          |
 | ------- | ------------------ |
 | 0.1.x   | :white_check_mark: |
-| < 0.1   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -15,27 +14,99 @@ We take security seriously and actively maintain the following versions:
 
 ### How to Report
 
-1. **Email**: Send details to security@continuum-project.org (or maintainer email)
-2. **Subject**: "SECURITY: Brief description"
-3. **Include**:
+1. **Email**: Send details to the project maintainer (contact info in README)
+2. **Include**:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
    - Suggested fix (if any)
-   - Your contact information
 
 ### What to Expect
 
 - **Acknowledgment**: Within 48 hours
-- **Initial assessment**: Within 5 business days
-- **Regular updates**: Every 7 days until resolved
-- **Fix timeline**: Critical issues within 30 days, others within 90 days
+- **Initial Assessment**: Within 5 business days
+- **Updates**: Weekly until resolved
+- **Fix Timeline**: Critical issues within 7 days, others within 30 days
 
 ### Disclosure Policy
 
-- We follow **coordinated disclosure**
-- Security advisories published after fix is released
-- Credit given to reporters (unless you prefer anonymity)
+- We request 90 days before public disclosure
+- We'll credit you in the security advisory (unless you prefer anonymity)
+- We may offer recognition in CONTRIBUTORS.md
+
+## Security Best Practices
+
+### For Users
+
+1. **Keep Updated**: Always use the latest version
+2. **Secure Configuration**:
+   - Set strong `CONTINUUM_SECRET_KEY`
+   - Restrict `CONTINUUM_CORS_ORIGINS`
+   - Enable `CONTINUUM_REQUIRE_API_KEY=true`
+3. **Environment Secrets**:
+   - Never commit `.env` files
+   - Use secrets management in production
+   - Rotate API keys quarterly
+4. **Network Security**:
+   - Deploy behind HTTPS
+   - Use firewall rules
+   - Implement rate limiting
+
+### For Developers
+
+1. **Code Review**: All security-sensitive changes require review
+2. **Testing**: Run security tests before merging
+3. **Dependencies**: Keep dependencies updated
+4. **Static Analysis**: Run `bandit` and `safety` checks
+
+## Security Features
+
+### Implemented
+
+- ✅ Parameterized SQL queries (SQL injection protection)
+- ✅ PBKDF2 API key hashing (100k iterations)
+- ✅ Multi-tenant data isolation
+- ✅ Input validation (Pydantic schemas)
+- ✅ CORS configuration
+- ✅ Rate limiting (stub - Redis recommended)
+- ✅ Message signing (federation)
+- ✅ TLS/HTTPS support
+
+### Roadmap
+
+- ⏳ Admin role-based access control (Q1 2026)
+- ⏳ WebSocket authentication (Q1 2026)
+- ⏳ Database encryption at rest (Q2 2026)
+- ⏳ Audit logging (Q2 2026)
+- ⏳ Intrusion detection (Q3 2026)
+
+## Security Audit
+
+Last comprehensive audit: **2025-12-06**
+
+Full audit report: [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md)
+
+### Key Findings
+
+- **Critical**: 2 (fixed)
+- **High**: 4 (2 fixed, 2 planned)
+- **Medium**: 4 (documented)
+- **Low**: 2 (informational)
+
+## Responsible Disclosure
+
+We appreciate security researchers who responsibly disclose vulnerabilities. We commit to:
+
+1. Prompt acknowledgment
+2. Transparent communication
+3. Timely fixes
+4. Public credit (with permission)
+
+## Security Contacts
+
+- **Primary**: Project maintainer (see README)
+- **Response Time**: 48 hours
+- **PGP Key**: Available on request
 
 ## Security Considerations
 

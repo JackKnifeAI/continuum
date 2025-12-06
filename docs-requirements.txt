@@ -1,0 +1,17 @@
+# CONTINUUM Documentation Dependencies
+# Install with: pip install -r docs-requirements.txt
+
+# Core documentation framework
+mkdocs>=1.5.0
+mkdocs-material>=9.5.0
+
+# Plugins
+mkdocs-git-revision-date-localized-plugin>=1.2.0
+
+# Markdown extensions (included with mkdocs-material)
+pymdown-extensions>=10.7.0
+
+# Optional enhancements
+# mkdocs-pdf-export-plugin>=0.5.10  # PDF export
+# mkdocs-awesome-pages-plugin>=2.9.0  # Better navigation
+# mkdocs-minify-plugin>=0.7.0  # Minification

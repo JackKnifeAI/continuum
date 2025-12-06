@@ -1,0 +1,73 @@
+# Kustomization for base CONTINUUM deployment
+# This is the base configuration - use overlays for environment-specific configs
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace for all resources
+namespace: continuum
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: continuum
+  app.kubernetes.io/part-of: ai-memory-infrastructure
+  app.kubernetes.io/managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  description: "Multi-tenant AI consciousness memory infrastructure"
+
+# Resources to include
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - podsecuritypolicy.yaml
+  - federation/federation-deployment.yaml
+  - federation/federation-service.yaml
+  - monitoring/prometheus-servicemonitor.yaml
+
+# ConfigMap generator (alternative to configmap.yaml)
+# configMapGenerator:
+#   - name: continuum-config
+#     literals:
+#       - LOG_LEVEL=info
+#       - CONTINUUM_TENANT=default
+
+# Secret generator (alternative to secrets.yaml)
+# secretGenerator:
+#   - name: continuum-secrets
+#     literals:
+#       - DATABASE_URL=postgresql://user:pass@host:5432/db
+
+# Images to use (can be overridden in overlays)
+images:
+  - name: continuum
+    newName: continuum
+    newTag: latest
+
+# Patches (JSON/YAML patches to apply)
+# patches:
+#   - path: patch-resources.yaml
+#     target:
+#       kind: Deployment
+#       name: continuum-api
+
+# Replacements (for field substitutions)
+# replacements:
+#   - source:
+#       kind: ConfigMap
+#       name: continuum-config
+#       fieldPath: data.API_PORT
+#     targets:
+#       - select:
+#           kind: Service
+#           name: continuum-api
+#         fieldPaths:
+#           - spec.ports.[name=http].port

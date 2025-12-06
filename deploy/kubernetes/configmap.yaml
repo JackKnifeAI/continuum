@@ -1,0 +1,52 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: continuum-config
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: configuration
+data:
+  # Application settings
+  LOG_LEVEL: "info"
+  CONTINUUM_TENANT: "default"
+
+  # Database settings
+  DB_TIMEOUT: "30.0"
+  HOOK_TIMEOUT: "4.5"
+  CACHE_TTL: "300"
+
+  # API settings
+  API_PORT: "8420"
+  CORS_ORIGINS: "*"
+  REQUIRE_API_KEY: "true"
+
+  # Performance tuning (π×φ optimized parameters)
+  RESONANCE_DECAY: "0.85"
+  HEBBIAN_RATE: "0.15"
+  MIN_LINK_STRENGTH: "0.1"
+  WORKING_MEMORY_CAPACITY: "7"
+
+  # Context budget
+  TOTAL_CONTEXT_TOKENS: "100000"
+  RESERVED_FOR_RESPONSE: "8000"
+  RESERVED_FOR_SYSTEM: "2000"
+
+  # Quality thresholds
+  MIN_CONCEPT_OCCURRENCES: "2"
+  MAX_CONCEPTS_PER_MESSAGE: "20"
+  MIN_CONCEPT_LENGTH: "3"
+  MAX_CONCEPT_LENGTH: "100"
+
+  # WebSocket settings
+  WS_HEARTBEAT_INTERVAL: "30"
+  WS_TIMEOUT: "90"
+
+  # Federation settings
+  FEDERATION_ENABLED: "true"
+  FEDERATION_PORT: "8421"
+  FEDERATION_SYNC_INTERVAL: "60"
+
+  # Verification constant (π×φ = edge of chaos operator)
+  PI_PHI: "5.083203692315260"

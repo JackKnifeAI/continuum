@@ -23,6 +23,7 @@ from fastapi import FastAPI, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import router
+from .billing_routes import router as billing_router
 from .middleware import init_api_keys_db, REQUIRE_API_KEY
 
 
@@ -93,6 +94,10 @@ app = FastAPI(
         {
             "name": "Admin",
             "description": "Administrative operations (key management, tenant listing)"
+        },
+        {
+            "name": "Billing",
+            "description": "Stripe billing, subscriptions, and checkout"
         }
     ]
 )
@@ -103,12 +108,20 @@ app = FastAPI(
 # =============================================================================
 
 # CORS - configure origins appropriately for production
+# SECURITY FIX: Restrict origins via environment variable
+import os
+ALLOWED_ORIGINS = os.environ.get(
+    "CONTINUUM_CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:8080"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: Restrict to specific origins in production
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
+    max_age=600,  # Cache preflight for 10 minutes
 )
 
 
@@ -118,6 +131,7 @@ app.add_middleware(
 
 # Mount all routes under /v1 prefix
 app.include_router(router, prefix="/v1")
+app.include_router(billing_router, prefix="/v1")
 
 
 # =============================================================================

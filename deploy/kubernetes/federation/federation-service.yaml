@@ -1,0 +1,77 @@
+---
+# Headless service for StatefulSet (stable network identities)
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuum-federation-headless
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation-headless
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless
+  publishNotReadyAddresses: true  # Allow pod discovery even when not ready
+  selector:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation
+  ports:
+    - name: federation
+      port: 8421
+      targetPort: federation
+      protocol: TCP
+    - name: gossip
+      port: 8422
+      targetPort: gossip
+      protocol: TCP
+
+---
+# ClusterIP service for load balancing
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuum-federation
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation
+  ports:
+    - name: federation
+      port: 8421
+      targetPort: federation
+      protocol: TCP
+    - name: gossip
+      port: 8422
+      targetPort: gossip
+      protocol: TCP
+  sessionAffinity: None
+
+---
+# External LoadBalancer for federation (cross-cluster communication)
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuum-federation-external
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation-external
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: federation
+  ports:
+    - name: federation
+      port: 8421
+      targetPort: federation
+      protocol: TCP
+  externalTrafficPolicy: Local

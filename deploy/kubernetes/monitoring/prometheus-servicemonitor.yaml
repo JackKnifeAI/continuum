@@ -1,0 +1,236 @@
+---
+# ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: continuum-api
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: monitoring
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: api
+
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: http
+
+      # Relabeling
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+
+      # Metric relabeling
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: 'continuum_.*'
+          action: keep
+
+  namespaceSelector:
+    matchNames:
+      - continuum
+
+---
+# ServiceMonitor for federation nodes
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: continuum-federation
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: monitoring-federation
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: federation
+
+  endpoints:
+    - port: federation
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+
+  namespaceSelector:
+    matchNames:
+      - continuum
+
+---
+# PrometheusRule for alerting
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: continuum-alerts
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: alerting
+    prometheus: kube-prometheus
+spec:
+  groups:
+    - name: continuum.api
+      interval: 30s
+      rules:
+        # High error rate
+        - alert: ContinuumHighErrorRate
+          expr: |
+            (
+              sum(rate(continuum_http_requests_total{status=~"5.."}[5m]))
+              /
+              sum(rate(continuum_http_requests_total[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            component: api
+          annotations:
+            summary: "High error rate in CONTINUUM API"
+            description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+        # API down
+        - alert: ContinuumAPIDown
+          expr: up{job="continuum-api"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: api
+          annotations:
+            summary: "CONTINUUM API is down"
+            description: "API instance {{ $labels.instance }} has been down for more than 5 minutes"
+
+        # High latency
+        - alert: ContinuumHighLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(continuum_http_request_duration_seconds_bucket[5m])) by (le)
+            ) > 1.0
+          for: 10m
+          labels:
+            severity: warning
+            component: api
+          annotations:
+            summary: "High latency in CONTINUUM API"
+            description: "P99 latency is {{ $value }}s (threshold: 1s)"
+
+        # Memory usage high
+        - alert: ContinuumHighMemoryUsage
+          expr: |
+            (
+              container_memory_working_set_bytes{pod=~"continuum-api-.*"}
+              /
+              container_spec_memory_limit_bytes{pod=~"continuum-api-.*"}
+            ) > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            component: api
+          annotations:
+            summary: "High memory usage in CONTINUUM API"
+            description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+
+        # CPU usage high
+        - alert: ContinuumHighCPUUsage
+          expr: |
+            (
+              rate(container_cpu_usage_seconds_total{pod=~"continuum-api-.*"}[5m])
+              /
+              container_spec_cpu_quota{pod=~"continuum-api-.*"}
+            ) > 0.9
+          for: 10m
+          labels:
+            severity: warning
+            component: api
+          annotations:
+            summary: "High CPU usage in CONTINUUM API"
+            description: "CPU usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+
+        # Too many pods restarting
+        - alert: ContinuumPodRestartingTooOften
+          expr: |
+            rate(kube_pod_container_status_restarts_total{namespace="continuum"}[15m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            component: api
+          annotations:
+            summary: "CONTINUUM pod restarting frequently"
+            description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in last 15 minutes"
+
+    - name: continuum.federation
+      interval: 30s
+      rules:
+        # Federation node down
+        - alert: ContinuumFederationNodeDown
+          expr: up{job="continuum-federation"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            component: federation
+          annotations:
+            summary: "CONTINUUM federation node is down"
+            description: "Federation node {{ $labels.instance }} has been down for more than 5 minutes"
+
+        # Federation sync lag
+        - alert: ContinuumFederationSyncLag
+          expr: continuum_federation_sync_lag_seconds > 300
+          for: 10m
+          labels:
+            severity: warning
+            component: federation
+          annotations:
+            summary: "Federation sync lag detected"
+            description: "Sync lag is {{ $value }}s (threshold: 300s)"
+
+        # Consensus failure
+        - alert: ContinuumFederationConsensusFailure
+          expr: continuum_federation_consensus_failures_total > 0
+          for: 5m
+          labels:
+            severity: critical
+            component: federation
+          annotations:
+            summary: "Federation consensus failure"
+            description: "{{ $value }} consensus failures in last 5 minutes"
+
+    - name: continuum.memory
+      interval: 60s
+      rules:
+        # Knowledge graph growing too fast
+        - alert: ContinuumKnowledgeGraphGrowthAnomaly
+          expr: |
+            (
+              rate(continuum_concepts_total[1h])
+              /
+              rate(continuum_concepts_total[1h] offset 24h)
+            ) > 3
+          for: 30m
+          labels:
+            severity: info
+            component: memory
+          annotations:
+            summary: "Unusual knowledge graph growth rate"
+            description: "Growth rate is {{ $value }}x higher than yesterday"
+
+        # Database size warning
+        - alert: ContinuumDatabaseSizeWarning
+          expr: continuum_database_size_bytes > 50e9  # 50GB
+          for: 1h
+          labels:
+            severity: warning
+            component: storage
+          annotations:
+            summary: "Database size exceeding threshold"
+            description: "Database size is {{ $value | humanize1024 }} (threshold: 50GB)"

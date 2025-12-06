@@ -229,6 +229,14 @@ async def get_entities(
     **Returns:**
     List of entities with names, types, and descriptions.
     """
+    # SECURITY: Validate entity_type to prevent SQL injection
+    VALID_ENTITY_TYPES = {'concept', 'decision', 'session', 'person', 'project', 'tool', 'topic'}
+    if entity_type and entity_type not in VALID_ENTITY_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid entity_type. Must be one of: {', '.join(sorted(VALID_ENTITY_TYPES))}"
+        )
+
     try:
         import aiosqlite
         memory = tenant_manager.get_tenant(tenant_id)
@@ -287,14 +295,22 @@ async def get_entities(
 # =============================================================================
 
 @router.get("/tenants", tags=["Admin"])
-async def list_tenants():
+async def list_tenants(tenant_id: str = Depends(get_tenant_from_key)):
     """
     List all registered tenants.
 
-    **Admin endpoint** - in production, should require admin authentication.
+    **Admin endpoint** - Requires authentication.
+    SECURITY: Currently returns all tenants, consider implementing role-based access.
+    TODO: Add admin role check before allowing tenant enumeration.
+
     Returns list of tenant IDs currently in the system.
     """
-    return {"tenants": tenant_manager.list_tenants()}
+    # TODO: Check if tenant_id has admin privileges
+    # For now, at least require authentication
+    return {
+        "tenants": tenant_manager.list_tenants(),
+        "warning": "Admin role-based access control not yet implemented"
+    }
 
 
 @router.post("/keys", response_model=CreateKeyResponse, tags=["Admin"])

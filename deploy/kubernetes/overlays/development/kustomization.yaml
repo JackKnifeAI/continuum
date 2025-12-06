@@ -1,0 +1,39 @@
+# Development environment overlay
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference the base configuration
+bases:
+  - ../../
+
+# Namespace override
+namespace: continuum-dev
+
+# Labels for development environment
+commonLabels:
+  environment: development
+
+# Patches for development
+patchesStrategicMerge:
+  - deployment-patch.yaml
+  - ingress-patch.yaml
+
+# ConfigMap overrides
+configMapGenerator:
+  - name: continuum-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=debug
+      - REQUIRE_API_KEY=false
+      - CORS_ORIGINS=*
+
+# Image overrides
+images:
+  - name: continuum
+    newName: continuum
+    newTag: dev
+
+# Replicas override
+replicas:
+  - name: continuum-api
+    count: 1

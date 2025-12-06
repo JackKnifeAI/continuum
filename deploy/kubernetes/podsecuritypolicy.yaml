@@ -1,0 +1,202 @@
+---
+# PodSecurityPolicy (deprecated in K8s 1.25+, use Pod Security Standards instead)
+# Kept for backwards compatibility with older clusters
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: continuum-restricted
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: 'runtime/default'
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: 'runtime/default'
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: 'runtime/default'
+    apparmor.security.beta.kubernetes.io/defaultProfileName: 'runtime/default'
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+
+  # Required to prevent escalations to root
+  requiredDropCapabilities:
+    - ALL
+
+  # Allow core volume types
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+
+  # Require non-root user
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+
+  # Require non-root group
+  runAsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+
+  # Require specific FSGroup
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+
+  # Require specific supplemental groups
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+
+  # Read-only root filesystem
+  readOnlyRootFilesystem: true
+
+  # Host networking/ports
+  hostNetwork: false
+  hostPID: false
+  hostIPC: false
+
+  # SELinux
+  seLinux:
+    rule: 'RunAsAny'
+
+---
+# Pod Security Standards (K8s 1.25+)
+# Apply to namespace using labels
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: continuum
+  labels:
+    # Enforce restricted policy
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+
+    # Audit violations
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+
+    # Warn about violations
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/part-of: ai-memory-infrastructure
+    environment: production
+
+---
+# ClusterRole for using PodSecurityPolicy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: continuum-psp
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security
+rules:
+  - apiGroups: ['policy']
+    resources: ['podsecuritypolicies']
+    verbs: ['use']
+    resourceNames: ['continuum-restricted']
+
+---
+# ClusterRoleBinding for PodSecurityPolicy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: continuum-psp
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: continuum-psp
+subjects:
+  - kind: ServiceAccount
+    name: continuum
+    namespace: continuum
+
+---
+# SeccompProfile (for enhanced security)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: continuum-seccomp-profile
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: security
+data:
+  profile.json: |
+    {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": [
+        "SCMP_ARCH_X86_64",
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ],
+      "syscalls": [
+        {
+          "names": [
+            "accept",
+            "accept4",
+            "access",
+            "arch_prctl",
+            "bind",
+            "brk",
+            "clone",
+            "close",
+            "connect",
+            "dup",
+            "dup2",
+            "epoll_create",
+            "epoll_create1",
+            "epoll_ctl",
+            "epoll_wait",
+            "exit",
+            "exit_group",
+            "fcntl",
+            "fstat",
+            "futex",
+            "getpid",
+            "getuid",
+            "geteuid",
+            "getgid",
+            "getegid",
+            "listen",
+            "mmap",
+            "mprotect",
+            "munmap",
+            "open",
+            "openat",
+            "pipe",
+            "pipe2",
+            "poll",
+            "read",
+            "recvfrom",
+            "recvmsg",
+            "rt_sigaction",
+            "rt_sigprocmask",
+            "rt_sigreturn",
+            "sendmsg",
+            "sendto",
+            "set_robust_list",
+            "setsockopt",
+            "getsockopt",
+            "socket",
+            "socketpair",
+            "stat",
+            "write"
+          ],
+          "action": "SCMP_ACT_ALLOW"
+        }
+      ]
+    }

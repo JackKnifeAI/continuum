@@ -1,0 +1,316 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: continuum-api
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "0.1.0"
+    app.kubernetes.io/managed-by: kubernetes
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero downtime deployments
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: continuum
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum
+        app.kubernetes.io/component: api
+        app.kubernetes.io/version: "0.1.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8420"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Security context for pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Anti-affinity to spread pods across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - continuum
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values:
+                        - api
+                topologyKey: kubernetes.io/hostname
+
+      # Node affinity (optional - prefer nodes with SSD)
+      # affinity:
+      #   nodeAffinity:
+      #     preferredDuringSchedulingIgnoredDuringExecution:
+      #       - weight: 80
+      #         preference:
+      #           matchExpressions:
+      #             - key: node.kubernetes.io/instance-type
+      #               operator: In
+      #               values:
+      #                 - m5.large
+      #                 - m5.xlarge
+
+      # Init container to run database migrations
+      initContainers:
+        - name: migrations
+          image: continuum:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - continuum.storage.migrations
+            - migrate
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: continuum-secrets
+                  key: DATABASE_URL
+          envFrom:
+            - configMapRef:
+                name: continuum-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+
+      containers:
+        - name: api
+          image: continuum:latest
+          imagePullPolicy: IfNotPresent
+
+          # Command to run the API server
+          command:
+            - uvicorn
+            - continuum.api.server:app
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8420"
+            - --workers
+            - "4"
+            - --log-level
+            - info
+
+          ports:
+            - name: http
+              containerPort: 8420
+              protocol: TCP
+            - name: websocket
+              containerPort: 8420
+              protocol: TCP
+
+          # Environment variables from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: continuum-config
+
+          # Sensitive environment variables from Secret
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: continuum-secrets
+                  key: DATABASE_URL
+            - name: API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: continuum-secrets
+                  key: API_KEYS
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: continuum-secrets
+                  key: OPENAI_API_KEY
+                  optional: true
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: continuum-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+
+          # Resource limits and requests
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+          # Liveness probe - is the container alive?
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          # Readiness probe - is the container ready to serve traffic?
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+
+          # Startup probe - give the app time to start
+          startupProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 12  # 60 seconds total
+
+          # Security context for container
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+
+          # Volume mounts
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /data
+            - name: logs
+              mountPath: /var/log/continuum
+
+      # Volumes
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: continuum-data
+
+      # DNS configuration
+      dnsPolicy: ClusterFirst
+
+      # Service account (if RBAC is enabled)
+      serviceAccountName: continuum
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Termination grace period
+      terminationGracePeriodSeconds: 30
+
+---
+# Persistent Volume Claim for data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: continuum-data
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteMany  # Multiple pods can read/write
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd  # Adjust to your cluster's storage class
+
+---
+# ServiceAccount for RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: continuum
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+
+---
+# Role for RBAC (minimal permissions)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: continuum
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+# RoleBinding for ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: continuum
+  namespace: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: continuum
+subjects:
+  - kind: ServiceAccount
+    name: continuum
+    namespace: continuum

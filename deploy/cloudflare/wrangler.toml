@@ -1,0 +1,77 @@
+name = "continuum-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# KV Namespaces for caching
+[[kv_namespaces]]
+binding = "CACHE"
+id = "YOUR_KV_NAMESPACE_ID"
+preview_id = "YOUR_PREVIEW_KV_NAMESPACE_ID"
+
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "YOUR_SESSION_KV_NAMESPACE_ID"
+preview_id = "YOUR_PREVIEW_SESSION_KV_NAMESPACE_ID"
+
+# Durable Objects for WebSocket connections
+[[durable_objects.bindings]]
+name = "SYNC_SESSIONS"
+class_name = "SyncSession"
+script_name = "continuum-api"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+API_VERSION = "v1"
+LOG_LEVEL = "info"
+
+# Secrets (set via: wrangler secret put SECRET_NAME)
+# JWT_SECRET
+# DATABASE_URL (if using external DB)
+# SUPABASE_URL
+# SUPABASE_ANON_KEY
+
+# Build configuration
+[build]
+command = "npm run build"
+
+[build.upload]
+format = "modules"
+main = "./dist/index.js"
+
+# Rate limiting configuration
+[limits]
+cpu_ms = 50
+
+# Routes configuration (customize for your domain)
+# [[routes]]
+# pattern = "api.continuum.ai/*"
+# zone_name = "continuum.ai"
+
+# Development configuration
+[env.development]
+name = "continuum-api-dev"
+workers_dev = true
+
+[env.development.vars]
+ENVIRONMENT = "development"
+LOG_LEVEL = "debug"
+
+# Staging configuration
+[env.staging]
+name = "continuum-api-staging"
+workers_dev = true
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+LOG_LEVEL = "info"
+
+# Production configuration
+[env.production]
+name = "continuum-api-prod"
+workers_dev = false
+
+[env.production.vars]
+ENVIRONMENT = "production"
+LOG_LEVEL = "warn"

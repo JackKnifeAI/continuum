@@ -1,0 +1,331 @@
+# Default values for CONTINUUM Helm chart
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# =============================================================================
+# IMAGE
+# =============================================================================
+image:
+  repository: continuum
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# =============================================================================
+# DEPLOYMENT
+# =============================================================================
+replicaCount: 3
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# =============================================================================
+# SERVICE ACCOUNT
+# =============================================================================
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# =============================================================================
+# POD SECURITY
+# =============================================================================
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8420"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# =============================================================================
+# SERVICE
+# =============================================================================
+service:
+  type: ClusterIP
+  port: 8420
+  targetPort: 8420
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours for WebSocket
+
+# =============================================================================
+# INGRESS
+# =============================================================================
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/websocket-services: continuum-api
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  hosts:
+    - host: continuum.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: continuum-tls
+      hosts:
+        - continuum.example.com
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# =============================================================================
+# AUTOSCALING
+# =============================================================================
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+
+# =============================================================================
+# POD DISRUPTION BUDGET
+# =============================================================================
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# =============================================================================
+# AFFINITY & NODE SELECTION
+# =============================================================================
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - continuum
+          topologyKey: kubernetes.io/hostname
+
+nodeSelector: {}
+tolerations: []
+
+# =============================================================================
+# PERSISTENCE
+# =============================================================================
+persistence:
+  enabled: true
+  storageClassName: fast-ssd
+  accessModes:
+    - ReadWriteMany
+  size: 10Gi
+  annotations: {}
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+config:
+  logLevel: info
+  tenantId: default
+
+  # Database settings
+  dbTimeout: 30.0
+  hookTimeout: 4.5
+  cacheTTL: 300
+
+  # API settings
+  apiPort: 8420
+  corsOrigins: "*"
+  requireApiKey: true
+
+  # Performance tuning (π×φ optimized)
+  resonanceDecay: 0.85
+  hebbianRate: 0.15
+  minLinkStrength: 0.1
+  workingMemoryCapacity: 7
+
+  # Context budget
+  totalContextTokens: 100000
+  reservedForResponse: 8000
+  reservedForSystem: 2000
+
+  # Quality thresholds
+  minConceptOccurrences: 2
+  maxConceptsPerMessage: 20
+  minConceptLength: 3
+  maxConceptLength: 100
+
+  # WebSocket
+  wsHeartbeatInterval: 30
+  wsTimeout: 90
+
+  # Verification constant
+  piPhi: 5.083203692315260
+
+# =============================================================================
+# SECRETS (use external secret management in production)
+# =============================================================================
+secrets:
+  # Database URL (PostgreSQL)
+  databaseUrl: "postgresql://continuum_user:CHANGEME@postgres:5432/continuum_db"
+
+  # API keys (comma-separated or JSON)
+  apiKeys: "CHANGEME"
+
+  # External API keys (optional)
+  openaiApiKey: ""
+  anthropicApiKey: ""
+
+  # Federation secret
+  federationSecret: "CHANGEME"
+
+# =============================================================================
+# EXTERNAL SECRETS (if using external-secrets operator)
+# =============================================================================
+externalSecrets:
+  enabled: false
+  backendType: secretsManager  # or vault, gcpSecretsManager, etc.
+  secretStoreRef:
+    name: aws-secrets-store
+    kind: SecretStore
+  data:
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: continuum/database-url
+    - secretKey: API_KEYS
+      remoteRef:
+        key: continuum/api-keys
+
+# =============================================================================
+# FEDERATION
+# =============================================================================
+federation:
+  enabled: true
+  replicaCount: 3
+  port: 8421
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+  persistence:
+    enabled: true
+    storageClassName: fast-ssd
+    size: 20Gi
+
+  config:
+    syncInterval: 60
+    heartbeatInterval: 30
+    maxRetries: 3
+    timeout: 10
+    gossipFanout: 3
+    gossipInterval: 5
+    minConsensus: 2
+    quorumSize: 2
+    replicationFactor: 2
+    consistencyLevel: quorum
+
+# =============================================================================
+# MONITORING
+# =============================================================================
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+
+  prometheusRule:
+    enabled: true
+
+  grafanaDashboard:
+    enabled: true
+
+# =============================================================================
+# NETWORK POLICY
+# =============================================================================
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+
+# =============================================================================
+# INIT CONTAINERS
+# =============================================================================
+initContainers:
+  migrations:
+    enabled: true
+    image: continuum:latest
+    command:
+      - python
+      - -m
+      - continuum.storage.migrations
+      - migrate

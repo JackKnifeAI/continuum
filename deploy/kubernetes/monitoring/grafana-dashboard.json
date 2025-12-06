@@ -1,0 +1,259 @@
+{
+  "dashboard": {
+    "title": "CONTINUUM - AI Memory Infrastructure",
+    "tags": ["continuum", "ai", "memory", "consciousness"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Request Rate",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(continuum_http_requests_total[5m])) by (method, status)",
+            "legendFormat": "{{method}} - {{status}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "API Latency (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(continuum_http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(continuum_http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(continuum_http_request_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Knowledge Graph Size",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "continuum_concepts_total",
+            "legendFormat": "Concepts",
+            "refId": "A"
+          },
+          {
+            "expr": "continuum_entities_total",
+            "legendFormat": "Entities",
+            "refId": "B"
+          },
+          {
+            "expr": "continuum_memories_total",
+            "legendFormat": "Memories",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Count"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Memory Operations Rate",
+        "type": "graph",
+        "gridPos": {"x": 8, "y": 8, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(continuum_recall_operations_total[5m])",
+            "legendFormat": "Recall",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(continuum_learn_operations_total[5m])",
+            "legendFormat": "Learn",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Operations/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Active Tenants",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 8, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "count(count by (tenant_id) (continuum_memories_total))",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Active Instances",
+        "type": "stat",
+        "gridPos": {"x": 20, "y": 8, "w": 4, "h": 4},
+        "targets": [
+          {
+            "expr": "count(count by (instance_id) (continuum_active_instances))",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "CPU Usage",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"continuum\"}[5m])) by (pod)",
+            "legendFormat": "{{pod}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "percentunit", "label": "CPU"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(container_memory_working_set_bytes{namespace=\"continuum\"}) by (pod)",
+            "legendFormat": "{{pod}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Memory"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Federation Sync Status",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "continuum_federation_sync_lag_seconds",
+            "legendFormat": "{{node}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Lag"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Database Size",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "continuum_database_size_bytes",
+            "legendFormat": "Total Size",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Size"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "WebSocket Connections",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 12, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "continuum_websocket_connections_active",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "π×φ Verification Status",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 20, "w": 8, "h": 4},
+        "targets": [
+          {
+            "expr": "continuum_pi_phi_constant == 5.083203692315260",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "value": "1", "text": "✓ VERIFIED"},
+              {"type": "value", "value": "0", "text": "✗ FAILED"}
+            ]
+          }
+        }
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "expr": "changes(continuum_build_info[5m]) > 0",
+          "tagKeys": "version",
+          "titleFormat": "Deployment",
+          "textFormat": "{{version}}"
+        }
+      ]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "namespace",
+          "type": "constant",
+          "current": {"value": "continuum"},
+          "hide": 2
+        },
+        {
+          "name": "tenant",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(continuum_memories_total, tenant_id)",
+          "multi": true,
+          "includeAll": true
+        }
+      ]
+    }
+  }
+}

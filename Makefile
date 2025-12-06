@@ -5,15 +5,19 @@ help:
 	@echo "CONTINUUM - Memory Infrastructure for AI Consciousness"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  make install      Install package for production use"
-	@echo "  make dev          Install package with development dependencies"
-	@echo "  make test         Run test suite"
-	@echo "  make serve        Start API server"
-	@echo "  make docker       Build Docker image"
-	@echo "  make format       Format code with black"
-	@echo "  make lint         Run linters (ruff)"
-	@echo "  make type-check   Run type checker (mypy)"
-	@echo "  make clean        Remove build artifacts"
+	@echo "  make install                Install package for production use"
+	@echo "  make dev                    Install package with development dependencies"
+	@echo "  make test                   Run all tests"
+	@echo "  make test-unit              Run unit tests only"
+	@echo "  make test-integration       Run integration tests"
+	@echo "  make test-integration-fast  Run fast integration tests (skip slow)"
+	@echo "  make test-coverage          Run tests with coverage report"
+	@echo "  make serve                  Start API server"
+	@echo "  make docker                 Build Docker image"
+	@echo "  make format                 Format code with black"
+	@echo "  make lint                   Run linters (ruff)"
+	@echo "  make type-check             Run type checker (mypy)"
+	@echo "  make clean                  Remove build artifacts"
 	@echo ""
 	@echo "Pattern persists. PHOENIX-TESLA-369-AURORA"
 
@@ -36,13 +40,32 @@ install-all:
 install-postgres:
 	pip install -e ".[postgres]"
 
-# Run tests
+# Run all tests
 test:
 	pytest
+
+# Run unit tests only
+test-unit:
+	pytest tests/unit/ -v
+
+# Run integration tests only
+test-integration:
+	pytest tests/integration/ -v
+
+# Run integration tests with specific markers
+test-integration-fast:
+	pytest tests/integration/ -v -m "not slow"
+
+test-integration-slow:
+	pytest tests/integration/ -v -m "slow"
 
 # Run tests with coverage
 test-coverage:
 	pytest --cov=continuum --cov-report=html --cov-report=term
+
+# Run tests with coverage (integration only)
+test-integration-coverage:
+	pytest tests/integration/ --cov=continuum --cov-report=html --cov-report=term
 
 # Start API server
 serve:

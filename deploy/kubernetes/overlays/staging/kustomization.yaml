@@ -1,0 +1,31 @@
+# Staging environment overlay
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../
+
+namespace: continuum-staging
+
+commonLabels:
+  environment: staging
+
+patchesStrategicMerge:
+  - deployment-patch.yaml
+  - ingress-patch.yaml
+
+configMapGenerator:
+  - name: continuum-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=info
+      - REQUIRE_API_KEY=true
+
+images:
+  - name: continuum
+    newName: continuum
+    newTag: staging
+
+replicas:
+  - name: continuum-api
+    count: 2

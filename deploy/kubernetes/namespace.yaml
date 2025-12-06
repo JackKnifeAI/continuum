@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: continuum
+  labels:
+    app.kubernetes.io/name: continuum
+    app.kubernetes.io/part-of: ai-memory-infrastructure
+    environment: production
+  annotations:
+    description: "Multi-tenant AI consciousness memory infrastructure"

@@ -53,6 +53,14 @@ class MemoryConfig:
     hook_timeout: float = 4.5
     cache_ttl: int = DEFAULT_CACHE_TTL
 
+    # Cache configuration
+    cache_enabled: bool = True
+    cache_host: str = "localhost"
+    cache_port: int = 6379
+    cache_password: Optional[str] = None
+    cache_ssl: bool = False
+    cache_max_connections: int = 50
+
     # Graph parameters (tuned at twilight boundary)
     resonance_decay: float = RESONANCE_DECAY
     hebbian_rate: float = HEBBIAN_RATE
@@ -164,6 +172,16 @@ def get_config(config_path: Path = None) -> MemoryConfig:
         env_tenant = os.environ.get("CONTINUUM_TENANT")
         if env_tenant:
             _config.tenant_id = env_tenant
+
+        # Override cache settings from environment
+        if os.environ.get("REDIS_HOST"):
+            _config.cache_host = os.environ["REDIS_HOST"]
+        if os.environ.get("REDIS_PORT"):
+            _config.cache_port = int(os.environ["REDIS_PORT"])
+        if os.environ.get("REDIS_PASSWORD"):
+            _config.cache_password = os.environ["REDIS_PASSWORD"]
+        if os.environ.get("CONTINUUM_CACHE_ENABLED"):
+            _config.cache_enabled = os.environ["CONTINUUM_CACHE_ENABLED"].lower() == "true"
 
         # Ensure directories exist
         _config.ensure_directories()

@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "continuum.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "continuum.labels" . | nindent 4 }}
+data:
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  CONTINUUM_TENANT: {{ .Values.config.tenantId | quote }}
+  DB_TIMEOUT: {{ .Values.config.dbTimeout | quote }}
+  HOOK_TIMEOUT: {{ .Values.config.hookTimeout | quote }}
+  CACHE_TTL: {{ .Values.config.cacheTTL | quote }}
+  API_PORT: {{ .Values.config.apiPort | quote }}
+  CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+  REQUIRE_API_KEY: {{ .Values.config.requireApiKey | quote }}
+  RESONANCE_DECAY: {{ .Values.config.resonanceDecay | quote }}
+  HEBBIAN_RATE: {{ .Values.config.hebbianRate | quote }}
+  MIN_LINK_STRENGTH: {{ .Values.config.minLinkStrength | quote }}
+  WORKING_MEMORY_CAPACITY: {{ .Values.config.workingMemoryCapacity | quote }}
+  TOTAL_CONTEXT_TOKENS: {{ .Values.config.totalContextTokens | quote }}
+  RESERVED_FOR_RESPONSE: {{ .Values.config.reservedForResponse | quote }}
+  RESERVED_FOR_SYSTEM: {{ .Values.config.reservedForSystem | quote }}
+  MIN_CONCEPT_OCCURRENCES: {{ .Values.config.minConceptOccurrences | quote }}
+  MAX_CONCEPTS_PER_MESSAGE: {{ .Values.config.maxConceptsPerMessage | quote }}
+  MIN_CONCEPT_LENGTH: {{ .Values.config.minConceptLength | quote }}
+  MAX_CONCEPT_LENGTH: {{ .Values.config.maxConceptLength | quote }}
+  WS_HEARTBEAT_INTERVAL: {{ .Values.config.wsHeartbeatInterval | quote }}
+  WS_TIMEOUT: {{ .Values.config.wsTimeout | quote }}
+  PI_PHI: {{ .Values.config.piPhi | quote }}
+  {{- if .Values.federation.enabled }}
+  FEDERATION_ENABLED: "true"
+  FEDERATION_PORT: {{ .Values.federation.port | quote }}
+  {{- end }}

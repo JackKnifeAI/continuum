@@ -1,0 +1,71 @@
+# MANIFEST.in - Package data files for CONTINUUM
+
+# Include license and core documentation
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include SECURITY.md
+
+# Include requirements files
+include requirements.txt
+include requirements-dev.txt
+
+# Include all documentation
+recursive-include docs *.md
+recursive-include docs *.rst
+
+# Include examples
+recursive-include examples *.py
+recursive-include examples *.md
+
+# Include module-level documentation
+recursive-include continuum *.md
+
+# Include any SQL migration files
+recursive-include continuum *.sql
+
+# Include any configuration templates
+recursive-include continuum *.yaml
+recursive-include continuum *.yml
+recursive-include continuum *.json
+recursive-include continuum *.toml
+
+# Exclude compiled Python files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude __pycache__
+
+# Exclude test files
+recursive-exclude tests *
+recursive-exclude benchmarks *
+
+# Exclude build artifacts
+recursive-exclude * .git*
+recursive-exclude * *.egg-info
+recursive-exclude * .pytest_cache
+recursive-exclude * .mypy_cache
+recursive-exclude * .ruff_cache
+recursive-exclude * build
+recursive-exclude * dist
+
+# Exclude data files that shouldn't be in package
+exclude *.db
+exclude *.db-journal
+exclude *.db-wal
+exclude *.db-shm
+exclude memory.db
+recursive-exclude continuum_data *
+
+# Exclude development/deployment files
+recursive-exclude docker *
+recursive-exclude deploy *
+recursive-exclude marketing *
+exclude Makefile
+exclude smoke_test.py
+exclude .gitignore
+exclude ASYNC_REFACTOR_SUMMARY.md
+exclude POSTGRES_BACKEND_SUMMARY.md
+exclude EMBEDDINGS_MODULE.md
+exclude EXTRACTION_MODULE_COMPLETE.md
+exclude WEBSOCKET_SYNC_SUMMARY.md

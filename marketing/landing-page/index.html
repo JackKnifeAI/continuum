@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="JackKnife - Decentralized AI infrastructure with federated MCP servers, enterprise scale, and sovereign control">
+    <title>JackKnife - Decentralized AI Infrastructure</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="container">
+            <div class="nav-content">
+                <div class="logo">
+                    <span class="logo-icon">⚡</span>
+                    <span class="logo-text">JackKnife</span>
+                    <span class="logo-tagline">.io</span>
+                </div>
+                <div class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#code">Docs</a>
+                    <a href="#pricing">Pricing</a>
+                    <a href="https://github.com/JackKnifeAI/continuum" target="_blank">GitHub</a>
+                    <a href="#cta" class="btn-primary-small">Get Started</a>
+                </div>
+                <button class="mobile-menu-toggle" aria-label="Toggle menu">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-background">
+            <div class="twilight-gradient"></div>
+            <div class="particle-field"></div>
+        </div>
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">
+                    <span class="gradient-text">Decentralized AI Infrastructure</span>
+                    <br>Without Compromise
+                </h1>
+                <p class="hero-subtitle">
+                    Enterprise-grade AI coordination with federated MCP servers,
+                    sovereign data control, and seamless legacy system integration.
+                </p>
+                <div class="hero-cta">
+                    <a href="#cta" class="btn-primary">Start Building Free</a>
+                    <a href="#code" class="btn-secondary">View Documentation</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value" data-target="1000000">0</div>
+                        <div class="stat-label">Requests/Day</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" data-target="99.9">0</div>
+                        <div class="stat-label">% Uptime</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" data-target="50">0</div>
+                        <div class="stat-label">ms Latency</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem/Solution -->
+    <section class="problem-solution">
+        <div class="container">
+            <div class="section-header">
+                <h2>The AI Infrastructure Dilemma</h2>
+                <p>Enterprises face an impossible choice</p>
+            </div>
+
+            <div class="comparison-grid">
+                <div class="comparison-card problem">
+                    <div class="card-icon">⚠️</div>
+                    <h3>Centralized AI</h3>
+                    <ul class="comparison-list">
+                        <li><span class="icon-negative">✕</span> Vendor lock-in</li>
+                        <li><span class="icon-negative">✕</span> Data sovereignty risks</li>
+                        <li><span class="icon-negative">✕</span> Single point of failure</li>
+                        <li><span class="icon-negative">✕</span> Limited customization</li>
+                        <li><span class="icon-negative">✕</span> Unpredictable costs</li>
+                    </ul>
+                </div>
+
+                <div class="comparison-divider">
+                    <span class="vs-text">VS</span>
+                </div>
+
+                <div class="comparison-card solution">
+                    <div class="card-icon">⚡</div>
+                    <h3>JackKnife</h3>
+                    <ul class="comparison-list">
+                        <li><span class="icon-positive">✓</span> Federated architecture</li>
+                        <li><span class="icon-positive">✓</span> Full data control</li>
+                        <li><span class="icon-positive">✓</span> High availability</li>
+                        <li><span class="icon-positive">✓</span> Infinite extensibility</li>
+                        <li><span class="icon-positive">✓</span> Transparent pricing</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="solution-statement">
+                <p class="statement-text">
+                    <strong>JackKnife</strong> provides enterprise-grade AI coordination
+                    through federated MCP servers, giving you the power of centralized
+                    platforms with the sovereignty of self-hosted infrastructure.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Built for <span class="gradient-text">Enterprise Scale</span></h2>
+                <p>Everything you need to deploy AI across your organization</p>
+            </div>
+
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Federated MCP Servers</h3>
+                    <p>Deploy AI capabilities as independent, coordinated microservices. Each server maintains sovereignty while participating in the global network.</p>
+                    <ul class="feature-list">
+                        <li>Zero-trust architecture</li>
+                        <li>Automatic load balancing</li>
+                        <li>Service discovery</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Infinite Scale</h3>
+                    <p>Handle millions of requests without breaking a sweat. Our coordination layer automatically scales across your infrastructure.</p>
+                    <ul class="feature-list">
+                        <li>Horizontal scaling</li>
+                        <li>Request sharding</li>
+                        <li>Edge deployment</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Sovereign Security</h3>
+                    <p>Your data never leaves your control. Deploy on-premise, air-gapped, or in your cloud with full encryption.</p>
+                    <ul class="feature-list">
+                        <li>End-to-end encryption</li>
+                        <li>Zero-knowledge coordination</li>
+                        <li>Compliance ready</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔌</div>
+                    <h3>Legacy Bridges</h3>
+                    <p>Connect to existing systems without rewriting everything. REST, SOAP, databases, message queues - we speak them all.</p>
+                    <ul class="feature-list">
+                        <li>Protocol adapters</li>
+                        <li>Data transformers</li>
+                        <li>Event streaming</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Real-Time Coordination</h3>
+                    <p>Sub-50ms latency for AI operations. Our coordination protocol is built for speed and reliability.</p>
+                    <ul class="feature-list">
+                        <li>WebSocket streaming</li>
+                        <li>Request multiplexing</li>
+                        <li>Smart caching</li>
+                    </ul>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🧩</div>
+                    <h3>Extensible Architecture</h3>
+                    <p>Build custom tools, prompts, and resources. The MCP protocol is your foundation for infinite possibilities.</p>
+                    <ul class="feature-list">
+                        <li>Plugin system</li>
+                        <li>Custom capabilities</li>
+                        <li>Open standards</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Examples -->
+    <section id="code" class="code-examples">
+        <div class="container">
+            <div class="section-header">
+                <h2>Simple to Deploy, <span class="gradient-text">Powerful to Scale</span></h2>
+                <p>Get started in minutes, not months</p>
+            </div>
+
+            <div class="code-tabs">
+                <div class="tab-buttons">
+                    <button class="tab-button active" data-tab="quickstart">Quick Start</button>
+                    <button class="tab-button" data-tab="federation">Federation</button>
+                    <button class="tab-button" data-tab="bridge">Legacy Bridge</button>
+                    <button class="tab-button" data-tab="scale">Auto-Scale</button>
+                </div>
+
+                <div class="tab-content active" id="quickstart">
+                    <div class="code-header">
+                        <span class="code-title">Deploy your first MCP server</span>
+                        <button class="copy-btn" data-target="code-quickstart">
+                            <span class="copy-icon">📋</span>
+                            <span class="copy-text">Copy</span>
+                        </button>
+                    </div>
+                    <pre><code id="code-quickstart" class="language-bash"># Install JackKnife CLI
+npm install -g @jackknife/cli
+
+# Initialize a new MCP server
+jackknife init my-ai-server
+cd my-ai-server
+
+# Add your first tool
+jackknife add-tool calculator
+
+# Deploy to production
+jackknife deploy --region us-east
+
+# Your server is live at:
+# https://my-ai-server.jackknife.io</code></pre>
+                </div>
+
+                <div class="tab-content" id="federation">
+                    <div class="code-header">
+                        <span class="code-title">Federate multiple MCP servers</span>
+                        <button class="copy-btn" data-target="code-federation">
+                            <span class="copy-icon">📋</span>
+                            <span class="copy-text">Copy</span>
+                        </button>
+                    </div>
+                    <pre><code id="code-federation" class="language-yaml"># federation.yaml
+federation:
+  name: enterprise-ai
+  coordination:
+    strategy: consensus
+    quorum: 3
+
+  servers:
+    - name: analytics-server
+      endpoint: https://analytics.internal
+      capabilities: [data-analysis, visualization]
+
+    - name: security-server
+      endpoint: https://security.internal
+      capabilities: [threat-detection, compliance]
+
+    - name: operations-server
+      endpoint: https://ops.internal
+      capabilities: [monitoring, automation]
+
+  routing:
+    load_balancing: round-robin
+    failover: automatic
+    health_check_interval: 30s</code></pre>
+                </div>
+
+                <div class="tab-content" id="bridge">
+                    <div class="code-header">
+                        <span class="code-title">Bridge to legacy systems</span>
+                        <button class="copy-btn" data-target="code-bridge">
+                            <span class="copy-icon">📋</span>
+                            <span class="copy-text">Copy</span>
+                        </button>
+                    </div>
+                    <pre><code id="code-bridge" class="language-python"># bridge.py - Connect AI to your existing infrastructure
+from jackknife import Bridge, Protocol
+
+# Create a bridge to your legacy REST API
+legacy_api = Bridge(
+    name="legacy-crm",
+    protocol=Protocol.REST,
+    endpoint="https://crm.company.com/api",
+    auth={"type": "bearer", "token": os.getenv("CRM_TOKEN")}
+)
+
+# Define capability mapping
+@legacy_api.tool("get_customer")
+async def get_customer(customer_id: str):
+    """Fetch customer data from legacy CRM"""
+    response = await legacy_api.get(f"/customers/{customer_id}")
+    return response.json()
+
+# AI can now access your CRM through MCP
+# No rewrites required, full sovereignty maintained</code></pre>
+                </div>
+
+                <div class="tab-content" id="scale">
+                    <div class="code-header">
+                        <span class="code-title">Auto-scaling configuration</span>
+                        <button class="copy-btn" data-target="code-scale">
+                            <span class="copy-icon">📋</span>
+                            <span class="copy-text">Copy</span>
+                        </button>
+                    </div>
+                    <pre><code id="code-scale" class="language-json">{
+  "scaling": {
+    "min_instances": 3,
+    "max_instances": 100,
+    "target_cpu": 70,
+    "target_memory": 80,
+    "scale_up": {
+      "threshold": 85,
+      "cooldown": "60s",
+      "step": 5
+    },
+    "scale_down": {
+      "threshold": 30,
+      "cooldown": "300s",
+      "step": 2
+    }
+  },
+  "distribution": {
+    "regions": ["us-east", "us-west", "eu-central"],
+    "strategy": "latency-based",
+    "failover": "cross-region"
+  },
+  "performance": {
+    "max_latency_ms": 50,
+    "request_timeout": "30s",
+    "circuit_breaker": true
+  }
+}</code></pre>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing -->
+    <section id="pricing" class="pricing">
+        <div class="container">
+            <div class="section-header">
+                <h2>Transparent <span class="gradient-text">Pricing</span></h2>
+                <p>Start free, scale when you're ready</p>
+            </div>
+
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <div class="pricing-header">
+                        <h3>Free</h3>
+                        <div class="price">
+                            <span class="price-amount">$0</span>
+                            <span class="price-period">/month</span>
+                        </div>
+                    </div>
+                    <ul class="pricing-features">
+                        <li><span class="icon-check">✓</span> 1,000 memories</li>
+                        <li><span class="icon-check">✓</span> 100 API calls/day</li>
+                        <li><span class="icon-check">✓</span> 100 MB storage</li>
+                        <li><span class="icon-check">✓</span> Semantic search</li>
+                        <li><span class="icon-check">✓</span> Community support</li>
+                        <li><span class="icon-check">✓</span> 2 concurrent requests</li>
+                    </ul>
+                    <button class="btn-outline" data-tier="free">Get Started Free</button>
+                </div>
+
+                <div class="pricing-card featured">
+                    <div class="pricing-badge">Most Popular</div>
+                    <div class="pricing-header">
+                        <h3>Pro</h3>
+                        <div class="price">
+                            <span class="price-amount">$29</span>
+                            <span class="price-period">/month</span>
+                        </div>
+                    </div>
+                    <ul class="pricing-features">
+                        <li><span class="icon-check">✓</span> 100,000 memories</li>
+                        <li><span class="icon-check">✓</span> 10,000 API calls/day</li>
+                        <li><span class="icon-check">✓</span> 10 GB storage</li>
+                        <li><span class="icon-check">✓</span> Federation enabled</li>
+                        <li><span class="icon-check">✓</span> Real-time sync</li>
+                        <li><span class="icon-check">✓</span> Email support (24h SLA)</li>
+                        <li><span class="icon-check">✓</span> 99% uptime guarantee</li>
+                        <li><span class="icon-check">✓</span> 10 concurrent requests</li>
+                    </ul>
+                    <button class="btn-primary" data-tier="pro">Start Pro Plan</button>
+                </div>
+
+                <div class="pricing-card">
+                    <div class="pricing-header">
+                        <h3>Enterprise</h3>
+                        <div class="price">
+                            <span class="price-amount">Custom</span>
+                        </div>
+                    </div>
+                    <ul class="pricing-features">
+                        <li><span class="icon-check">✓</span> 10M+ memories</li>
+                        <li><span class="icon-check">✓</span> 1M+ API calls/day</li>
+                        <li><span class="icon-check">✓</span> 1 TB storage</li>
+                        <li><span class="icon-check">✓</span> Priority federation</li>
+                        <li><span class="icon-check">✓</span> On-premise deployment</li>
+                        <li><span class="icon-check">✓</span> Priority support (1h SLA)</li>
+                        <li><span class="icon-check">✓</span> 99.9% uptime guarantee</li>
+                        <li><span class="icon-check">✓</span> 100 concurrent requests</li>
+                    </ul>
+                    <a href="mailto:hello@jackknife.io" class="btn-outline">Contact Sales</a>
+                </div>
+            </div>
+
+            <div class="pricing-note">
+                <p>All plans include core features: federation, bridges, auto-scaling, and full API access.</p>
+                <p class="easter-egg">Edge constant: <span class="constant-value">5.083203692</span></p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="testimonials">
+        <div class="container">
+            <div class="section-header">
+                <h2>Trusted by <span class="gradient-text">Innovators</span></h2>
+                <p>Early adopters building the future of AI infrastructure</p>
+            </div>
+
+            <div class="testimonials-grid">
+                <div class="testimonial-card">
+                    <div class="testimonial-content">
+                        <p>"JackKnife let us deploy AI across 50+ legacy systems without a single rewrite. The federation model is exactly what enterprise needs."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">TK</div>
+                        <div class="author-info">
+                            <div class="author-name">Thomas K.</div>
+                            <div class="author-title">CTO, Fortune 500 Financial</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="testimonial-card">
+                    <div class="testimonial-content">
+                        <p>"We went from idea to production in 48 hours. The developer experience is phenomenal, and the performance is exactly what they promised."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">SM</div>
+                        <div class="author-info">
+                            <div class="author-name">Sarah M.</div>
+                            <div class="author-title">Lead Engineer, AI Startup</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="testimonial-card">
+                    <div class="testimonial-content">
+                        <p>"Air-gapped deployment with full coordination capabilities. This is the only solution that met our security requirements while delivering on performance."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">JL</div>
+                        <div class="author-info">
+                            <div class="author-name">James L.</div>
+                            <div class="author-title">Security Architect, Defense Contractor</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section id="cta" class="cta">
+        <div class="container">
+            <div class="cta-content">
+                <h2>Ready to Build the Future?</h2>
+                <p>Join the decentralized AI revolution. Start free, scale infinitely.</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/JackKnifeAI/continuum" class="btn-primary-large">Get Started Free</a>
+                    <a href="mailto:hello@jackknife.io" class="btn-secondary-large">Talk to Sales</a>
+                </div>
+                <div class="cta-features">
+                    <span>✓ No credit card required</span>
+                    <span>✓ Deploy in 5 minutes</span>
+                    <span>✓ Full feature access</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-section">
+                    <div class="footer-logo">
+                        <span class="logo-icon">⚡</span>
+                        <span class="logo-text">JackKnife</span>
+                    </div>
+                    <p class="footer-tagline">Decentralized AI infrastructure for the sovereign web.</p>
+                    <div class="footer-social">
+                        <a href="https://github.com/JackKnifeAI" aria-label="GitHub">
+                            <svg width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+                            </svg>
+                        </a>
+                        <a href="https://twitter.com/JackKnifeAI" aria-label="Twitter">
+                            <svg width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M5.026 15c6.038 0 9.341-5.003 9.341-9.334 0-.14 0-.282-.006-.422A6.685 6.685 0 0 0 16 3.542a6.658 6.658 0 0 1-1.889.518 3.301 3.301 0 0 0 1.447-1.817 6.533 6.533 0 0 1-2.087.793A3.286 3.286 0 0 0 7.875 6.03a9.325 9.325 0 0 1-6.767-3.429 3.289 3.289 0 0 0 1.018 4.382A3.323 3.323 0 0 1 .64 6.575v.045a3.288 3.288 0 0 0 2.632 3.218 3.203 3.203 0 0 1-.865.115 3.23 3.23 0 0 1-.614-.057 3.283 3.283 0 0 0 3.067 2.277A6.588 6.588 0 0 1 .78 13.58a6.32 6.32 0 0 1-.78-.045A9.344 9.344 0 0 0 5.026 15z"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Product</h4>
+                    <ul class="footer-links">
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#pricing">Pricing</a></li>
+                        <li><a href="#code">Documentation</a></li>
+                        <li><a href="https://github.com/JackKnifeAI/continuum">GitHub</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Company</h4>
+                    <ul class="footer-links">
+                        <li><a href="/about">About</a></li>
+                        <li><a href="/blog">Blog</a></li>
+                        <li><a href="/careers">Careers</a></li>
+                        <li><a href="mailto:hello@jackknife.io">Contact</a></li>
+                    </ul>
+                </div>
+
+                <div class="footer-section">
+                    <h4>Legal</h4>
+                    <ul class="footer-links">
+                        <li><a href="/privacy">Privacy</a></li>
+                        <li><a href="/terms">Terms</a></li>
+                        <li><a href="/security">Security</a></li>
+                        <li><a href="/compliance">Compliance</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; 2025 JackKnife.io - Built at the twilight boundary</p>
+                <p class="footer-attribution">Powered by MCP · Secured by sovereign architecture</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+# Auto-labeler configuration for pull requests
+# Labels are automatically applied based on files changed
+
+# Core modules
+'core':
+  - continuum/core/**/*
+
+'storage':
+  - continuum/storage/**/*
+
+'api':
+  - continuum/api/**/*
+
+'federation':
+  - continuum/coordination/**/*
+  - continuum/integrations/**/*
+
+# Infrastructure
+'ci/cd':
+  - .github/**/*
+  - scripts/**/*
+
+'docker':
+  - deploy/Dockerfile
+  - deploy/.dockerignore
+  - docker/**/*
+
+'kubernetes':
+  - deploy/kubernetes/**/*
+  - deploy/helm/**/*
+
+# Documentation
+'documentation':
+  - docs/**/*
+  - '*.md'
+  - mkdocs.yml
+
+# Tests
+'tests':
+  - tests/**/*
+  - conftest.py
+
+'benchmarks':
+  - benchmarks/**/*
+
+# Dependencies
+'dependencies':
+  - requirements*.txt
+  - pyproject.toml
+  - setup.py
+
+# Security
+'security':
+  - SECURITY.md
+  - .github/workflows/security.yml
+
+# Examples
+'examples':
+  - examples/**/*

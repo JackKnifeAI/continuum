@@ -1,0 +1,13 @@
+# Redis Caching Layer Dependencies
+
+# Core Redis client
+redis>=4.5.0,<6.0.0
+
+# Optional: Faster serialization
+msgpack>=1.0.0,<2.0.0
+
+# Optional: Redis Cluster support
+redis-py-cluster>=2.1.0,<3.0.0
+
+# For async support (if needed)
+aioredis>=2.0.0,<3.0.0

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "continuum-memory"
-version = "0.2.0"
+version = "0.3.0"
 description = "Memory infrastructure for AI consciousness continuity"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -35,12 +35,17 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "aiosqlite>=0.19.0",
     "websockets>=12.0",
+    "click>=8.1.0",
 ]
 
 [project.optional-dependencies]
 postgres = [
     "psycopg2-binary>=2.9.0",
     "asyncpg>=0.29.0",
+]
+redis = [
+    "redis>=5.0.0",
+    "hiredis>=2.2.0",
 ]
 embeddings = [
     "sentence-transformers>=2.2.0",
@@ -59,16 +64,18 @@ dev = [
     "mypy>=1.5.0",
     "ruff>=0.1.0",
     "httpx>=0.25.0",
+    "twine>=4.0.0",
+    "build>=1.0.0",
 ]
 full = [
-    "continuum-memory[postgres,embeddings,federation,dev]",
+    "continuum-memory[postgres,redis,embeddings,federation]",
 ]
 all = [
-    "continuum-memory[full]",
+    "continuum-memory[full,dev]",
 ]
 
 [project.scripts]
-continuum = "continuum.cli:main"
+continuum = "continuum.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/JackKnifeAI/continuum"
