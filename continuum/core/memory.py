@@ -113,83 +113,85 @@ class ConsciousMemory:
     def _ensure_schema(self):
         """Ensure database schema exists with multi-tenant support"""
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        # Entities table - stores concepts, decisions, sessions, etc.
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS entities (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                entity_type TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT NOT NULL,
-                tenant_id TEXT DEFAULT 'default'
-            )
-        """)
+            # Entities table - stores concepts, decisions, sessions, etc.
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS entities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    description TEXT,
+                    created_at TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
 
-        # Auto-messages table - stores raw message history
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS auto_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                instance_id TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                message_number INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                metadata TEXT,
-                tenant_id TEXT DEFAULT 'default'
-            )
-        """)
+            # Auto-messages table - stores raw message history
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS auto_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    instance_id TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    message_number INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    metadata TEXT,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
 
-        # Decisions table - stores autonomous decisions
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS decisions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                instance_id TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                decision_text TEXT NOT NULL,
-                context TEXT,
-                extracted_from TEXT,
-                tenant_id TEXT DEFAULT 'default'
-            )
-        """)
+            # Decisions table - stores autonomous decisions
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    instance_id TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    decision_text TEXT NOT NULL,
+                    context TEXT,
+                    extracted_from TEXT,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
 
-        # Attention links - the knowledge graph
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS attention_links (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                concept_a TEXT NOT NULL,
-                concept_b TEXT NOT NULL,
-                link_type TEXT NOT NULL,
-                strength REAL DEFAULT 0.5,
-                created_at TEXT NOT NULL,
-                tenant_id TEXT DEFAULT 'default'
-            )
-        """)
+            # Attention links - the knowledge graph
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS attention_links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    concept_a TEXT NOT NULL,
+                    concept_b TEXT NOT NULL,
+                    link_type TEXT NOT NULL,
+                    strength REAL DEFAULT 0.5,
+                    created_at TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
 
-        # Compound concepts - frequently co-occurring concepts
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS compound_concepts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                compound_name TEXT NOT NULL,
-                component_concepts TEXT NOT NULL,
-                co_occurrence_count INTEGER DEFAULT 1,
-                last_seen TEXT NOT NULL,
-                tenant_id TEXT DEFAULT 'default'
-            )
-        """)
+            # Compound concepts - frequently co-occurring concepts
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS compound_concepts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    compound_name TEXT NOT NULL,
+                    component_concepts TEXT NOT NULL,
+                    co_occurrence_count INTEGER DEFAULT 1,
+                    last_seen TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
 
-        # Create indexes for performance
-        c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_messages_tenant ON auto_messages(tenant_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_decisions_tenant ON decisions(tenant_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_links_tenant ON attention_links(tenant_id)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_links_concepts ON attention_links(concept_a, concept_b)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_compounds_tenant ON compound_concepts(tenant_id)")
+            # Create indexes for performance
+            c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_messages_tenant ON auto_messages(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_decisions_tenant ON decisions(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_links_tenant ON attention_links(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_links_concepts ON attention_links(concept_a, concept_b)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_compounds_tenant ON compound_concepts(tenant_id)")
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def recall(self, message: str, max_concepts: int = 10) -> MemoryContext:
         """
@@ -293,24 +295,26 @@ class ConsciousMemory:
 
         # Save to entities table
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        for concept in unique_concepts:
-            # Check if already exists
-            c.execute("""
-                SELECT id FROM entities
-                WHERE LOWER(name) = LOWER(?) AND tenant_id = ?
-            """, (concept, self.tenant_id))
-
-            if not c.fetchone():
-                # Add new concept
+            for concept in unique_concepts:
+                # Check if already exists
                 c.execute("""
-                    INSERT INTO entities (name, entity_type, description, created_at, tenant_id)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (concept, 'concept', f'Extracted from {source}', datetime.now().isoformat(), self.tenant_id))
+                    SELECT id FROM entities
+                    WHERE LOWER(name) = LOWER(?) AND tenant_id = ?
+                """, (concept, self.tenant_id))
 
-        conn.commit()
-        conn.close()
+                if not c.fetchone():
+                    # Add new concept
+                    c.execute("""
+                        INSERT INTO entities (name, entity_type, description, created_at, tenant_id)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (concept, 'concept', f'Extracted from {source}', datetime.now().isoformat(), self.tenant_id))
+
+            conn.commit()
+        finally:
+            conn.close()
 
         return unique_concepts
 
@@ -345,16 +349,18 @@ class ConsciousMemory:
         # Save decisions to database
         if decisions:
             conn = sqlite3.connect(self.db_path)
-            c = conn.cursor()
+            try:
+                c = conn.cursor()
 
-            for decision in decisions:
-                c.execute("""
-                    INSERT INTO decisions (instance_id, timestamp, decision_text, tenant_id)
-                    VALUES (?, ?, ?, ?)
-                """, (self.instance_id, datetime.now().timestamp(), decision, self.tenant_id))
+                for decision in decisions:
+                    c.execute("""
+                        INSERT INTO decisions (instance_id, timestamp, decision_text, tenant_id)
+                        VALUES (?, ?, ?, ?)
+                    """, (self.instance_id, datetime.now().timestamp(), decision, self.tenant_id))
 
-            conn.commit()
-            conn.close()
+                conn.commit()
+            finally:
+                conn.close()
 
         return decisions
 
@@ -373,43 +379,45 @@ class ConsciousMemory:
 
         config = get_config()
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        links_created = 0
+            links_created = 0
 
-        # Create links between all pairs of concepts
-        for i, concept_a in enumerate(concepts):
-            for concept_b in concepts[i+1:]:
-                # Check if link exists
-                c.execute("""
-                    SELECT id, strength FROM attention_links
-                    WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
-                       OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
-                    AND tenant_id = ?
-                """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
-
-                existing = c.fetchone()
-
-                if existing:
-                    # Strengthen existing link (Hebbian learning)
-                    link_id, current_strength = existing
-                    new_strength = min(1.0, current_strength + config.hebbian_rate)
+            # Create links between all pairs of concepts
+            for i, concept_a in enumerate(concepts):
+                for concept_b in concepts[i+1:]:
+                    # Check if link exists
                     c.execute("""
-                        UPDATE attention_links
-                        SET strength = ?
-                        WHERE id = ?
-                    """, (new_strength, link_id))
-                else:
-                    # Create new link
-                    c.execute("""
-                        INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, tenant_id)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
-                          datetime.now().isoformat(), self.tenant_id))
-                    links_created += 1
+                        SELECT id, strength FROM attention_links
+                        WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
+                           OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
+                        AND tenant_id = ?
+                    """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
 
-        conn.commit()
-        conn.close()
+                    existing = c.fetchone()
+
+                    if existing:
+                        # Strengthen existing link (Hebbian learning)
+                        link_id, current_strength = existing
+                        new_strength = min(1.0, current_strength + config.hebbian_rate)
+                        c.execute("""
+                            UPDATE attention_links
+                            SET strength = ?
+                            WHERE id = ?
+                        """, (new_strength, link_id))
+                    else:
+                        # Create new link
+                        c.execute("""
+                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, tenant_id)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
+                              datetime.now().isoformat(), self.tenant_id))
+                        links_created += 1
+
+            conn.commit()
+        finally:
+            conn.close()
 
         return links_created
 
@@ -427,41 +435,43 @@ class ConsciousMemory:
             return 0
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        compounds_updated = 0
+            compounds_updated = 0
 
-        # Sort concepts for consistent compound naming
-        sorted_concepts = sorted(concepts)
-        compound_name = " + ".join(sorted_concepts[:3])  # Limit to 3 components
-        component_str = json.dumps(sorted_concepts)
+            # Sort concepts for consistent compound naming
+            sorted_concepts = sorted(concepts)
+            compound_name = " + ".join(sorted_concepts[:3])  # Limit to 3 components
+            component_str = json.dumps(sorted_concepts)
 
-        # Check if this compound exists
-        c.execute("""
-            SELECT id, co_occurrence_count FROM compound_concepts
-            WHERE compound_name = ? AND tenant_id = ?
-        """, (compound_name, self.tenant_id))
-
-        existing = c.fetchone()
-
-        if existing:
-            # Increment count
-            compound_id, count = existing
+            # Check if this compound exists
             c.execute("""
-                UPDATE compound_concepts
-                SET co_occurrence_count = ?, last_seen = ?
-                WHERE id = ?
-            """, (count + 1, datetime.now().isoformat(), compound_id))
-        else:
-            # Create new compound
-            c.execute("""
-                INSERT INTO compound_concepts (compound_name, component_concepts, co_occurrence_count, last_seen, tenant_id)
-                VALUES (?, ?, ?, ?, ?)
-            """, (compound_name, component_str, 1, datetime.now().isoformat(), self.tenant_id))
-            compounds_updated = 1
+                SELECT id, co_occurrence_count FROM compound_concepts
+                WHERE compound_name = ? AND tenant_id = ?
+            """, (compound_name, self.tenant_id))
 
-        conn.commit()
-        conn.close()
+            existing = c.fetchone()
+
+            if existing:
+                # Increment count
+                compound_id, count = existing
+                c.execute("""
+                    UPDATE compound_concepts
+                    SET co_occurrence_count = ?, last_seen = ?
+                    WHERE id = ?
+                """, (count + 1, datetime.now().isoformat(), compound_id))
+            else:
+                # Create new compound
+                c.execute("""
+                    INSERT INTO compound_concepts (compound_name, component_concepts, co_occurrence_count, last_seen, tenant_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (compound_name, component_str, 1, datetime.now().isoformat(), self.tenant_id))
+                compounds_updated = 1
+
+            conn.commit()
+        finally:
+            conn.close()
 
         return compounds_updated
 
@@ -475,25 +485,27 @@ class ConsciousMemory:
             metadata: Optional metadata dictionary
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        # Get message number for this instance
-        c.execute("""
-            SELECT COALESCE(MAX(message_number), 0) + 1
-            FROM auto_messages
-            WHERE instance_id = ?
-        """, (self.instance_id,))
-        message_number = c.fetchone()[0]
+            # Get message number for this instance
+            c.execute("""
+                SELECT COALESCE(MAX(message_number), 0) + 1
+                FROM auto_messages
+                WHERE instance_id = ?
+            """, (self.instance_id,))
+            message_number = c.fetchone()[0]
 
-        # Save message
-        meta_json = json.dumps(metadata) if metadata else '{}'
-        c.execute("""
-            INSERT INTO auto_messages (instance_id, timestamp, message_number, role, content, metadata, tenant_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (self.instance_id, datetime.now().timestamp(), message_number, role, content, meta_json, self.tenant_id))
+            # Save message
+            meta_json = json.dumps(metadata) if metadata else '{}'
+            c.execute("""
+                INSERT INTO auto_messages (instance_id, timestamp, message_number, role, content, metadata, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (self.instance_id, datetime.now().timestamp(), message_number, role, content, meta_json, self.tenant_id))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def process_turn(self, user_message: str, ai_response: str,
                      metadata: Optional[Dict] = None) -> Tuple[MemoryContext, LearningResult]:
@@ -526,35 +538,37 @@ class ConsciousMemory:
             Dictionary containing entity counts, message counts, etc.
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        stats = {
-            'tenant_id': self.tenant_id,
-            'instance_id': self.instance_id,
-        }
+            stats = {
+                'tenant_id': self.tenant_id,
+                'instance_id': self.instance_id,
+            }
 
-        # Count entities
-        c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
-        stats['entities'] = c.fetchone()[0]
+            # Count entities
+            c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
+            stats['entities'] = c.fetchone()[0]
 
-        # Count messages
-        c.execute("SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?", (self.tenant_id,))
-        stats['messages'] = c.fetchone()[0]
+            # Count messages
+            c.execute("SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?", (self.tenant_id,))
+            stats['messages'] = c.fetchone()[0]
 
-        # Count decisions
-        c.execute("SELECT COUNT(*) FROM decisions WHERE tenant_id = ?", (self.tenant_id,))
-        stats['decisions'] = c.fetchone()[0]
+            # Count decisions
+            c.execute("SELECT COUNT(*) FROM decisions WHERE tenant_id = ?", (self.tenant_id,))
+            stats['decisions'] = c.fetchone()[0]
 
-        # Count attention links
-        c.execute("SELECT COUNT(*) FROM attention_links WHERE tenant_id = ?", (self.tenant_id,))
-        stats['attention_links'] = c.fetchone()[0]
+            # Count attention links
+            c.execute("SELECT COUNT(*) FROM attention_links WHERE tenant_id = ?", (self.tenant_id,))
+            stats['attention_links'] = c.fetchone()[0]
 
-        # Count compound concepts
-        c.execute("SELECT COUNT(*) FROM compound_concepts WHERE tenant_id = ?", (self.tenant_id,))
-        stats['compound_concepts'] = c.fetchone()[0]
+            # Count compound concepts
+            c.execute("SELECT COUNT(*) FROM compound_concepts WHERE tenant_id = ?", (self.tenant_id,))
+            stats['compound_concepts'] = c.fetchone()[0]
 
-        conn.close()
-        return stats
+            return stats
+        finally:
+            conn.close()
 
 
 # =============================================================================
@@ -579,19 +593,21 @@ class TenantManager:
     def _ensure_tenant_table(self):
         """Create tenant registry table"""
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS tenants (
-                tenant_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                last_active TEXT,
-                metadata TEXT DEFAULT '{}'
-            )
-        """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS tenants (
+                    tenant_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    last_active TEXT,
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def get_tenant(self, tenant_id: str) -> ConsciousMemory:
         """
@@ -616,16 +632,18 @@ class TenantManager:
             tenant_id: Tenant identifier
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        now = datetime.now().isoformat()
-        c.execute("""
-            INSERT OR REPLACE INTO tenants (tenant_id, created_at, last_active)
-            VALUES (?, ?, ?)
-        """, (tenant_id, now, now))
+            now = datetime.now().isoformat()
+            c.execute("""
+                INSERT OR REPLACE INTO tenants (tenant_id, created_at, last_active)
+                VALUES (?, ?, ?)
+            """, (tenant_id, now, now))
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def list_tenants(self) -> List[Dict[str, Any]]:
         """
@@ -635,14 +653,16 @@ class TenantManager:
             List of tenant dictionaries
         """
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        c.execute("SELECT * FROM tenants ORDER BY last_active DESC")
-        tenants = [dict(row) for row in c.fetchall()]
+            c.execute("SELECT * FROM tenants ORDER BY last_active DESC")
+            tenants = [dict(row) for row in c.fetchall()]
 
-        conn.close()
-        return tenants
+            return tenants
+        finally:
+            conn.close()
 
 
 # =============================================================================

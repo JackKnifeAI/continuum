@@ -22,7 +22,7 @@ from typing import Dict, Any, Optional, List, Set
 from datetime import datetime
 
 from .concept_extractor import ConceptExtractor, DecisionExtractor
-from .attention_graph import AttentionGraphExtractor, CanonicalMapper
+from .attention_graph import AttentionGraphExtractor
 
 
 class AutoMemoryHook:

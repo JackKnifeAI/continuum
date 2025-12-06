@@ -45,19 +45,19 @@ class FileLock:
             lock.release()
     """
 
-    def __init__(self, file_path: Path, shared: bool = False, timeout: float = 30.0):
+    def __init__(self, file_path, shared: bool = False, timeout: float = 30.0):
         """
         Initialize file lock.
 
         Args:
-            file_path: Path to file to lock
+            file_path: Path to file to lock (str or Path)
             shared: If True, use shared lock (allows multiple readers)
             timeout: Maximum seconds to wait for lock
         """
         self.file_path = Path(file_path)
         self.shared = shared
         self.timeout = timeout
-        self._file_handle: Optional[int] = None
+        self._file_handle = None
         self._locked = False
 
     def acquire(self) -> bool:
@@ -122,7 +122,7 @@ class FileLock:
 
 
 @contextmanager
-def file_lock(file_path: Path, shared: bool = False, timeout: float = 30.0):
+def file_lock(file_path, shared: bool = False, timeout: float = 30.0):
     """
     Convenience context manager for file locking.
 

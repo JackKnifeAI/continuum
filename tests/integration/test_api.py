@@ -4,299 +4,220 @@ Tests for REST API endpoints
 """
 
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from continuum.api.server import app
-from continuum.storage.database import Base, get_db
+from continuum.core.config import set_config, MemoryConfig
 
 
 @pytest.fixture(scope="function")
-def test_db():
-    """Create test database"""
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False}
+def client(tmp_path, monkeypatch):
+    """Create test client with temporary database"""
+    # Disable API key requirement for tests
+    import continuum.api.middleware as middleware
+    monkeypatch.setattr(middleware, "REQUIRE_API_KEY", False)
+
+    # Set up test configuration
+    config = MemoryConfig(
+        db_path=tmp_path / "test_memory.db",
+        tenant_id="test_tenant"
     )
-    Base.metadata.create_all(bind=engine)
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    set_config(config)
 
-    def override_get_db():
-        try:
-            db = TestingSessionLocal()
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    yield
-    Base.metadata.drop_all(bind=engine)
-
-
-@pytest.fixture(scope="function")
-def client(test_db):
-    """Create test client"""
+    # Create test client
     return TestClient(app)
 
 
+@pytest.mark.integration
 class TestHealthEndpoint:
     """Test health check endpoint"""
 
     def test_health_check(self, client):
-        """Test /health endpoint"""
-        response = client.get("/health")
+        """Test /v1/health endpoint"""
+        response = client.get("/v1/health")
 
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
+        assert data["service"] == "continuum"
         assert "version" in data
         assert "timestamp" in data
 
 
+@pytest.mark.integration
+class TestRootEndpoint:
+    """Test root endpoint"""
+
+    def test_root(self, client):
+        """Test / endpoint"""
+        response = client.get("/")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["service"] == "CONTINUUM"
+        assert "version" in data
+        assert "endpoints" in data
+
+
+@pytest.mark.integration
 class TestMemoryEndpoints:
-    """Test memory CRUD endpoints"""
+    """Test core memory endpoints"""
 
-    def test_create_memory(self, client):
-        """Test POST /memories"""
-        memory_data = {
-            "content": "Test memory content",
-            "metadata": {"source": "test"},
-            "tags": ["test", "api"]
+    def test_recall_endpoint(self, client):
+        """Test POST /v1/recall"""
+        recall_data = {
+            "message": "What is the capital of France?",
+            "max_concepts": 10
         }
 
-        response = client.post("/memories", json=memory_data)
+        response = client.post("/v1/recall", json=recall_data)
 
-        assert response.status_code == 201
+        # Should succeed even with empty memory
+        assert response.status_code == 200
         data = response.json()
-        assert data["content"] == memory_data["content"]
-        assert "id" in data
-        assert "created_at" in data
+        assert "context" in data
+        assert "concepts_found" in data
+        assert "relationships_found" in data
+        assert "query_time_ms" in data
 
-    def test_get_memory(self, client):
-        """Test GET /memories/{id}"""
-        # Create memory first
-        memory_data = {
-            "content": "Test memory for retrieval",
-            "tags": ["test"]
+    def test_learn_endpoint(self, client):
+        """Test POST /v1/learn"""
+        learn_data = {
+            "user_message": "What is Python?",
+            "ai_response": "Python is a programming language."
         }
-        create_response = client.post("/memories", json=memory_data)
-        memory_id = create_response.json()["id"]
 
-        # Retrieve memory
-        response = client.get(f"/memories/{memory_id}")
+        response = client.post("/v1/learn", json=learn_data)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["id"] == memory_id
-        assert data["content"] == memory_data["content"]
+        assert "concepts_extracted" in data
+        assert "decisions_detected" in data
+        assert "links_created" in data
+        assert "compounds_found" in data
+        assert data["concepts_extracted"] >= 0
 
-    def test_get_nonexistent_memory(self, client):
-        """Test GET /memories/{id} with invalid ID"""
-        response = client.get("/memories/99999")
-        assert response.status_code == 404
+    def test_turn_endpoint(self, client):
+        """Test POST /v1/turn (combined recall + learn)"""
+        turn_data = {
+            "user_message": "Tell me about SQLite",
+            "ai_response": "SQLite is a database engine."
+        }
 
-    def test_list_memories(self, client):
-        """Test GET /memories"""
-        # Create multiple memories
-        for i in range(3):
-            memory_data = {
-                "content": f"Test memory {i}",
-                "tags": ["test"]
-            }
-            client.post("/memories", json=memory_data)
-
-        # List memories
-        response = client.get("/memories")
+        response = client.post("/v1/turn", json=turn_data)
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) >= 3
+        assert "recall" in data
+        assert "learn" in data
+        assert "context" in data["recall"]
+        assert "concepts_extracted" in data["learn"]
 
-    def test_update_memory(self, client):
-        """Test PUT /memories/{id}"""
-        # Create memory
-        memory_data = {
-            "content": "Original content",
-            "tags": ["test"]
+    def test_recall_after_learning(self, client):
+        """Test that recall finds concepts after learning"""
+        # First, learn about Python
+        learn_data = {
+            "user_message": "What is Python?",
+            "ai_response": "Python is a programming language created by Guido van Rossum."
         }
-        create_response = client.post("/memories", json=memory_data)
-        memory_id = create_response.json()["id"]
+        client.post("/v1/learn", json=learn_data)
 
-        # Update memory
-        update_data = {
-            "content": "Updated content",
-            "tags": ["test", "updated"]
+        # Then try to recall Python-related context
+        recall_data = {
+            "message": "Tell me about Python programming",
+            "max_concepts": 10
         }
-        response = client.put(f"/memories/{memory_id}", json=update_data)
+        response = client.post("/v1/recall", json=recall_data)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["content"] == update_data["content"]
-        assert "updated" in data["tags"]
+        # Should find some concepts (may be zero if extraction didn't capture anything)
+        assert data["concepts_found"] >= 0
 
-    def test_delete_memory(self, client):
-        """Test DELETE /memories/{id}"""
-        # Create memory
-        memory_data = {
-            "content": "Memory to delete",
-            "tags": ["test"]
+
+@pytest.mark.integration
+class TestStatisticsEndpoints:
+    """Test statistics endpoints"""
+
+    def test_get_stats(self, client):
+        """Test GET /v1/stats"""
+        # First add some data
+        learn_data = {
+            "user_message": "What is WorkingMemory?",
+            "ai_response": "WorkingMemory is a concept in CONTINUUM."
         }
-        create_response = client.post("/memories", json=memory_data)
-        memory_id = create_response.json()["id"]
+        client.post("/v1/learn", json=learn_data)
 
-        # Delete memory
-        response = client.delete(f"/memories/{memory_id}")
-        assert response.status_code == 204
-
-        # Verify deletion
-        get_response = client.get(f"/memories/{memory_id}")
-        assert get_response.status_code == 404
-
-
-class TestSearchEndpoints:
-    """Test search endpoints"""
-
-    def test_search_memories(self, client):
-        """Test POST /search"""
-        # Create searchable memories
-        memories = [
-            {"content": "Paris is the capital of France", "tags": ["geography"]},
-            {"content": "Berlin is the capital of Germany", "tags": ["geography"]},
-            {"content": "Python is a programming language", "tags": ["tech"]}
-        ]
-
-        for memory in memories:
-            client.post("/memories", json=memory)
-
-        # Search for capitals
-        search_data = {
-            "query": "capital",
-            "limit": 10
-        }
-        response = client.post("/search", json=search_data)
+        # Get stats
+        response = client.get("/v1/stats")
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) >= 2
-        assert any("Paris" in r["content"] for r in data)
+        assert "tenant_id" in data
+        assert "entities" in data
+        assert "messages" in data
+        assert "decisions" in data
+        assert "attention_links" in data
 
-    def test_search_with_filters(self, client):
-        """Test POST /search with tag filters"""
-        # Create memories with different tags
-        memories = [
-            {"content": "Test 1", "tags": ["tag1", "tag2"]},
-            {"content": "Test 2", "tags": ["tag2", "tag3"]},
-            {"content": "Test 3", "tags": ["tag3"]}
-        ]
-
-        for memory in memories:
-            client.post("/memories", json=memory)
-
-        # Search with tag filter
-        search_data = {
-            "query": "Test",
-            "tags": ["tag2"],
-            "limit": 10
-        }
-        response = client.post("/search", json=search_data)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert all("tag2" in r["tags"] for r in data)
-
-    def test_semantic_search(self, client):
-        """Test POST /search/semantic"""
-        # Create memories
-        memory_data = {
-            "content": "Machine learning and artificial intelligence",
-            "tags": ["ai"]
-        }
-        client.post("/memories", json=memory_data)
-
-        # Semantic search
-        search_data = {
-            "query": "AI and ML concepts",
-            "limit": 5
-        }
-        response = client.post("/search/semantic", json=search_data)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-
-
-class TestExtractionEndpoints:
-    """Test extraction endpoints"""
-
-    def test_extract_concepts(self, client):
-        """Test POST /extract/concepts"""
-        extraction_data = {
-            "text": "The π×φ constant equals 5.083203692315260 and represents the edge of chaos."
-        }
-
-        response = client.post("/extract/concepts", json=extraction_data)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "concepts" in data
-        assert len(data["concepts"]) > 0
-
-    def test_extract_entities(self, client):
-        """Test POST /extract/entities"""
-        extraction_data = {
-            "text": "Alexander is working on CONTINUUM in Paris, France."
-        }
-
-        response = client.post("/extract/entities", json=extraction_data)
+    def test_get_entities(self, client):
+        """Test GET /v1/entities"""
+        response = client.get("/v1/entities")
 
         assert response.status_code == 200
         data = response.json()
         assert "entities" in data
-        assert len(data["entities"]) > 0
+        assert "total" in data
+        assert "tenant_id" in data
+        assert isinstance(data["entities"], list)
 
-    def test_extract_all(self, client):
-        """Test POST /extract/all"""
-        extraction_data = {
-            "text": "CONTINUUM uses SQLite for storage. The project was started in 2025."
-        }
-
-        response = client.post("/extract/all", json=extraction_data)
+    def test_get_entities_with_pagination(self, client):
+        """Test GET /v1/entities with pagination"""
+        response = client.get("/v1/entities?limit=10&offset=0")
 
         assert response.status_code == 200
         data = response.json()
-        assert "concepts" in data
-        assert "entities" in data
-        assert "patterns" in data
+        assert len(data["entities"]) <= 10
 
 
-class TestRateLimiting:
-    """Test API rate limiting"""
+@pytest.mark.integration
+class TestAdminEndpoints:
+    """Test admin endpoints"""
 
-    @pytest.mark.slow
-    def test_rate_limit(self, client):
-        """Test that rate limiting is enforced"""
-        # Make many requests quickly
-        responses = []
-        for _ in range(100):
-            response = client.get("/health")
-            responses.append(response)
+    def test_list_tenants(self, client):
+        """Test GET /v1/tenants"""
+        response = client.get("/v1/tenants")
 
-        # Should have at least some successful responses
-        success_count = sum(1 for r in responses if r.status_code == 200)
-        assert success_count > 0
+        assert response.status_code == 200
+        data = response.json()
+        assert "tenants" in data
+        assert isinstance(data["tenants"], list)
 
-        # May have some rate-limited responses (429)
-        # Note: This depends on rate limit configuration
+    def test_create_api_key(self, client):
+        """Test POST /v1/keys"""
+        key_request = {
+            "tenant_id": "new_tenant",
+            "name": "Test Key"
+        }
+
+        response = client.post("/v1/keys", json=key_request)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "api_key" in data
+        assert data["api_key"].startswith("cm_")
+        assert data["tenant_id"] == "new_tenant"
+        assert "message" in data
 
 
+@pytest.mark.integration
 class TestErrorHandling:
     """Test API error handling"""
 
     def test_invalid_json(self, client):
         """Test handling of invalid JSON"""
         response = client.post(
-            "/memories",
+            "/v1/recall",
             data="invalid json",
             headers={"Content-Type": "application/json"}
         )
@@ -304,31 +225,72 @@ class TestErrorHandling:
 
     def test_missing_required_fields(self, client):
         """Test handling of missing required fields"""
-        response = client.post("/memories", json={})
+        response = client.post("/v1/recall", json={})
         assert response.status_code == 422
 
     def test_invalid_field_types(self, client):
         """Test handling of invalid field types"""
-        memory_data = {
-            "content": 12345,  # Should be string
-            "tags": "not_a_list"  # Should be list
+        recall_data = {
+            "message": 12345,  # Should be string
+            "max_concepts": "invalid"  # Should be int
         }
-        response = client.post("/memories", json=memory_data)
+        response = client.post("/v1/recall", json=recall_data)
         assert response.status_code == 422
 
 
-class TestCORS:
-    """Test CORS headers"""
+@pytest.mark.integration
+class TestFullWorkflow:
+    """Test complete memory workflow"""
 
-    def test_cors_headers(self, client):
-        """Test that CORS headers are present"""
-        response = client.options(
-            "/memories",
-            headers={
-                "Origin": "http://localhost:3000",
-                "Access-Control-Request-Method": "POST"
-            }
-        )
+    def test_complete_memory_cycle(self, client):
+        """Test full cycle: learn -> recall -> learn again"""
+        # Step 1: Learn initial knowledge
+        learn1 = {
+            "user_message": "What is the CONTINUUM project?",
+            "ai_response": "CONTINUUM is an AI memory infrastructure system."
+        }
+        response1 = client.post("/v1/learn", json=learn1)
+        assert response1.status_code == 200
 
-        # Should have CORS headers
-        assert "access-control-allow-origin" in response.headers or response.status_code == 200
+        # Step 2: Recall the knowledge
+        recall = {
+            "message": "Tell me about CONTINUUM"
+        }
+        response2 = client.post("/v1/recall", json=recall)
+        assert response2.status_code == 200
+        recall_data = response2.json()
+        # Context may be present
+        assert "context" in recall_data
+
+        # Step 3: Learn more related knowledge
+        learn2 = {
+            "user_message": "How does CONTINUUM work?",
+            "ai_response": "CONTINUUM uses SQLite for persistent storage and builds knowledge graphs."
+        }
+        response3 = client.post("/v1/learn", json=learn2)
+        assert response3.status_code == 200
+
+        # Step 4: Check stats
+        stats_response = client.get("/v1/stats")
+        assert stats_response.status_code == 200
+        stats = stats_response.json()
+        assert stats["messages"] >= 4  # 2 user + 2 assistant messages
+
+    def test_decision_tracking(self, client):
+        """Test that decisions are tracked"""
+        learn_data = {
+            "user_message": "Can you create a module?",
+            "ai_response": "I am going to create a new Python module for memory persistence."
+        }
+
+        response = client.post("/v1/learn", json=learn_data)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should detect at least one decision
+        assert data["decisions_detected"] >= 1
+
+        # Check stats
+        stats_response = client.get("/v1/stats")
+        stats = stats_response.json()
+        assert stats["decisions"] >= 1

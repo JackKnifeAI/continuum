@@ -233,10 +233,38 @@ async def get_entities(
         memory = tenant_manager.get_tenant(tenant_id)
 
         # Get entities from memory system
-        # TODO: Implement get_entities method in ConsciousMemory
-        # For now, return empty list
+        import sqlite3
+        conn = sqlite3.connect(memory.db_path)
+        c = conn.cursor()
+
+        # Build query with filters
+        query = "SELECT name, entity_type, description, created_at FROM entities WHERE tenant_id = ?"
+        params = [tenant_id]
+
+        if entity_type:
+            query += " AND entity_type = ?"
+            params.append(entity_type)
+
+        # Get total count
+        count_query = query.replace("SELECT name, entity_type, description, created_at", "SELECT COUNT(*)")
+        c.execute(count_query, params)
+        total = c.fetchone()[0]
+
+        # Get paginated results
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        c.execute(query, params)
+
         entities = []
-        total = 0
+        for row in c.fetchall():
+            entities.append({
+                "name": row[0],
+                "type": row[1],
+                "description": row[2],
+                "created_at": row[3]
+            })
+
+        conn.close()
 
         return EntitiesResponse(
             entities=[

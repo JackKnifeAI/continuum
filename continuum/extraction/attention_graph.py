@@ -17,7 +17,6 @@ import re
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Optional
-from collections import defaultdict
 from datetime import datetime
 
 
@@ -174,7 +173,7 @@ class AttentionGraphExtractor:
 
         # Technical terms
         concepts.extend(re.findall(r'\b[A-Z][a-z]+[A-Z][A-Za-z]+\b', sentence))  # CamelCase
-        concepts.extend(re.findall(r'\b\w+_\w+\b', sentence))  # snake_case
+        concepts.extend(re.findall(r'\b[a-z]+_[a-z_]+\b', sentence))  # snake_case
 
         # Filter and canonicalize
         concepts = [c for c in set(concepts) if c not in self.stopwords and len(c) > 2]

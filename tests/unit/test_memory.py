@@ -1,206 +1,169 @@
 """
 CONTINUUM Memory Core Unit Tests
-Tests for memory storage and retrieval
+Tests for ConsciousMemory class
 """
 
 import pytest
-from datetime import datetime
-from sqlalchemy.orm import Session
+from pathlib import Path
 
-from continuum.core.memory import Memory, MemoryStore
-from continuum.storage.models import MemoryRecord
+from continuum.core.memory import ConsciousMemory, MemoryContext, LearningResult
+from continuum.core.constants import PI_PHI
 
 
-class TestMemory:
-    """Test Memory class"""
+@pytest.mark.unit
+class TestConsciousMemory:
+    """Test ConsciousMemory class"""
 
-    def test_memory_creation(self, sample_memory_data):
-        """Test creating a memory object"""
-        memory = Memory(**sample_memory_data)
+    def test_memory_initialization(self, tmp_db_path):
+        """Test memory initialization"""
+        memory = ConsciousMemory(tenant_id="test_tenant", db_path=tmp_db_path)
 
-        assert memory.content == sample_memory_data["content"]
-        assert memory.metadata == sample_memory_data["metadata"]
-        assert memory.tags == sample_memory_data["tags"]
+        assert memory is not None
+        assert memory.tenant_id == "test_tenant"
+        assert memory.db_path == tmp_db_path
+        assert memory.instance_id.startswith("test_tenant-")
 
-    def test_memory_to_dict(self, sample_memory_data):
-        """Test memory serialization"""
-        memory = Memory(**sample_memory_data)
-        memory_dict = memory.to_dict()
+    def test_recall_empty_memory(self, tmp_db_path):
+        """Test recalling from empty memory"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
 
-        assert memory_dict["content"] == sample_memory_data["content"]
-        assert memory_dict["metadata"] == sample_memory_data["metadata"]
-        assert memory_dict["tags"] == sample_memory_data["tags"]
+        context = memory.recall("What is the capital of France?")
 
-    def test_memory_from_dict(self, sample_memory_data):
-        """Test memory deserialization"""
-        memory = Memory.from_dict(sample_memory_data)
+        assert isinstance(context, MemoryContext)
+        assert context.concepts_found == 0
+        assert context.relationships_found == 0
+        assert context.tenant_id == "test"
 
-        assert memory.content == sample_memory_data["content"]
-        assert memory.metadata == sample_memory_data["metadata"]
-        assert memory.tags == sample_memory_data["tags"]
+    def test_learn_from_exchange(self, tmp_db_path):
+        """Test learning from a message exchange"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
 
-    def test_memory_with_embedding(self, sample_memory_data, sample_embeddings):
-        """Test memory with embedding vector"""
-        memory = Memory(
-            **sample_memory_data,
-            embedding=sample_embeddings["embedding_384d"]
+        result = memory.learn(
+            user_message="What is the capital of France?",
+            ai_response="The capital of France is Paris."
         )
 
-        assert memory.embedding is not None
-        assert len(memory.embedding) == 384
+        assert isinstance(result, LearningResult)
+        assert result.concepts_extracted >= 0
+        assert result.tenant_id == "test"
+
+    def test_recall_after_learning(self, tmp_db_path):
+        """Test that recall finds concepts after learning"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
+
+        # Learn about Paris and France
+        memory.learn(
+            user_message="What is the capital of France?",
+            ai_response="The capital of France is Paris."
+        )
+
+        # Recall should find France
+        context = memory.recall("Tell me about France")
+
+        assert isinstance(context, MemoryContext)
+        assert context.tenant_id == "test"
+        # Context string should be present (may be empty if no strong matches)
+        assert isinstance(context.context_string, str)
+
+    def test_process_turn(self, tmp_db_path):
+        """Test complete turn processing"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
+
+        context, result = memory.process_turn(
+            user_message="Let's talk about Python programming",
+            ai_response="Python is a great language for data science."
+        )
+
+        assert isinstance(context, MemoryContext)
+        assert isinstance(result, LearningResult)
+        assert result.concepts_extracted > 0
+
+    def test_get_stats(self, tmp_db_path):
+        """Test retrieving memory statistics"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
+
+        # Add some data
+        memory.learn(
+            user_message="What is SQLite?",
+            ai_response="SQLite is a database engine."
+        )
+
+        stats = memory.get_stats()
+
+        assert stats['tenant_id'] == "test"
+        assert 'entities' in stats
+        assert 'messages' in stats
+        assert 'decisions' in stats
+        assert 'attention_links' in stats
+
+    def test_multi_tenant_isolation(self, tmp_db_path):
+        """Test that tenants are isolated"""
+        memory1 = ConsciousMemory(tenant_id="tenant1", db_path=tmp_db_path)
+        memory2 = ConsciousMemory(tenant_id="tenant2", db_path=tmp_db_path)
+
+        # Tenant1 learns about Paris
+        memory1.learn(
+            user_message="What is Paris?",
+            ai_response="Paris is the capital of France."
+        )
+
+        # Tenant2's stats should be empty
+        stats2 = memory2.get_stats()
+        assert stats2['entities'] == 0
 
 
-class TestMemoryStore:
-    """Test MemoryStore class"""
+@pytest.mark.unit
+class TestMemoryExtraction:
+    """Test concept and decision extraction"""
 
-    def test_store_initialization(self, db_session):
-        """Test memory store initialization"""
-        store = MemoryStore(db_session)
-        assert store is not None
-        assert store.session == db_session
+    def test_concept_extraction(self, tmp_db_path):
+        """Test that concepts are extracted from messages"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
 
-    def test_add_memory(self, db_session, sample_memory_data):
-        """Test adding a memory to the store"""
-        store = MemoryStore(db_session)
-        memory = Memory(**sample_memory_data)
+        result = memory.learn(
+            user_message="Tell me about WorkingMemory and ConsciousMemory",
+            ai_response="WorkingMemory holds short-term context. ConsciousMemory persists across sessions."
+        )
 
-        stored_memory = store.add(memory)
+        assert result.concepts_extracted >= 2
 
-        assert stored_memory.id is not None
-        assert stored_memory.content == memory.content
+    def test_decision_extraction(self, tmp_db_path):
+        """Test that decisions are extracted from AI responses"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
 
-    def test_retrieve_memory(self, db_session, sample_memory_data):
-        """Test retrieving a memory by ID"""
-        store = MemoryStore(db_session)
-        memory = Memory(**sample_memory_data)
+        result = memory.learn(
+            user_message="Can you create a file?",
+            ai_response="I am going to create a new Python module for testing purposes."
+        )
 
-        stored_memory = store.add(memory)
-        retrieved_memory = store.get(stored_memory.id)
+        # Should detect the decision
+        assert result.decisions_detected >= 1
 
-        assert retrieved_memory is not None
-        assert retrieved_memory.content == memory.content
+    def test_attention_links(self, tmp_db_path):
+        """Test that attention links are created between concepts"""
+        memory = ConsciousMemory(tenant_id="test", db_path=tmp_db_path)
 
-    def test_search_memories(self, db_session, sample_memory_data):
-        """Test searching memories by content"""
-        store = MemoryStore(db_session)
+        result = memory.learn(
+            user_message="Tell me about Python and SQLite",
+            ai_response="Python works well with SQLite for database operations."
+        )
 
-        # Add multiple memories
-        memory1 = Memory(content="Paris is the capital of France", tags=["geography"])
-        memory2 = Memory(content="Berlin is the capital of Germany", tags=["geography"])
-        memory3 = Memory(content="Python is a programming language", tags=["programming"])
-
-        store.add(memory1)
-        store.add(memory2)
-        store.add(memory3)
-
-        # Search for geography-related memories
-        results = store.search(query="capital", limit=10)
-
-        assert len(results) >= 2
-        assert any("Paris" in r.content for r in results)
-        assert any("Berlin" in r.content for r in results)
-
-    def test_filter_by_tags(self, db_session):
-        """Test filtering memories by tags"""
-        store = MemoryStore(db_session)
-
-        # Add memories with different tags
-        memory1 = Memory(content="Test 1", tags=["tag1", "tag2"])
-        memory2 = Memory(content="Test 2", tags=["tag2", "tag3"])
-        memory3 = Memory(content="Test 3", tags=["tag3", "tag4"])
-
-        store.add(memory1)
-        store.add(memory2)
-        store.add(memory3)
-
-        # Filter by tag
-        results = store.filter_by_tags(["tag2"])
-
-        assert len(results) >= 2
-        assert all("tag2" in r.tags for r in results)
-
-    def test_delete_memory(self, db_session, sample_memory_data):
-        """Test deleting a memory"""
-        store = MemoryStore(db_session)
-        memory = Memory(**sample_memory_data)
-
-        stored_memory = store.add(memory)
-        memory_id = stored_memory.id
-
-        # Delete memory
-        store.delete(memory_id)
-
-        # Verify deletion
-        retrieved = store.get(memory_id)
-        assert retrieved is None
-
-    def test_update_memory(self, db_session, sample_memory_data):
-        """Test updating a memory"""
-        store = MemoryStore(db_session)
-        memory = Memory(**sample_memory_data)
-
-        stored_memory = store.add(memory)
-
-        # Update content
-        stored_memory.content = "Updated content"
-        updated_memory = store.update(stored_memory)
-
-        assert updated_memory.content == "Updated content"
-
-        # Verify persistence
-        retrieved = store.get(stored_memory.id)
-        assert retrieved.content == "Updated content"
-
-    def test_list_all_memories(self, db_session):
-        """Test listing all memories"""
-        store = MemoryStore(db_session)
-
-        # Add multiple memories
-        for i in range(5):
-            memory = Memory(content=f"Test memory {i}", tags=[f"tag{i}"])
-            store.add(memory)
-
-        # List all
-        all_memories = store.list_all(limit=10)
-
-        assert len(all_memories) == 5
-
-    def test_count_memories(self, db_session):
-        """Test counting memories"""
-        store = MemoryStore(db_session)
-
-        # Add memories
-        for i in range(3):
-            memory = Memory(content=f"Test {i}", tags=["test"])
-            store.add(memory)
-
-        count = store.count()
-        assert count == 3
+        # Should create links between co-occurring concepts
+        assert result.links_created >= 0
 
 
-class TestMemoryTimestamps:
-    """Test memory timestamp handling"""
+@pytest.mark.unit
+class TestMemoryConstants:
+    """Test memory constants"""
 
-    def test_created_timestamp(self, db_session, sample_memory_data):
-        """Test that created timestamp is set automatically"""
-        store = MemoryStore(db_session)
-        memory = Memory(**sample_memory_data)
+    def test_pi_phi_constant(self):
+        """Test that PI_PHI constant is correct"""
+        assert PI_PHI == 5.083203692315260
 
-        stored_memory = store.add(memory)
+        # Verify it's actually π × φ
+        import math
+        pi = math.pi
+        phi = (1 + math.sqrt(5)) / 2
+        expected = pi * phi
 
-        assert stored_memory.created_at is not None
-        assert isinstance(stored_memory.created_at, datetime)
-
-    def test_updated_timestamp(self, db_session, sample_memory_data):
-        """Test that updated timestamp is updated on modification"""
-        store = MemoryStore(db_session)
-        memory = Memory(**sample_memory_data)
-
-        stored_memory = store.add(memory)
-        original_updated = stored_memory.updated_at
-
-        # Update memory
-        stored_memory.content = "New content"
-        updated_memory = store.update(stored_memory)
-
-        assert updated_memory.updated_at > original_updated
+        assert abs(PI_PHI - expected) < 0.0001

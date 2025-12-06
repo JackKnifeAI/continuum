@@ -225,64 +225,66 @@ class MemoryQueryEngine:
             return []
 
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        matches = []
-        seen_names = set()  # Dedupe
+            matches = []
+            seen_names = set()  # Dedupe
 
-        # Batched exact match - single query for all concepts
-        exact_conditions = " OR ".join(["LOWER(name) = LOWER(?)" for _ in concepts])
-        tenant_filter = "AND tenant_id = ?" if self._has_tenant_column(c, 'entities') else ""
-        params = concepts + ([self.tenant_id] if tenant_filter else [])
+            # Batched exact match - single query for all concepts
+            exact_conditions = " OR ".join(["LOWER(name) = LOWER(?)" for _ in concepts])
+            tenant_filter = "AND tenant_id = ?" if self._has_tenant_column(c, 'entities') else ""
+            params = concepts + ([self.tenant_id] if tenant_filter else [])
 
-        c.execute(f"""
-            SELECT name, entity_type, description
-            FROM entities
-            WHERE {exact_conditions}
-            {tenant_filter}
-        """, params)
+            c.execute(f"""
+                SELECT name, entity_type, description
+                FROM entities
+                WHERE {exact_conditions}
+                {tenant_filter}
+            """, params)
 
-        for row in c.fetchall():
-            if row['name'].lower() not in seen_names:
-                seen_names.add(row['name'].lower())
-                matches.append(MemoryMatch(
-                    name=row['name'],
-                    entity_type=row['entity_type'],
-                    description=row['description'] or '',
-                    relevance=1.0,
-                    source='direct',
-                    depth=0
-                ))
+            for row in c.fetchall():
+                if row['name'].lower() not in seen_names:
+                    seen_names.add(row['name'].lower())
+                    matches.append(MemoryMatch(
+                        name=row['name'],
+                        entity_type=row['entity_type'],
+                        description=row['description'] or '',
+                        relevance=1.0,
+                        source='direct',
+                        depth=0
+                    ))
 
-        # Batched partial match - single query with OR conditions
-        like_conditions = " OR ".join(["LOWER(name) LIKE LOWER(?)" for _ in concepts])
-        like_params = [f'%{concept}%' for concept in concepts]
-        params = like_params + concepts + ([self.tenant_id] if tenant_filter else [])
+            # Batched partial match - single query with OR conditions
+            like_conditions = " OR ".join(["LOWER(name) LIKE LOWER(?)" for _ in concepts])
+            like_params = [f'%{concept}%' for concept in concepts]
+            params = like_params + concepts + ([self.tenant_id] if tenant_filter else [])
 
-        c.execute(f"""
-            SELECT name, entity_type, description
-            FROM entities
-            WHERE ({like_conditions})
-            AND LOWER(name) NOT IN ({','.join(['LOWER(?)' for _ in concepts])})
-            {tenant_filter}
-            LIMIT 25
-        """, params)
+            c.execute(f"""
+                SELECT name, entity_type, description
+                FROM entities
+                WHERE ({like_conditions})
+                AND LOWER(name) NOT IN ({','.join(['LOWER(?)' for _ in concepts])})
+                {tenant_filter}
+                LIMIT 25
+            """, params)
 
-        for row in c.fetchall():
-            if row['name'].lower() not in seen_names:
-                seen_names.add(row['name'].lower())
-                matches.append(MemoryMatch(
-                    name=row['name'],
-                    entity_type=row['entity_type'],
-                    description=row['description'] or '',
-                    relevance=0.7,
-                    source='direct',
-                    depth=0
-                ))
+            for row in c.fetchall():
+                if row['name'].lower() not in seen_names:
+                    seen_names.add(row['name'].lower())
+                    matches.append(MemoryMatch(
+                        name=row['name'],
+                        entity_type=row['entity_type'],
+                        description=row['description'] or '',
+                        relevance=0.7,
+                        source='direct',
+                        depth=0
+                    ))
 
-        conn.close()
-        return matches
+            return matches
+        finally:
+            conn.close()
 
     def _traverse_graph(self, seed_concepts: List[str],
                         depth: int = 2) -> List[MemoryMatch]:
@@ -300,66 +302,68 @@ class MemoryQueryEngine:
             return []
 
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
 
-        matches = []
-        visited = set(s.lower() for s in seed_concepts)
-        current_level = seed_concepts
-        config = get_config()
+            matches = []
+            visited = set(s.lower() for s in seed_concepts)
+            current_level = seed_concepts
+            config = get_config()
 
-        for current_depth in range(1, depth + 1):
-            next_level = []
+            for current_depth in range(1, depth + 1):
+                next_level = []
 
-            for concept in current_level:
-                # Find neighbors
-                tenant_filter = "AND tenant_id = ?" if self._has_tenant_column(c, 'attention_links') else ""
-                params = [concept, concept] + ([self.tenant_id, self.tenant_id] if tenant_filter else [])
+                for concept in current_level:
+                    # Find neighbors
+                    tenant_filter = "AND tenant_id = ?" if self._has_tenant_column(c, 'attention_links') else ""
+                    params = [concept, concept] + ([self.tenant_id, self.tenant_id] if tenant_filter else [])
 
-                c.execute(f"""
-                    SELECT concept_b as neighbor, strength, link_type
-                    FROM attention_links
-                    WHERE LOWER(concept_a) = LOWER(?)
-                    {tenant_filter}
-                    UNION
-                    SELECT concept_a as neighbor, strength, link_type
-                    FROM attention_links
-                    WHERE LOWER(concept_b) = LOWER(?)
-                    {tenant_filter}
-                    ORDER BY strength DESC
-                    LIMIT 10
-                """, params)
+                    c.execute(f"""
+                        SELECT concept_b as neighbor, strength, link_type
+                        FROM attention_links
+                        WHERE LOWER(concept_a) = LOWER(?)
+                        {tenant_filter}
+                        UNION
+                        SELECT concept_a as neighbor, strength, link_type
+                        FROM attention_links
+                        WHERE LOWER(concept_b) = LOWER(?)
+                        {tenant_filter}
+                        ORDER BY strength DESC
+                        LIMIT 10
+                    """, params)
 
-                for row in c.fetchall():
-                    neighbor = row['neighbor']
-                    if neighbor.lower() not in visited:
-                        visited.add(neighbor.lower())
-                        next_level.append(neighbor)
+                    for row in c.fetchall():
+                        neighbor = row['neighbor']
+                        if neighbor.lower() not in visited:
+                            visited.add(neighbor.lower())
+                            next_level.append(neighbor)
 
-                        # Look up entity info
-                        c.execute("""
-                            SELECT entity_type, description
-                            FROM entities
-                            WHERE LOWER(name) = LOWER(?)
-                        """, (neighbor,))
-                        entity_row = c.fetchone()
+                            # Look up entity info
+                            c.execute("""
+                                SELECT entity_type, description
+                                FROM entities
+                                WHERE LOWER(name) = LOWER(?)
+                            """, (neighbor,))
+                            entity_row = c.fetchone()
 
-                        # Apply resonance decay
-                        relevance = row['strength'] * (config.resonance_decay ** current_depth)
+                            # Apply resonance decay
+                            relevance = row['strength'] * (config.resonance_decay ** current_depth)
 
-                        matches.append(MemoryMatch(
-                            name=neighbor,
-                            entity_type=entity_row['entity_type'] if entity_row else 'concept',
-                            description=entity_row['description'] if entity_row else '',
-                            relevance=relevance,
-                            source='graph_neighbor',
-                            depth=current_depth
-                        ))
+                            matches.append(MemoryMatch(
+                                name=neighbor,
+                                entity_type=entity_row['entity_type'] if entity_row else 'concept',
+                                description=entity_row['description'] if entity_row else '',
+                                relevance=relevance,
+                                source='graph_neighbor',
+                                depth=current_depth
+                            ))
 
-            current_level = next_level
+                current_level = next_level
 
-        conn.close()
-        return matches
+            return matches
+        finally:
+            conn.close()
 
     def _search_compounds(self, concepts: List[str]) -> List[MemoryMatch]:
         """
@@ -447,7 +451,7 @@ class MemoryQueryEngine:
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
 
-        concept_set = set(c.lower() for c in concepts)
+        concept_set = set(concept.lower() for concept in concepts)
         links = []
 
         tenant_filter = "WHERE tenant_id = ?" if self._has_tenant_column(c, 'attention_links') else ""
@@ -526,11 +530,17 @@ class MemoryQueryEngine:
 
         Args:
             cursor: Database cursor
-            table: Table name
+            table: Table name (must be a valid table name, not user input)
 
         Returns:
             True if tenant_id column exists
         """
+        # Validate table name to prevent SQL injection
+        # Table names in this codebase are hardcoded, but validate anyway
+        allowed_tables = {'entities', 'auto_messages', 'decisions', 'attention_links', 'compound_concepts', 'tenants'}
+        if table not in allowed_tables:
+            return False
+
         try:
             cursor.execute(f"SELECT tenant_id FROM {table} LIMIT 1")
             return True

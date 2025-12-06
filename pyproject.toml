@@ -106,9 +106,6 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "--verbose",
-    "--cov=continuum",
-    "--cov-report=term-missing",
-    "--cov-report=html",
 ]
 asyncio_mode = "auto"
 

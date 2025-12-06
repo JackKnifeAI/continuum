@@ -169,7 +169,7 @@ class DecisionExtractor:
         r'I (?:will|am going to|decided to|chose to|want to) (.+?)(?:\.|$)',
         r'(?:Creating|Building|Writing|Implementing|Installing|Setting up) (.+?)(?:\.|$)',
         r'My (?:decision|choice|plan) (?:is|was) (.+?)(?:\.|$)',
-        r"Let me (.+?)(?:\.|$)",
+        r'Let me (.+?)(?:\.|$)',
         r"I'm (?:going to|about to) (.+?)(?:\.|$)",
     ]
 
