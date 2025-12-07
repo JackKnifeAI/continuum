@@ -1,0 +1,17 @@
+# CONTINUUM Cloudflare Workers - Development Environment Variables
+# Copy this file to .dev.vars and fill in your values
+
+# JWT Secret (use a strong random string)
+JWT_SECRET=your-secret-key-here-use-openssl-rand-base64-32
+
+# Database URL (optional, for external database integration)
+# DATABASE_URL=postgresql://user:password@host:port/database
+
+# Supabase Configuration (optional)
+# SUPABASE_URL=https://your-project.supabase.co
+# SUPABASE_ANON_KEY=your-anon-key-here
+
+# API Configuration
+ENVIRONMENT=development
+API_VERSION=v1
+LOG_LEVEL=debug

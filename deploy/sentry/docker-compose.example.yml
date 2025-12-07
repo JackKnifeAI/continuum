@@ -1,0 +1,125 @@
+# Docker Compose Example with Sentry Integration
+#
+# This example shows how to deploy CONTINUUM with Sentry error tracking enabled.
+#
+# Usage:
+#   1. Copy to docker-compose.yml
+#   2. Update environment variables (especially SENTRY_DSN)
+#   3. Run: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # CONTINUUM API Server
+  continuum-api:
+    image: continuum-memory:latest
+    container_name: continuum-api
+    restart: unless-stopped
+
+    # Environment configuration
+    environment:
+      # Sentry Configuration
+      SENTRY_DSN: "https://your-key@o123456.ingest.sentry.io/123456"
+      CONTINUUM_ENV: "production"
+      CONTINUUM_RELEASE: "${RELEASE_VERSION:-git-latest}"
+      CONTINUUM_SERVER_NAME: "continuum-api-1"
+      SENTRY_TRACES_SAMPLE_RATE: "0.1"
+
+      # CONTINUUM Configuration
+      CONTINUUM_TENANT: "default"
+      CONTINUUM_CORS_ORIGINS: "https://app.example.com"
+
+      # Database
+      DATABASE_URL: "sqlite:////data/continuum.db"
+
+      # Cache (optional)
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      CONTINUUM_CACHE_ENABLED: "true"
+
+    # Ports
+    ports:
+      - "8420:8420"
+
+    # Volumes
+    volumes:
+      - continuum-data:/data
+      - continuum-logs:/var/log/continuum
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8420/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Dependencies
+    depends_on:
+      - redis
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: continuum-redis
+    restart: unless-stopped
+
+    command: redis-server --appendonly yes
+
+    volumes:
+      - redis-data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgreSQL Database (optional - use instead of SQLite for production)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: continuum-postgres
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     POSTGRES_DB: continuum
+  #     POSTGRES_USER: continuum
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U continuum"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# Volumes
+volumes:
+  continuum-data:
+    driver: local
+  continuum-logs:
+    driver: local
+  redis-data:
+    driver: local
+  # postgres-data:
+  #   driver: local
+
+# Networks (optional - for multi-container setups)
+# networks:
+#   continuum-network:
+#     driver: bridge

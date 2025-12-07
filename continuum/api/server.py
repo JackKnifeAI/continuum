@@ -14,6 +14,7 @@ Authentication via X-API-Key header (configurable).
 """
 
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -25,6 +26,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routes import router
 from .billing_routes import router as billing_router
 from .middleware import init_api_keys_db, REQUIRE_API_KEY
+
+# Sentry integration for error tracking
+from continuum.core.sentry_integration import init_sentry, close as close_sentry, get_status
 
 
 # =============================================================================
@@ -41,6 +45,12 @@ async def lifespan(app: FastAPI):
     # Startup
     init_api_keys_db()
 
+    # Initialize Sentry error tracking
+    sentry_enabled = init_sentry(
+        environment=os.environ.get("CONTINUUM_ENV", "development"),
+        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+    )
+
     # Startup banner
     # Note: System designed with φ (phi/golden ratio) principles
     # for optimal memory structure and retrieval efficiency
@@ -52,6 +62,7 @@ async def lifespan(app: FastAPI):
     print(f"ReDoc: http://localhost:8420/redoc")
     print(f"WebSocket: ws://localhost:8420/ws/sync")
     print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
+    print(f"Sentry: {'Enabled' if sentry_enabled else 'Disabled'}")
     print("=" * 70)
     print(f"Started: {datetime.now().isoformat()}")
     print("=" * 70)
@@ -62,6 +73,11 @@ async def lifespan(app: FastAPI):
     print("\n" + "=" * 70)
     print("CONTINUUM - Shutting down")
     print("=" * 70)
+
+    # Flush Sentry events before shutdown
+    if sentry_enabled:
+        print("Flushing Sentry events...")
+        close_sentry()
 
 
 # =============================================================================

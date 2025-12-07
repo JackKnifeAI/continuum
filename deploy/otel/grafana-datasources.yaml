@@ -1,0 +1,44 @@
+apiVersion: 1
+
+datasources:
+  # Tempo datasource for traces
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    uid: tempo
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: 'loki'
+      serviceMap:
+        datasourceUid: 'prometheus'
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      lokiSearch:
+        datasourceUid: 'loki'
+
+  # Jaeger datasource (alternative)
+  - name: Jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    uid: jaeger
+    jsonData:
+      tracesToLogs:
+        datasourceUid: 'loki'
+
+  # Prometheus datasource for metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo

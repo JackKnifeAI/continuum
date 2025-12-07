@@ -1,0 +1,275 @@
+{
+  "dashboard": {
+    "title": "CONTINUUM - Federation Health",
+    "tags": ["continuum", "federation"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-30m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Federation Topology",
+        "type": "nodeGraph",
+        "gridPos": {"h": 12, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "continuum_federation_peer_connections",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "nodes": {
+            "mainStatUnit": "none",
+            "secondaryStatUnit": "none"
+          },
+          "edges": {
+            "mainStatUnit": "none"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Peer Health Status",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "continuum_federation_peers_healthy",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "displayName": "Healthy Peers"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Peer Health Percentage",
+        "type": "gauge",
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "(continuum_federation_peers_healthy / continuum_federation_peers_total) * 100",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 50, "color": "yellow"},
+                {"value": 80, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Sync Latency by Peer",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+        "targets": [
+          {
+            "expr": "continuum_federation_sync_latency_seconds",
+            "refId": "A",
+            "legendFormat": "{{peer_id}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [60], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High Sync Latency",
+          "noDataState": "no_data",
+          "message": "Federation sync latency exceeds 1 minute"
+        }
+      },
+      {
+        "id": 5,
+        "title": "Message Queue Depth",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "continuum_federation_queue_depth",
+            "refId": "A",
+            "legendFormat": "{{peer_id}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Messages"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Sync Operations/sec",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+        "targets": [
+          {
+            "expr": "sum(rate(continuum_federation_sync_operations_total[1m])) by (peer_id, operation)",
+            "refId": "A",
+            "legendFormat": "{{peer_id}} - {{operation}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Operations/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Conflict Resolution Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "rate(continuum_federation_conflicts_total[5m])",
+            "refId": "A",
+            "legendFormat": "{{peer_id}} - {{resolution_type}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "conflicts/sec", "label": "Conflicts/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Bandwidth Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+        "targets": [
+          {
+            "expr": "rate(continuum_federation_bytes_sent[1m])",
+            "refId": "A",
+            "legendFormat": "Sent - {{peer_id}}"
+          },
+          {
+            "expr": "rate(continuum_federation_bytes_received[1m])",
+            "refId": "B",
+            "legendFormat": "Received - {{peer_id}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "Bps", "label": "Bytes/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Connection Errors",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "rate(continuum_federation_connection_errors_total[5m])",
+            "refId": "A",
+            "legendFormat": "{{peer_id}} - {{error_type}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "errors/sec", "label": "Errors/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Peer Discovery Events",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+        "targets": [
+          {
+            "expr": "rate(continuum_federation_discovery_events_total[5m])",
+            "refId": "A",
+            "legendFormat": "{{event_type}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "events/sec", "label": "Events/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Data Consistency Score",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+        "targets": [
+          {
+            "expr": "(1 - (sum(continuum_federation_conflicts_total) / sum(continuum_federation_sync_operations_total))) * 100",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 95, "color": "yellow"},
+                {"value": 99, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Peer Uptime",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 38},
+        "targets": [
+          {
+            "expr": "continuum_federation_peer_uptime_seconds",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "fieldConfig": {
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Value"},
+              "properties": [
+                {"id": "unit", "value": "s"},
+                {"id": "displayName", "value": "Uptime"}
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

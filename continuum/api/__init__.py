@@ -17,6 +17,7 @@ from .schemas import (
     EntitiesResponse,
     HealthResponse,
 )
+from .middleware import AnalyticsMiddleware
 
 __all__ = [
     "app",
@@ -29,4 +30,5 @@ __all__ = [
     "StatsResponse",
     "EntitiesResponse",
     "HealthResponse",
+    "AnalyticsMiddleware",
 ]

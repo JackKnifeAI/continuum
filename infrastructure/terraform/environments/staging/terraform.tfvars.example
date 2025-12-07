@@ -1,0 +1,7 @@
+aws_region      = "us-east-1"
+vpc_cidr        = "10.1.0.0/16"
+container_image = "your-account.dkr.ecr.us-east-1.amazonaws.com/continuum-staging-app:latest"
+certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+alarm_email     = "your-email@example.com"
+domain_name     = "example.com"
+hosted_zone_id  = "Z1234567890ABC"

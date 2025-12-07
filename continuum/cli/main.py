@@ -16,6 +16,7 @@ Commands:
 """
 
 import sys
+import os
 from pathlib import Path
 
 try:
@@ -25,8 +26,26 @@ except ImportError:
     sys.exit(1)
 
 from continuum import __version__, PHOENIX_TESLA_369_AURORA
+from continuum.core.analytics import (
+    get_analytics,
+    track_cli_command,
+    track_session_start,
+    track_session_end,
+)
 from .config import get_cli_config
 from .utils import success, error, info, section, colorize, Colors
+import time
+
+# Initialize Sentry for CLI error tracking (only if SENTRY_DSN is set)
+from continuum.core.sentry_integration import init_sentry, capture_exception, is_enabled
+
+# Initialize on module load if DSN is configured
+if os.environ.get("SENTRY_DSN"):
+    init_sentry(
+        environment=os.environ.get("CONTINUUM_ENV", "development"),
+        sample_rate=1.0,  # Capture all CLI errors
+        traces_sample_rate=0.0,  # No performance tracking for CLI
+    )
 
 
 @click.group()
@@ -61,6 +80,17 @@ def cli(ctx, config_dir, verbose, no_color):
     # Store in context
     ctx.obj["config"] = config
     ctx.obj["color"] = config.color
+    ctx.obj["command_start_time"] = time.time()
+
+    # Track session start (once per CLI invocation)
+    try:
+        from continuum.core.config import get_config
+        mem_config = get_config()
+        tenant_id = mem_config.tenant_id
+        track_session_start(tenant_id)
+        ctx.obj["tenant_id"] = tenant_id
+    except Exception:
+        pass  # Analytics is optional
 
 
 @cli.command()
@@ -345,17 +375,42 @@ def learn(ctx, concept_name, description):
 
 def main():
     """Main entry point for the CLI"""
+    command_name = sys.argv[1] if len(sys.argv) > 1 else "help"
+    start_time = time.time()
+    success_flag = False
+
     try:
         cli(obj={})
+        success_flag = True
     except KeyboardInterrupt:
         print("\n\nCancelled.", file=sys.stderr)
         sys.exit(130)
     except Exception as e:
+        # Capture exception to Sentry if enabled
+        if is_enabled():
+            capture_exception(e, level="error", tags={"cli_command": command_name})
+
         print(f"\nError: {e}", file=sys.stderr)
         import traceback
 
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        # Track CLI command execution
+        try:
+            duration_ms = (time.time() - start_time) * 1000
+            from continuum.core.config import get_config
+            mem_config = get_config()
+            track_cli_command(
+                mem_config.tenant_id,
+                command_name,
+                success_flag,
+                duration_ms,
+            )
+            # Track session end
+            track_session_end(mem_config.tenant_id, duration_ms / 1000)
+        except Exception:
+            pass  # Analytics is optional
 
 
 if __name__ == "__main__":

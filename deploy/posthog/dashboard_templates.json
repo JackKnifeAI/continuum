@@ -1,0 +1,616 @@
+{
+  "dashboards": [
+    {
+      "name": "CONTINUUM Product Overview",
+      "description": "High-level product health and user engagement metrics",
+      "tags": ["overview", "product", "kpi"],
+      "panels": [
+        {
+          "name": "Daily Active Users",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "session_start"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Weekly Active Users",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "session_start"}],
+            "display": "ActionsLineGraph",
+            "interval": "week",
+            "date_from": "-12w"
+          }
+        },
+        {
+          "name": "User Signups",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "user_signup"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "User Retention (7-day)",
+          "type": "retention",
+          "insight": {
+            "target_event": {"id": "user_signup"},
+            "returning_event": {"id": "session_start"},
+            "date_from": "-8w"
+          }
+        },
+        {
+          "name": "Plan Distribution",
+          "type": "pie",
+          "insight": {
+            "events": [{"id": "user_signup"}],
+            "breakdown": "properties.plan",
+            "display": "ActionsPie"
+          }
+        },
+        {
+          "name": "Session Duration Distribution",
+          "type": "histogram",
+          "insight": {
+            "events": [{"id": "session_end"}],
+            "property": "properties.duration_seconds",
+            "display": "ActionsBar"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Memory Analytics",
+      "description": "Memory system usage patterns and performance",
+      "tags": ["memory", "usage"],
+      "panels": [
+        {
+          "name": "Memories Created Per Day",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "memory_create"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Memory Operations Breakdown",
+          "type": "pie",
+          "insight": {
+            "events": [
+              {"id": "memory_create"},
+              {"id": "memory_read"},
+              {"id": "memory_update"},
+              {"id": "memory_delete"}
+            ],
+            "display": "ActionsPie",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Memory Type Distribution",
+          "type": "bar",
+          "insight": {
+            "events": [{"id": "memory_create"}],
+            "breakdown": "properties.memory_type",
+            "display": "ActionsBar"
+          }
+        },
+        {
+          "name": "Search Queries Per Day",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "memory_search"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Average Search Duration",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "memory_search"}],
+            "math": "avg",
+            "math_property": "properties.duration_ms",
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Search Results Quality",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "memory_search"}],
+            "math": "avg",
+            "math_property": "properties.results_count",
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Top Users by Memory Creation",
+          "type": "table",
+          "insight": {
+            "events": [{"id": "memory_create"}],
+            "display": "ActionsTable",
+            "breakdown": "distinct_id",
+            "date_from": "-30d"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Federation Network Health",
+      "description": "Federation participation and sync performance",
+      "tags": ["federation", "network"],
+      "panels": [
+        {
+          "name": "Federation Joins",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "federation_join"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Active Federation Participants",
+          "type": "number",
+          "insight": {
+            "events": [{"id": "federation_sync"}],
+            "display": "BoldNumber",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Sync Frequency",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "federation_sync"}],
+            "display": "ActionsLineGraph",
+            "interval": "hour",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Average Records Synced",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "federation_sync"}],
+            "formula": "A + B",
+            "properties": [
+              {"math": "avg", "math_property": "properties.pushed"},
+              {"math": "avg", "math_property": "properties.pulled"}
+            ],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Push vs Pull Distribution",
+          "type": "bar",
+          "insight": {
+            "events": [{"id": "federation_sync"}],
+            "properties": [
+              {"math": "sum", "math_property": "properties.pushed"},
+              {"math": "sum", "math_property": "properties.pulled"}
+            ],
+            "display": "ActionsBar"
+          }
+        },
+        {
+          "name": "Sync Duration P95",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "federation_sync"}],
+            "math": "p95",
+            "math_property": "properties.duration_ms",
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Federation Participation Rate",
+          "type": "funnel",
+          "insight": {
+            "events": [
+              {"id": "user_signup"},
+              {"id": "federation_join"}
+            ],
+            "funnel_viz_type": "steps",
+            "display": "FunnelViz"
+          }
+        }
+      ]
+    },
+    {
+      "name": "API Performance",
+      "description": "API reliability, performance, and error tracking",
+      "tags": ["api", "performance", "reliability"],
+      "panels": [
+        {
+          "name": "Requests Per Minute",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "display": "ActionsLineGraph",
+            "interval": "minute",
+            "date_from": "-24h"
+          }
+        },
+        {
+          "name": "Average Response Time",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "math": "avg",
+            "math_property": "properties.duration_ms",
+            "display": "ActionsLineGraph",
+            "interval": "hour",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "P95 Response Time",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "math": "p95",
+            "math_property": "properties.duration_ms",
+            "display": "ActionsLineGraph",
+            "interval": "hour",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Error Rate",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "filters": {
+              "properties": [
+                {
+                  "key": "properties.status_code",
+                  "operator": "gte",
+                  "value": 500
+                }
+              ]
+            },
+            "display": "ActionsLineGraph",
+            "interval": "hour",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Status Code Distribution",
+          "type": "bar",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "breakdown": "properties.status_code",
+            "display": "ActionsBar",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Slowest Endpoints",
+          "type": "table",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "breakdown": "properties.endpoint",
+            "math": "avg",
+            "math_property": "properties.duration_ms",
+            "display": "ActionsTable",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Most Popular Endpoints",
+          "type": "bar",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "breakdown": "properties.endpoint",
+            "display": "ActionsBar",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "HTTP Method Distribution",
+          "type": "pie",
+          "insight": {
+            "events": [{"id": "api_request"}],
+            "breakdown": "properties.method",
+            "display": "ActionsPie",
+            "date_from": "-7d"
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Journey & Activation",
+      "description": "Onboarding funnel and feature adoption tracking",
+      "tags": ["onboarding", "activation", "funnel"],
+      "panels": [
+        {
+          "name": "Activation Funnel",
+          "type": "funnel",
+          "insight": {
+            "events": [
+              {"id": "user_signup"},
+              {"id": "memory_create"},
+              {"id": "memory_search"},
+              {"id": "federation_join"}
+            ],
+            "funnel_viz_type": "steps",
+            "display": "FunnelViz"
+          }
+        },
+        {
+          "name": "Time to First Memory",
+          "type": "histogram",
+          "insight": {
+            "events": [{"id": "memory_create"}],
+            "filters": {
+              "properties": [
+                {
+                  "key": "$time_from_signup",
+                  "operator": "is_set"
+                }
+              ]
+            },
+            "property": "$time_from_signup",
+            "display": "ActionsBar"
+          }
+        },
+        {
+          "name": "Feature Adoption Timeline",
+          "type": "stickiness",
+          "insight": {
+            "events": [
+              {"id": "memory_create"},
+              {"id": "memory_search"},
+              {"id": "federation_join"}
+            ],
+            "display": "ActionsLineGraph",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Power Users (10+ actions/week)",
+          "type": "trend",
+          "insight": {
+            "events": [
+              {"id": "memory_create"},
+              {"id": "memory_search"}
+            ],
+            "filters": {
+              "properties": [
+                {
+                  "key": "$weekly_event_count",
+                  "operator": "gte",
+                  "value": 10
+                }
+              ]
+            },
+            "display": "ActionsLineGraph",
+            "interval": "week",
+            "date_from": "-12w"
+          }
+        },
+        {
+          "name": "Churn Risk (No activity in 7 days)",
+          "type": "cohort",
+          "insight": {
+            "events": [{"id": "session_start"}],
+            "filters": {
+              "properties": [
+                {
+                  "key": "$days_since_last_seen",
+                  "operator": "gte",
+                  "value": 7
+                }
+              ]
+            },
+            "display": "ActionsTable"
+          }
+        }
+      ]
+    },
+    {
+      "name": "CLI Usage Analytics",
+      "description": "Command-line interface usage patterns",
+      "tags": ["cli", "usage"],
+      "panels": [
+        {
+          "name": "CLI Commands Per Day",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "cli_command"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Most Used Commands",
+          "type": "bar",
+          "insight": {
+            "events": [{"id": "cli_command"}],
+            "breakdown": "properties.command",
+            "display": "ActionsBar",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Command Success Rate",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "cli_command"}],
+            "filters": {
+              "properties": [
+                {
+                  "key": "properties.success",
+                  "operator": "exact",
+                  "value": true
+                }
+              ]
+            },
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Average Command Duration",
+          "type": "table",
+          "insight": {
+            "events": [{"id": "cli_command"}],
+            "breakdown": "properties.command",
+            "math": "avg",
+            "math_property": "properties.duration_ms",
+            "display": "ActionsTable",
+            "date_from": "-30d"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Monitoring",
+      "description": "Error tracking and debugging",
+      "tags": ["errors", "monitoring", "debugging"],
+      "panels": [
+        {
+          "name": "Errors Per Day",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "error"}],
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Error Types Distribution",
+          "type": "pie",
+          "insight": {
+            "events": [{"id": "error"}],
+            "breakdown": "properties.error_type",
+            "display": "ActionsPie",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Errors by Context",
+          "type": "bar",
+          "insight": {
+            "events": [{"id": "error"}],
+            "breakdown": "properties.context",
+            "display": "ActionsBar",
+            "date_from": "-7d"
+          }
+        },
+        {
+          "name": "Fatal vs Non-Fatal Errors",
+          "type": "trend",
+          "insight": {
+            "events": [{"id": "error"}],
+            "breakdown": "properties.fatal",
+            "display": "ActionsLineGraph",
+            "interval": "day",
+            "date_from": "-30d"
+          }
+        },
+        {
+          "name": "Recent Errors",
+          "type": "table",
+          "insight": {
+            "events": [{"id": "error"}],
+            "display": "ActionsTable",
+            "properties": [
+              "properties.error_type",
+              "properties.context",
+              "properties.fatal"
+            ],
+            "date_from": "-24h"
+          }
+        }
+      ]
+    }
+  ],
+  "alerts": [
+    {
+      "name": "High Error Rate",
+      "condition": {
+        "event": "error",
+        "threshold": 50,
+        "interval": "hour",
+        "operator": "gt"
+      },
+      "notification": {
+        "channels": ["email", "slack"],
+        "message": "Error rate exceeded 50/hour"
+      }
+    },
+    {
+      "name": "API P95 Degradation",
+      "condition": {
+        "event": "api_request",
+        "property": "properties.duration_ms",
+        "math": "p95",
+        "threshold": 1000,
+        "interval": "hour",
+        "operator": "gt"
+      },
+      "notification": {
+        "channels": ["slack", "pagerduty"],
+        "message": "API P95 response time exceeded 1000ms"
+      }
+    },
+    {
+      "name": "Signup Spike",
+      "condition": {
+        "event": "user_signup",
+        "threshold": 100,
+        "interval": "hour",
+        "operator": "gt"
+      },
+      "notification": {
+        "channels": ["slack"],
+        "message": "Unusual signup activity detected"
+      }
+    },
+    {
+      "name": "Federation Sync Failures",
+      "condition": {
+        "event": "error",
+        "filters": {
+          "properties": [
+            {
+              "key": "properties.context",
+              "operator": "contains",
+              "value": "federation"
+            }
+          ]
+        },
+        "threshold": 10,
+        "interval": "hour",
+        "operator": "gt"
+      },
+      "notification": {
+        "channels": ["email"],
+        "message": "Federation sync errors exceed threshold"
+      }
+    }
+  ]
+}

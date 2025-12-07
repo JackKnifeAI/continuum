@@ -1,0 +1,202 @@
+# Sentry Error Grouping Rules for CONTINUUM
+#
+# These rules customize how errors are grouped in Sentry.
+# Upload to Sentry: Settings → Projects → continuum → Processing → Issue Grouping
+#
+# See: https://docs.sentry.io/product/data-management-settings/event-grouping/
+
+# =============================================================================
+# FINGERPRINT RULES
+# =============================================================================
+# Group errors by custom fingerprints
+
+fingerprint-rules:
+  # Group all recall errors together
+  - matcher: error.type:RecallError
+    fingerprint: ["recall-error", "{{ error.value }}"]
+
+  # Group all learn errors together
+  - matcher: error.type:LearnError
+    fingerprint: ["learn-error", "{{ error.value }}"]
+
+  # Group federation errors by peer
+  - matcher: tags.federation_peer:*
+    fingerprint: ["federation-error", "{{ tags.federation_peer }}", "{{ error.type }}"]
+
+  # Group database errors by operation
+  - matcher: error.type:OperationalError
+    fingerprint: ["database-error", "{{ tags.operation }}"]
+
+  # Group Redis cache errors
+  - matcher: error.type:RedisError
+    fingerprint: ["cache-error", "{{ error.value }}"]
+
+  # Group API validation errors
+  - matcher: error.type:ValidationError
+    fingerprint: ["validation-error", "{{ tags.operation }}"]
+
+  # Group timeout errors by operation
+  - matcher: error.type:TimeoutError
+    fingerprint: ["timeout-error", "{{ tags.operation }}"]
+
+  # Group WebSocket errors
+  - matcher: error.type:WebSocketException
+    fingerprint: ["websocket-error", "{{ error.value }}"]
+
+# =============================================================================
+# STACK TRACE RULES
+# =============================================================================
+# Customize stack trace grouping
+
+stack-trace-rules:
+  # Ignore external framework frames (focus on CONTINUUM code)
+  - matcher: function:uvicorn.*
+    action: ignore
+
+  - matcher: function:fastapi.routing.*
+    action: ignore
+
+  - matcher: function:starlette.*
+    action: ignore
+
+  - matcher: function:sqlalchemy.engine.*
+    action: ignore
+
+  - matcher: function:redis.client.*
+    action: ignore
+
+  # Group by CONTINUUM-specific frames
+  - matcher: path:**/continuum/core/**
+    action: group
+
+  - matcher: path:**/continuum/api/**
+    action: group
+
+  - matcher: path:**/continuum/cli/**
+    action: group
+
+  - matcher: path:**/continuum/storage/**
+    action: group
+
+  - matcher: path:**/continuum/coordination/**
+    action: group
+
+# =============================================================================
+# TITLE RULES
+# =============================================================================
+# Customize error titles
+
+title-rules:
+  # Better titles for common errors
+  - matcher: error.type:RecallError
+    title: "Memory Recall Failed: {{ error.value }}"
+
+  - matcher: error.type:LearnError
+    title: "Memory Learning Failed: {{ error.value }}"
+
+  - matcher: error.type:ValidationError AND tags.operation:recall
+    title: "Invalid Recall Request: {{ error.value }}"
+
+  - matcher: error.type:ValidationError AND tags.operation:learn
+    title: "Invalid Learn Request: {{ error.value }}"
+
+  - matcher: error.type:OperationalError AND message:*database*
+    title: "Database Error: {{ error.value }}"
+
+  - matcher: error.type:RedisError
+    title: "Cache Error: {{ error.value }}"
+
+  - matcher: tags.federation_peer:* AND error.type:*
+    title: "Federation Error ({{ tags.federation_peer }}): {{ error.type }}"
+
+# =============================================================================
+# MERGE RULES
+# =============================================================================
+# Automatically merge similar issues
+
+merge-rules:
+  # Merge similar database errors
+  - source: error.type:OperationalError AND message:*database is locked*
+    target: database-locked-errors
+
+  - source: error.type:OperationalError AND message:*connection refused*
+    target: database-connection-errors
+
+  # Merge similar Redis errors
+  - source: error.type:RedisError AND message:*connection*
+    target: redis-connection-errors
+
+  # Merge timeout errors by operation
+  - source: error.type:TimeoutError AND tags.operation:recall
+    target: recall-timeout-errors
+
+  - source: error.type:TimeoutError AND tags.operation:sync
+    target: sync-timeout-errors
+
+# =============================================================================
+# CUSTOM ATTRIBUTES
+# =============================================================================
+# Extract custom attributes for better filtering
+
+custom-attributes:
+  # Extract operation type
+  - name: memory_operation
+    path: tags.memory_operation
+    type: string
+
+  # Extract model type
+  - name: model_type
+    path: tags.model_type
+    type: string
+
+  # Extract federation peer
+  - name: federation_peer
+    path: tags.federation_peer
+    type: string
+
+  # Extract tenant hash (anonymized)
+  - name: tenant_hash
+    path: user.tenant_id_hash
+    type: string
+
+  # Extract environment
+  - name: environment
+    path: environment
+    type: string
+
+  # Extract release
+  - name: release
+    path: release
+    type: string
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# How to use these rules:
+#
+# 1. Upload to Sentry:
+#    - Go to: Settings → Projects → continuum → Processing → Issue Grouping
+#    - Upload this file
+#    - Or copy/paste into the web UI
+#
+# 2. Test rules:
+#    - Trigger test errors with known patterns
+#    - Check that they group correctly in Issues tab
+#    - Adjust rules as needed
+#
+# 3. Monitor performance:
+#    - Check "Processing" tab for rule match statistics
+#    - Optimize rules that are too broad or too specific
+#
+# 4. Update regularly:
+#    - As new error patterns emerge, add rules
+#    - Remove rules for deprecated code
+#    - Keep rules maintainable (don't over-optimize)
+#
+# Best practices:
+# - Start with broad rules, then refine
+# - Use tags for grouping (not error messages - they change)
+# - Test rules in staging before production
+# - Document why each rule exists
+# - Review rules quarterly

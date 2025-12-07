@@ -1,0 +1,22 @@
+# Source
+src/
+example/
+
+# Build tools
+tsconfig.json
+tsconfig.build.json
+
+# Tests
+__tests__/
+**/__tests__/
+**/__mocks__/
+coverage/
+
+# Documentation
+docs/
+
+# Development
+.vscode/
+.idea/
+*.log
+.DS_Store

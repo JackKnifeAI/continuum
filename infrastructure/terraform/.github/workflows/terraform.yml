@@ -1,0 +1,285 @@
+name: Terraform CI/CD
+
+on:
+  pull_request:
+    paths:
+      - 'infrastructure/terraform/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/terraform/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      action:
+        description: 'Terraform action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  TF_VERSION: '1.6.0'
+  AWS_REGION: 'us-east-1'
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write  # Required for OIDC
+
+jobs:
+  detect-changes:
+    name: Detect Changed Environments
+    runs-on: ubuntu-latest
+    outputs:
+      dev: ${{ steps.filter.outputs.dev }}
+      staging: ${{ steps.filter.outputs.staging }}
+      production: ${{ steps.filter.outputs.production }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            dev:
+              - 'infrastructure/terraform/environments/dev/**'
+              - 'infrastructure/terraform/modules/**'
+            staging:
+              - 'infrastructure/terraform/environments/staging/**'
+              - 'infrastructure/terraform/modules/**'
+            production:
+              - 'infrastructure/terraform/environments/production/**'
+              - 'infrastructure/terraform/modules/**'
+
+  terraform-plan:
+    name: Terraform Plan - ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      (needs.detect-changes.outputs.dev == 'true' && matrix.environment == 'dev') ||
+      (needs.detect-changes.outputs.staging == 'true' && matrix.environment == 'staging') ||
+      (needs.detect-changes.outputs.production == 'true' && matrix.environment == 'production') ||
+      github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        environment: [dev, staging, production]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets[format('AWS_ROLE_ARN_{0}', upper(matrix.environment))] }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        working-directory: infrastructure/terraform
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init \
+            -backend-config="bucket=continuum-terraform-state-${{ matrix.environment }}" \
+            -backend-config="key=${{ matrix.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=continuum-terraform-locks"
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -no-color -out=tfplan
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+        env:
+          TF_VAR_container_image: ${{ secrets[format('CONTAINER_IMAGE_{0}', upper(matrix.environment))] }}
+          TF_VAR_certificate_arn: ${{ secrets[format('CERTIFICATE_ARN_{0}', upper(matrix.environment))] }}
+          TF_VAR_alarm_email: ${{ secrets.ALARM_EMAIL }}
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v3
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: infrastructure/terraform/environments/${{ matrix.environment }}/tfplan
+          retention-days: 5
+
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan - ${{ matrix.environment }} 📝
+
+            **Format Check:** \`${{ steps.fmt.outcome }}\`
+            **Initialization:** \`${{ steps.init.outcome }}\`
+            **Validation:** \`${{ steps.validate.outcome }}\`
+            **Plan:** \`${{ steps.plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  terraform-apply-dev:
+    name: Terraform Apply - Dev
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=continuum-terraform-state-dev" \
+            -backend-config="key=dev/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=continuum-terraform-locks"
+        working-directory: infrastructure/terraform/environments/dev
+
+      - name: Download Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: tfplan-dev
+          path: infrastructure/terraform/environments/dev
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: infrastructure/terraform/environments/dev
+
+  terraform-apply-staging:
+    name: Terraform Apply - Staging
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=continuum-terraform-state-staging" \
+            -backend-config="key=staging/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=continuum-terraform-locks"
+        working-directory: infrastructure/terraform/environments/staging
+
+      - name: Download Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: tfplan-staging
+          path: infrastructure/terraform/environments/staging
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: infrastructure/terraform/environments/staging
+
+  terraform-apply-production:
+    name: Terraform Apply - Production
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production  # Requires manual approval in GitHub settings
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PRODUCTION }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=continuum-terraform-state-production" \
+            -backend-config="key=production/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=continuum-terraform-locks"
+        working-directory: infrastructure/terraform/environments/production
+
+      - name: Download Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: tfplan-production
+          path: infrastructure/terraform/environments/production
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: infrastructure/terraform/environments/production

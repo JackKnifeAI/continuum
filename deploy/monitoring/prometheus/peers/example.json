@@ -1,0 +1,18 @@
+[
+  {
+    "targets": ["peer1.continuum.local:8001"],
+    "labels": {
+      "job": "continuum-peers",
+      "peer_id": "peer-1",
+      "region": "us-east-1"
+    }
+  },
+  {
+    "targets": ["peer2.continuum.local:8001"],
+    "labels": {
+      "job": "continuum-peers",
+      "peer_id": "peer-2",
+      "region": "us-west-2"
+    }
+  }
+]

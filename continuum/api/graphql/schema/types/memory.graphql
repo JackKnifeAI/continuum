@@ -1,0 +1,148 @@
+"""
+Memory type definitions for storing and retrieving conversational memory.
+"""
+
+"""A single memory item"""
+type Memory implements Node {
+  """Unique identifier"""
+  id: ID!
+
+  """Memory content (text)"""
+  content: String!
+
+  """Type of memory"""
+  memoryType: MemoryType!
+
+  """Importance score (0.0 - 1.0)"""
+  importance: Float!
+
+  """Vector embedding for semantic search"""
+  embedding: Vector
+
+  """Associated concepts"""
+  concepts(
+    """Maximum concepts to return"""
+    limit: Int = 10
+  ): [Concept!]!
+
+  """Related memories (semantic similarity)"""
+  relatedMemories(
+    """Maximum memories to return"""
+    limit: Int = 10
+
+    """Minimum similarity threshold (0.0 - 1.0)"""
+    threshold: Float = 0.7
+  ): [Memory!]!
+
+  """Session this memory belongs to"""
+  session: Session
+
+  """Metadata (arbitrary JSON)"""
+  metadata: JSON
+
+  """Number of times this memory was accessed"""
+  accessCount: Int!
+
+  """Creation timestamp"""
+  createdAt: DateTime!
+
+  """Last update timestamp"""
+  updatedAt: DateTime!
+
+  """Last access timestamp"""
+  lastAccessedAt: DateTime
+
+  """Tenant ID"""
+  tenantId: String!
+}
+
+"""Memory connection for pagination"""
+type MemoryConnection {
+  """List of memory edges"""
+  edges: [MemoryEdge!]!
+
+  """Page information"""
+  pageInfo: PageInfo!
+
+  """Total count"""
+  totalCount: Int!
+}
+
+"""Memory edge"""
+type MemoryEdge {
+  """Cursor for this edge"""
+  cursor: Cursor!
+
+  """The memory"""
+  node: Memory!
+
+  """Relevance score (if from search)"""
+  score: Float
+}
+
+"""Filter options for memories"""
+input MemoryFilter {
+  """Filter by memory type"""
+  memoryType: MemoryType
+
+  """Filter by minimum importance"""
+  minImportance: Float
+
+  """Filter by concepts"""
+  concepts: [String!]
+
+  """Filter by session"""
+  sessionId: ID
+
+  """Filter by date range"""
+  createdAfter: DateTime
+  createdBefore: DateTime
+
+  """Search query"""
+  search: String
+}
+
+"""Input for creating a memory"""
+input CreateMemoryInput {
+  """Memory content"""
+  content: String!
+
+  """Memory type"""
+  memoryType: MemoryType!
+
+  """Importance score (0.0 - 1.0)"""
+  importance: Float = 0.5
+
+  """Session ID"""
+  sessionId: ID
+
+  """Metadata"""
+  metadata: JSON
+}
+
+"""Input for updating a memory"""
+input UpdateMemoryInput {
+  """New content"""
+  content: String
+
+  """New importance"""
+  importance: Float
+
+  """New metadata"""
+  metadata: JSON
+}
+
+"""Search result for memories"""
+type SearchResult {
+  """The memory"""
+  memory: Memory!
+
+  """Relevance score"""
+  score: Float!
+
+  """Why this result matched"""
+  matchedFields: [String!]!
+
+  """Highlighted snippets"""
+  highlights: [String!]
+}

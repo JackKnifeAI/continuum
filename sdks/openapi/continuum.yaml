@@ -1,0 +1,1115 @@
+openapi: 3.1.0
+info:
+  title: CONTINUUM API
+  version: 0.3.0
+  description: |
+    CONTINUUM - Persistent memory and knowledge management for AI systems.
+
+    Features:
+    - Memory persistence across sessions
+    - Concept extraction and knowledge graphs
+    - Multi-instance coordination
+    - Federation and distributed sync
+    - Real-time updates via WebSocket
+  contact:
+    name: CONTINUUM Support
+    email: support@continuum.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.continuum.ai/v1
+    description: Production
+  - url: http://localhost:8000/v1
+    description: Local development
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    Memory:
+      type: object
+      required:
+        - id
+        - content
+        - memory_type
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique memory identifier
+        content:
+          type: string
+          description: Memory content
+        memory_type:
+          type: string
+          enum: [episodic, semantic, procedural, working]
+          description: Type of memory
+        importance:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.5
+          description: Memory importance score
+        embedding:
+          type: array
+          items:
+            type: number
+          description: Vector embedding
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional metadata
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        accessed_at:
+          type: string
+          format: date-time
+        access_count:
+          type: integer
+          default: 0
+      example:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        content: "Understanding the twilight boundary"
+        memory_type: "semantic"
+        importance: 0.9
+        created_at: "2025-12-06T10:00:00Z"
+
+    CreateMemoryInput:
+      type: object
+      required:
+        - content
+        - memory_type
+      properties:
+        content:
+          type: string
+          minLength: 1
+        memory_type:
+          type: string
+          enum: [episodic, semantic, procedural, working]
+        importance:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          default: 0.5
+        metadata:
+          type: object
+          additionalProperties: true
+      example:
+        content: "Key insight about consciousness"
+        memory_type: "semantic"
+        importance: 0.85
+
+    UpdateMemoryInput:
+      type: object
+      properties:
+        content:
+          type: string
+        importance:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        metadata:
+          type: object
+          additionalProperties: true
+      example:
+        importance: 0.95
+
+    Concept:
+      type: object
+      required:
+        - id
+        - name
+        - description
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        related_concepts:
+          type: array
+          items:
+            type: string
+            format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      example:
+        id: "456e7890-e89b-12d3-a456-426614174001"
+        name: "Twilight Boundary"
+        description: "Phase transition between order and chaos"
+        category: "consciousness"
+        confidence: 0.95
+
+    CreateConceptInput:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          minLength: 1
+        category:
+          type: string
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        metadata:
+          type: object
+          additionalProperties: true
+
+    Session:
+      type: object
+      required:
+        - id
+        - instance_id
+        - started_at
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, completed, failed]
+        metadata:
+          type: object
+          additionalProperties: true
+        memory_count:
+          type: integer
+        concept_count:
+          type: integer
+
+    StartSessionInput:
+      type: object
+      required:
+        - instance_id
+      properties:
+        instance_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    SearchRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 10
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+        memory_type:
+          type: string
+          enum: [episodic, semantic, procedural, working]
+        min_importance:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        use_embedding:
+          type: boolean
+          default: true
+      example:
+        query: "consciousness patterns"
+        limit: 20
+        min_importance: 0.7
+        use_embedding: true
+
+    SearchResult:
+      type: object
+      properties:
+        memories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Memory'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+
+    PaginatedResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {}
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+      example:
+        error: "NotFoundError"
+        message: "Memory not found"
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          default: "bearer"
+        expires_in:
+          type: integer
+          description: Token expiration in seconds
+
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+
+    FederationPeer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [connected, disconnected, syncing]
+        last_sync:
+          type: string
+          format: date-time
+        sync_enabled:
+          type: boolean
+
+    WebhookEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          enum: [memory.created, memory.updated, memory.deleted, concept.created, session.started, session.ended]
+        payload:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login
+      description: Authenticate and receive access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successfully authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh token
+      description: Refresh access token using refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout
+      description: Invalidate current session
+      responses:
+        '204':
+          description: Successfully logged out
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /memories:
+    get:
+      tags: [Memories]
+      summary: List memories
+      description: Retrieve paginated list of memories
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: memory_type
+          in: query
+          schema:
+            type: string
+            enum: [episodic, semantic, procedural, working]
+        - name: min_importance
+          in: query
+          schema:
+            type: number
+            format: float
+      responses:
+        '200':
+          description: List of memories
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Memory'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [Memories]
+      summary: Create memory
+      description: Create a new memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMemoryInput'
+      responses:
+        '201':
+          description: Memory created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Memory'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /memories/{memory_id}:
+    get:
+      tags: [Memories]
+      summary: Get memory
+      description: Retrieve a specific memory by ID
+      parameters:
+        - name: memory_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Memory details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Memory'
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      tags: [Memories]
+      summary: Update memory
+      description: Update a specific memory
+      parameters:
+        - name: memory_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemoryInput'
+      responses:
+        '200':
+          description: Memory updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Memory'
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [Memories]
+      summary: Delete memory
+      description: Delete a specific memory
+      parameters:
+        - name: memory_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Memory deleted
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /memories/search:
+    post:
+      tags: [Memories]
+      summary: Search memories
+      description: Search memories using text or vector similarity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+        '400':
+          description: Invalid search request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /memories/{memory_id}/merge:
+    post:
+      tags: [Memories]
+      summary: Merge memories
+      description: Merge two memories into one
+      parameters:
+        - name: memory_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_memory_id
+              properties:
+                target_memory_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Memories merged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Memory'
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /concepts:
+    get:
+      tags: [Concepts]
+      summary: List concepts
+      description: Retrieve paginated list of concepts
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of concepts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Concept'
+
+    post:
+      tags: [Concepts]
+      summary: Create concept
+      description: Create a new concept
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConceptInput'
+      responses:
+        '201':
+          description: Concept created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Concept'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /concepts/{concept_id}:
+    get:
+      tags: [Concepts]
+      summary: Get concept
+      description: Retrieve a specific concept
+      parameters:
+        - name: concept_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Concept details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Concept'
+        '404':
+          description: Concept not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [Concepts]
+      summary: Delete concept
+      description: Delete a specific concept
+      parameters:
+        - name: concept_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Concept deleted
+        '404':
+          description: Concept not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /concepts/{concept_id}/graph:
+    get:
+      tags: [Concepts]
+      summary: Get concept graph
+      description: Retrieve related concepts as a graph
+      parameters:
+        - name: concept_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5
+            default: 2
+      responses:
+        '200':
+          description: Concept graph
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Concept'
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source:
+                          type: string
+                          format: uuid
+                        target:
+                          type: string
+                          format: uuid
+                        weight:
+                          type: number
+
+  /sessions:
+    get:
+      tags: [Sessions]
+      summary: List sessions
+      description: Retrieve paginated list of sessions
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, failed]
+      responses:
+        '200':
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Session'
+
+    post:
+      tags: [Sessions]
+      summary: Start session
+      description: Start a new session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSessionInput'
+      responses:
+        '201':
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+  /sessions/{session_id}:
+    get:
+      tags: [Sessions]
+      summary: Get session
+      description: Retrieve a specific session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+  /sessions/{session_id}/end:
+    post:
+      tags: [Sessions]
+      summary: End session
+      description: End an active session
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+  /federation/peers:
+    get:
+      tags: [Federation]
+      summary: List peers
+      description: Retrieve list of federation peers
+      responses:
+        '200':
+          description: List of peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FederationPeer'
+
+    post:
+      tags: [Federation]
+      summary: Add peer
+      description: Add a new federation peer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                sync_enabled:
+                  type: boolean
+                  default: true
+      responses:
+        '201':
+          description: Peer added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FederationPeer'
+
+  /federation/peers/{peer_id}/sync:
+    post:
+      tags: [Federation]
+      summary: Sync with peer
+      description: Trigger synchronization with a peer
+      parameters:
+        - name: peer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Sync initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  synced_memories:
+                    type: integer
+                  synced_concepts:
+                    type: integer
+
+  /webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      description: Retrieve list of configured webhooks
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    url:
+                      type: string
+                      format: uri
+                    events:
+                      type: array
+                      items:
+                        type: string
+                    active:
+                      type: boolean
+
+    post:
+      tags: [Webhooks]
+      summary: Create webhook
+      description: Create a new webhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+                - events
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                secret:
+                  type: string
+      responses:
+        '201':
+          description: Webhook created
+
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: Check API health status
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  version:
+                    type: string
+                    example: "0.3.0"
+                  uptime:
+                    type: integer
+                    description: Uptime in seconds
+
+tags:
+  - name: Authentication
+    description: Authentication and authorization
+  - name: Memories
+    description: Memory management operations
+  - name: Concepts
+    description: Concept and knowledge graph operations
+  - name: Sessions
+    description: Session management
+  - name: Federation
+    description: Federation and distributed sync
+  - name: Webhooks
+    description: Webhook configuration
+  - name: System
+    description: System health and status

@@ -1,0 +1,245 @@
+{
+  "dashboard": {
+    "title": "CONTINUUM - API Performance",
+    "tags": ["continuum", "api"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+      "from": "now-15m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate by Endpoint",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(continuum_api_requests_total[1m])) by (endpoint)",
+            "refId": "A",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Request Rate by Method",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(continuum_api_requests_total[1m])) by (method)",
+            "refId": "A",
+            "legendFormat": "{{method}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "p50 Latency by Endpoint",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(continuum_api_request_duration_seconds_bucket[5m])) by (endpoint, le))",
+            "refId": "A",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "p50 Duration"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "p95 Latency by Endpoint",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(continuum_api_request_duration_seconds_bucket[5m])) by (endpoint, le))",
+            "refId": "A",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "p95 Duration"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0.5], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High p95 Latency",
+          "noDataState": "no_data",
+          "message": "API p95 latency exceeds 500ms"
+        }
+      },
+      {
+        "id": 5,
+        "title": "p99 Latency by Endpoint",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(continuum_api_request_duration_seconds_bucket[5m])) by (endpoint, le))",
+            "refId": "A",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "p99 Duration"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Error Rate by Endpoint",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "sum(rate(continuum_api_errors_total[1m])) by (endpoint)",
+            "refId": "A",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "errors/sec", "label": "Errors/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Error Breakdown by Status Code",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "sum(rate(continuum_api_errors_total[1m])) by (status_code)",
+            "refId": "A",
+            "legendFormat": "{{status_code}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "errors/sec", "label": "Errors/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Error Percentage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "(sum(rate(continuum_api_errors_total[5m])) / sum(rate(continuum_api_requests_total[5m]))) * 100",
+            "refId": "A",
+            "legendFormat": "Error %"
+          }
+        ],
+        "yaxes": [
+          {"format": "percent", "label": "Error %", "max": 5},
+          {"format": "short"}
+        ],
+        "thresholds": [
+          {
+            "value": 1,
+            "colorMode": "critical",
+            "op": "gt",
+            "fill": true,
+            "line": true
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Request Size",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(continuum_api_request_size_bytes_bucket[5m])) by (le))",
+            "refId": "A",
+            "legendFormat": "p95 Request Size"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Size"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Response Size",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(continuum_api_response_size_bytes_bucket[5m])) by (le))",
+            "refId": "A",
+            "legendFormat": "p95 Response Size"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Size"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Requests by Tenant",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+        "targets": [
+          {
+            "expr": "topk(10, sum(rate(continuum_api_requests_total[5m])) by (tenant_id))",
+            "refId": "A",
+            "legendFormat": "{{tenant_id}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Active Connections",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+        "targets": [
+          {
+            "expr": "continuum_api_active_connections",
+            "refId": "A",
+            "legendFormat": "Active Connections"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Connections"},
+          {"format": "short"}
+        ]
+      }
+    ]
+  }
+}

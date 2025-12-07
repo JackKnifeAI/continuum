@@ -1,0 +1,350 @@
+{
+  "dashboard": {
+    "title": "CONTINUUM - Overview",
+    "tags": ["continuum", "overview"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health Score",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "(\n  (1 - rate(continuum_api_errors_total[5m]) / rate(continuum_api_requests_total[5m])) * 0.4 +\n  (continuum_federation_peers_healthy / continuum_federation_peers_total) * 0.3 +\n  (1 - (continuum_memory_usage_bytes / continuum_memory_limit_bytes)) * 0.15 +\n  (1 - (continuum_disk_usage_bytes / continuum_disk_limit_bytes)) * 0.15\n) * 100",
+            "refId": "A",
+            "legendFormat": "Health Score"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 70, "color": "yellow"},
+                {"value": 90, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "API Request Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 9, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(continuum_api_requests_total[1m])",
+            "refId": "A",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 9, "x": 15, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(continuum_api_errors_total[1m])",
+            "refId": "A",
+            "legendFormat": "{{status_code}} {{endpoint}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "errors/sec", "label": "Errors/sec"},
+          {"format": "short"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0.01], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High Error Rate",
+          "noDataState": "no_data",
+          "message": "API error rate exceeds 1%"
+        }
+      },
+      {
+        "id": 4,
+        "title": "API Latency (p50, p95, p99)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(continuum_api_request_duration_seconds_bucket[5m]))",
+            "refId": "A",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(continuum_api_request_duration_seconds_bucket[5m]))",
+            "refId": "B",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(continuum_api_request_duration_seconds_bucket[5m]))",
+            "refId": "C",
+            "legendFormat": "p99"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Duration"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Memory Operations/sec",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(continuum_memory_operations_total{operation=\"store\"}[1m])",
+            "refId": "A",
+            "legendFormat": "Store"
+          },
+          {
+            "expr": "rate(continuum_memory_operations_total{operation=\"query\"}[1m])",
+            "refId": "B",
+            "legendFormat": "Query"
+          },
+          {
+            "expr": "rate(continuum_memory_operations_total{operation=\"delete\"}[1m])",
+            "refId": "C",
+            "legendFormat": "Delete"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Operations/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Federation Sync Latency",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "continuum_federation_sync_latency_seconds",
+            "refId": "A",
+            "legendFormat": "{{peer_id}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Latency"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Federation Message Queue",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+        "targets": [
+          {
+            "expr": "continuum_federation_queue_depth",
+            "refId": "A",
+            "legendFormat": "{{peer_id}}"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Messages"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Cache Hit Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(continuum_cache_hits_total[5m]) / (rate(continuum_cache_hits_total[5m]) + rate(continuum_cache_misses_total[5m]))",
+            "refId": "A",
+            "legendFormat": "Hit Rate"
+          }
+        ],
+        "yaxes": [
+          {"format": "percentunit", "label": "Hit Rate"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Active Users (24h)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "count(count_over_time(continuum_api_requests_total{tenant_id!=\"\"}[24h]) by (tenant_id))",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Total Memories Stored",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 4, "y": 24},
+        "targets": [
+          {
+            "expr": "continuum_memories_total",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Queries/Day",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 8, "y": 24},
+        "targets": [
+          {
+            "expr": "sum(increase(continuum_memory_operations_total{operation=\"query\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Storage Growth (24h)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 12, "y": 24},
+        "targets": [
+          {
+            "expr": "delta(continuum_storage_bytes[24h])",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "CPU Usage",
+        "type": "graph",
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "rate(process_cpu_seconds_total{job=\"continuum\"}[1m]) * 100",
+            "refId": "A",
+            "legendFormat": "CPU %"
+          }
+        ],
+        "yaxes": [
+          {"format": "percent", "label": "CPU"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 28},
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes{job=\"continuum\"}",
+            "refId": "A",
+            "legendFormat": "RSS"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Memory"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Disk Usage",
+        "type": "graph",
+        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 28},
+        "targets": [
+          {
+            "expr": "continuum_disk_usage_bytes",
+            "refId": "A",
+            "legendFormat": "Used"
+          },
+          {
+            "expr": "continuum_disk_limit_bytes",
+            "refId": "B",
+            "legendFormat": "Limit"
+          }
+        ],
+        "yaxes": [
+          {"format": "bytes", "label": "Disk"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 16,
+        "title": "Recent Alerts",
+        "type": "alertlist",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 34},
+        "options": {
+          "show": "current",
+          "limit": 10,
+          "sortOrder": 1,
+          "dashboardAlerts": true,
+          "alertName": "",
+          "dashboardTitle": "",
+          "tags": ["continuum"],
+          "stateFilter": {
+            "ok": true,
+            "paused": true,
+            "no_data": true,
+            "execution_error": true,
+            "alerting": true,
+            "pending": true
+          }
+        }
+      }
+    ]
+  }
+}

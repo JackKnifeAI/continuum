@@ -1,0 +1,92 @@
+{
+  "manifest_version": 2,
+  "name": "CONTINUUM - AI Memory",
+  "version": "1.0.0",
+  "description": "Your AI never forgets. Capture, recall, and connect knowledge across the web.",
+  "author": "CONTINUUM",
+
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "activeTab",
+    "notifications",
+    "<all_urls>"
+  ],
+
+  "background": {
+    "scripts": ["build/background.js"]
+  },
+
+  "browser_action": {
+    "default_popup": "build/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    },
+    "default_title": "CONTINUUM Memory"
+  },
+
+  "sidebar_action": {
+    "default_title": "CONTINUUM",
+    "default_panel": "build/sidebar.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["build/content.js"],
+    "css": ["build/content.css"],
+    "run_at": "document_idle"
+  }],
+
+  "options_ui": {
+    "page": "build/options.html",
+    "open_in_tab": true
+  },
+
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+
+  "commands": {
+    "capture-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+C"
+      },
+      "description": "Capture selected text to CONTINUUM"
+    },
+    "quick-search": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      },
+      "description": "Quick search CONTINUUM memories"
+    },
+    "_execute_sidebar_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M"
+      }
+    }
+  },
+
+  "web_accessible_resources": [
+    "assets/*",
+    "build/overlay.html"
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "continuum@continuum.ai",
+      "strict_min_version": "109.0"
+    }
+  }
+}

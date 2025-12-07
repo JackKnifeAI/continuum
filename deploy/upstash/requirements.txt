@@ -1,0 +1,17 @@
+# Upstash Redis Dependencies for CONTINUUM
+
+# Upstash serverless Redis (REST API mode)
+# Use for: Cloudflare Workers, AWS Lambda, Vercel, any serverless environment
+upstash-redis>=0.15.0
+
+# Traditional Redis client (optional, for Redis protocol mode)
+# Use for: Containerized apps, K8s deployments, connection pooling
+redis>=5.0.0
+hiredis>=2.2.0  # C parser for better performance
+
+# MessagePack for efficient serialization (optional but recommended)
+# Reduces payload size by 30-50% compared to JSON
+msgpack>=1.0.0
+
+# Additional utilities
+typing-extensions>=4.0.0  # For compatibility with older Python versions

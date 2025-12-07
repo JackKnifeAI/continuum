@@ -1,0 +1,95 @@
+# Prometheus Configuration for CONTINUUM
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'continuum'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load alert rules
+rule_files:
+  - "/etc/prometheus/alerts.yml"
+
+# Scrape configurations
+scrape_configs:
+  # CONTINUUM API server
+  - job_name: 'continuum'
+    static_configs:
+      - targets: ['localhost:8000']
+        labels:
+          service: 'api'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # CONTINUUM Federation nodes
+  - job_name: 'continuum-federation'
+    static_configs:
+      - targets: ['localhost:8001', 'localhost:8002', 'localhost:8003']
+        labels:
+          service: 'federation'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+
+  # PostgreSQL/SQLite exporter (if using)
+  - job_name: 'database'
+    static_configs:
+      - targets: ['localhost:9187']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'continuum-db'
+
+  # Blackbox exporter for endpoint health checks
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://localhost:8000/health
+          - http://localhost:8000/api/v1/memories
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115
+
+  # Service discovery for dynamic federation peers
+  - job_name: 'continuum-peers'
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/peers/*.json'
+        refresh_interval: 30s
+
+# Remote write for long-term storage (optional)
+# remote_write:
+#   - url: "http://victoriametrics:8428/api/v1/write"
+#     queue_config:
+#       max_samples_per_send: 10000
+#       capacity: 500000
+#       max_shards: 200
+
+# Remote read for queries (optional)
+# remote_read:
+#   - url: "http://victoriametrics:8428/api/v1/read"

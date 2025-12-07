@@ -1,0 +1,143 @@
+# Alertmanager Configuration for CONTINUUM
+
+global:
+  resolve_timeout: 5m
+  # SMTP configuration (optional)
+  # smtp_smarthost: 'smtp.gmail.com:587'
+  # smtp_from: 'alerts@continuum.ai'
+  # smtp_auth_username: 'alerts@continuum.ai'
+  # smtp_auth_password: 'password'
+
+# Templates for alert notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for alert routing
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+
+  # Child routes
+  routes:
+    # Critical alerts - page immediately
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 0s
+      repeat_interval: 5m
+
+    # API alerts
+    - match:
+        component: api
+      receiver: 'api-team'
+      group_interval: 5m
+
+    # Federation alerts
+    - match:
+        component: federation
+      receiver: 'federation-team'
+      group_interval: 5m
+
+    # System resource alerts
+    - match:
+        component: system
+      receiver: 'ops-team'
+
+    # Business/info alerts
+    - match:
+        severity: info
+      receiver: 'info'
+      repeat_interval: 24h
+
+# Inhibit rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # Inhibit low health score if API is down
+  - source_match:
+      alertname: 'APIDown'
+    target_match:
+      alertname: 'LowHealthScore'
+    equal: ['instance']
+
+  # Inhibit peer-specific alerts if overall peer health is low
+  - source_match:
+      alertname: 'LowPeerHealth'
+    target_match:
+      alertname: 'PeerUnhealthy'
+
+  # Inhibit high latency if error rate is high (likely related)
+  - source_match:
+      alertname: 'HighErrorRate'
+    target_match_re:
+      alertname: 'High.*Latency'
+    equal: ['instance']
+
+# Receivers - where to send alerts
+receivers:
+  - name: 'default'
+    # Webhook to logging service
+    webhook_configs:
+      - url: 'http://localhost:8000/api/v1/alerts'
+        send_resolved: true
+
+  - name: 'critical'
+    # Multiple notification channels for critical alerts
+    # Slack
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+    #     channel: '#continuum-critical'
+    #     title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+    #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+    # PagerDuty
+    # pagerduty_configs:
+    #   - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+    #     description: '{{ .GroupLabels.alertname }}: {{ .GroupLabels.instance }}'
+
+    # Email
+    # email_configs:
+    #   - to: 'oncall@continuum.ai'
+    #     headers:
+    #       Subject: 'CRITICAL: {{ .GroupLabels.alertname }}'
+
+    # Webhook
+    webhook_configs:
+      - url: 'http://localhost:8000/api/v1/alerts/critical'
+        send_resolved: true
+
+  - name: 'api-team'
+    # Slack for API team
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+    #     channel: '#continuum-api'
+
+    webhook_configs:
+      - url: 'http://localhost:8000/api/v1/alerts/api'
+        send_resolved: true
+
+  - name: 'federation-team'
+    # Slack for federation team
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+    #     channel: '#continuum-federation'
+
+    webhook_configs:
+      - url: 'http://localhost:8000/api/v1/alerts/federation'
+        send_resolved: true
+
+  - name: 'ops-team'
+    # Email for ops team
+    # email_configs:
+    #   - to: 'ops@continuum.ai'
+
+    webhook_configs:
+      - url: 'http://localhost:8000/api/v1/alerts/ops'
+        send_resolved: true
+
+  - name: 'info'
+    # Just log info alerts
+    webhook_configs:
+      - url: 'http://localhost:8000/api/v1/alerts/info'
+        send_resolved: true

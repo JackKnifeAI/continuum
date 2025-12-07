@@ -1,0 +1,28 @@
+# Ignore load test results
+results/*.html
+results/*.csv
+results/*.log
+results/*.json
+
+# Keep the directory
+!results/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

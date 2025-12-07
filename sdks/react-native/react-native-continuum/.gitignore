@@ -1,0 +1,36 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build
+lib/
+*.log
+
+# iOS
+ios/build/
+ios/Pods/
+ios/*.xcworkspace
+!ios/*.xcworkspace/contents.xcworkspacedata
+
+# Android
+android/build/
+android/.gradle/
+android/app/build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.env
+.env.local

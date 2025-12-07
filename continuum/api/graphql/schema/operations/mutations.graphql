@@ -1,0 +1,207 @@
+"""
+GraphQL mutations for CONTINUUM API.
+"""
+
+type Mutation {
+  # =============================================================================
+  # MEMORY MUTATIONS
+  # =============================================================================
+
+  """Create a new memory"""
+  createMemory(
+    """Memory input"""
+    input: CreateMemoryInput!
+  ): Memory!
+
+  """Update an existing memory"""
+  updateMemory(
+    """Memory ID"""
+    id: ID!
+
+    """Update input"""
+    input: UpdateMemoryInput!
+  ): Memory!
+
+  """Delete a memory"""
+  deleteMemory(
+    """Memory ID"""
+    id: ID!
+  ): Boolean!
+
+  """Merge multiple memories into one"""
+  mergeMemories(
+    """Source memory IDs to merge"""
+    sourceIds: [ID!]!
+
+    """Target memory ID to merge into"""
+    targetId: ID!
+  ): Memory!
+
+  # =============================================================================
+  # CONCEPT MUTATIONS
+  # =============================================================================
+
+  """Create a new concept"""
+  createConcept(
+    """Concept input"""
+    input: CreateConceptInput!
+  ): Concept!
+
+  """Link two concepts with a relationship"""
+  linkConcepts(
+    """Source concept ID"""
+    sourceId: ID!
+
+    """Target concept ID"""
+    targetId: ID!
+
+    """Relationship type"""
+    relationship: ConceptRelationship!
+
+    """Custom relationship label"""
+    label: String
+
+    """Relationship strength (0.0 - 1.0)"""
+    strength: Float = 0.8
+  ): ConceptEdge!
+
+  """Unlink two concepts"""
+  unlinkConcepts(
+    """Source concept ID"""
+    sourceId: ID!
+
+    """Target concept ID"""
+    targetId: ID!
+  ): Boolean!
+
+  # =============================================================================
+  # SESSION MUTATIONS
+  # =============================================================================
+
+  """Start a new session"""
+  startSession(
+    """Session title"""
+    title: String
+
+    """Session metadata"""
+    metadata: JSON
+  ): Session!
+
+  """End a session"""
+  endSession(
+    """Session ID"""
+    id: ID!
+
+    """Session summary"""
+    summary: String
+  ): Session!
+
+  """Update session"""
+  updateSession(
+    """Session ID"""
+    id: ID!
+
+    """New title"""
+    title: String
+
+    """New summary"""
+    summary: String
+
+    """New status"""
+    status: SessionStatus
+  ): Session!
+
+  # =============================================================================
+  # LEARNING MUTATIONS
+  # =============================================================================
+
+  """Learn from a conversation exchange"""
+  learn(
+    """Conversation input"""
+    conversation: ConversationInput!
+  ): LearnResult!
+
+  # =============================================================================
+  # FEDERATION MUTATIONS
+  # =============================================================================
+
+  """Sync memories with a peer"""
+  syncMemories(
+    """Peer URL"""
+    peerUrl: String!
+
+    """Memory IDs to sync (empty = all)"""
+    memoryIds: [ID!]
+  ): SyncResult!
+
+  """Add a federation peer"""
+  addPeer(
+    """Peer URL"""
+    url: String!
+
+    """Peer name"""
+    name: String
+  ): FederationPeer!
+
+  """Remove a federation peer"""
+  removePeer(
+    """Peer ID"""
+    id: ID!
+  ): Boolean!
+
+  # =============================================================================
+  # USER MUTATIONS
+  # =============================================================================
+
+  """Update user profile"""
+  updateProfile(
+    """Profile input"""
+    input: UpdateProfileInput!
+  ): User!
+
+  """Update user settings"""
+  updateSettings(
+    """Settings input"""
+    input: SettingsInput!
+  ): Settings!
+}
+
+# =============================================================================
+# ADDITIONAL INPUT TYPES
+# =============================================================================
+
+"""Input for learning from a conversation"""
+input ConversationInput {
+  """User message"""
+  userMessage: String!
+
+  """AI response"""
+  aiResponse: String!
+
+  """Session ID"""
+  sessionId: ID
+
+  """Metadata"""
+  metadata: JSON
+}
+
+"""Result of learning operation"""
+type LearnResult {
+  """Number of concepts extracted"""
+  conceptsExtracted: Int!
+
+  """Number of decisions detected"""
+  decisionsDetected: Int!
+
+  """Number of links created"""
+  linksCreated: Int!
+
+  """Number of compound concepts found"""
+  compoundsFound: Int!
+
+  """Extracted concepts"""
+  concepts: [Concept!]!
+
+  """Success status"""
+  success: Boolean!
+}

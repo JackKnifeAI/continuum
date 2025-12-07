@@ -9,6 +9,7 @@ Components:
     - memory_cache: Memory-specific caching (hot memories, search results)
     - distributed: Redis Cluster support and cache coherence
     - strategies: LRU, TTL, preemptive refresh strategies
+    - upstash_adapter: Serverless Redis via Upstash (REST API or traditional)
 
 Usage:
     from continuum.cache import MemoryCache
@@ -27,6 +28,12 @@ Usage:
         memory = load_from_db()
         cache.set_memory("concept_name", memory)
 
+    # Upstash serverless Redis
+    from continuum.cache import UpstashCache, RateLimiter
+
+    cache = UpstashCache(mode="rest")  # REST API for serverless
+    limiter = RateLimiter(cache)
+
 Security:
     - Redis AUTH enabled
     - TLS connections supported
@@ -38,6 +45,7 @@ Performance:
     - Automatic serialization (JSON/MessagePack)
     - Write-through caching for updates
     - Cache coherence across distributed nodes
+    - Automatic failover to local cache (Upstash)
 """
 
 # Import cache components with graceful fallback
@@ -56,20 +64,47 @@ except ImportError:
     DistributedCache = None
     ClusterConfig = None
 
+# Import Upstash adapter with graceful fallback
+try:
+    from .upstash_adapter import (
+        UpstashCache,
+        UpstashConfig,
+        RateLimiter,
+        ConnectionMode,
+        CacheBackend
+    )
+    UPSTASH_AVAILABLE = True
+except ImportError:
+    UPSTASH_AVAILABLE = False
+    UpstashCache = None
+    UpstashConfig = None
+    RateLimiter = None
+    ConnectionMode = None
+    CacheBackend = None
+
 from .strategies import CacheStrategy, LRUStrategy, TTLStrategy, PreemptiveRefreshStrategy
 
 __all__ = [
+    # Traditional Redis
     'RedisCache',
     'RedisCacheConfig',
     'MemoryCache',
     'CacheStats',
     'DistributedCache',
     'ClusterConfig',
+    'REDIS_AVAILABLE',
+    # Upstash serverless
+    'UpstashCache',
+    'UpstashConfig',
+    'RateLimiter',
+    'ConnectionMode',
+    'CacheBackend',
+    'UPSTASH_AVAILABLE',
+    # Strategies
     'CacheStrategy',
     'LRUStrategy',
     'TTLStrategy',
     'PreemptiveRefreshStrategy',
-    'REDIS_AVAILABLE',
 ]
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'

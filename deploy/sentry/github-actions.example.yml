@@ -1,0 +1,269 @@
+# GitHub Actions Workflow with Sentry Integration
+#
+# This workflow:
+# 1. Runs tests
+# 2. Builds the application
+# 3. Creates a Sentry release
+# 4. Deploys to production
+# 5. Notifies Sentry of deployment
+#
+# Setup:
+#   1. Add SENTRY_AUTH_TOKEN to GitHub Secrets
+#   2. Add SENTRY_DSN to GitHub Secrets (for testing)
+#   3. Copy to .github/workflows/deploy.yml
+
+name: Deploy with Sentry
+
+on:
+  push:
+    branches:
+      - main
+      - production
+    tags:
+      - 'v*'
+
+  pull_request:
+    branches:
+      - main
+
+env:
+  PYTHON_VERSION: '3.11'
+  SENTRY_ORG: 'jackknifeai'
+  SENTRY_PROJECT: 'continuum'
+
+jobs:
+  # Test job
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -e .[dev,monitoring]
+
+      - name: Run tests
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          CONTINUUM_ENV: testing
+        run: |
+          pytest tests/ -v --cov=continuum --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  # Build job
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for release notes
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: |
+          pip install build twine
+
+      - name: Build package
+        run: |
+          python -m build
+
+      - name: Check package
+        run: |
+          twine check dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: dist/
+
+  # Create Sentry release
+  sentry-release:
+    name: Create Sentry Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for commits
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="git-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Install Sentry CLI
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+
+      - name: Create Sentry release
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Create release
+          sentry-cli releases new \
+            --org ${{ env.SENTRY_ORG }} \
+            --project ${{ env.SENTRY_PROJECT }} \
+            "$VERSION"
+
+          # Upload source files
+          sentry-cli releases files "$VERSION" upload-sourcemaps \
+            --org ${{ env.SENTRY_ORG }} \
+            --project ${{ env.SENTRY_PROJECT }} \
+            ./continuum \
+            --ext py \
+            --strip-prefix continuum/
+
+          # Associate commits
+          sentry-cli releases set-commits \
+            --org ${{ env.SENTRY_ORG }} \
+            --project ${{ env.SENTRY_PROJECT }} \
+            "$VERSION" \
+            --auto
+
+          # Finalize release
+          sentry-cli releases finalize \
+            --org ${{ env.SENTRY_ORG }} \
+            --project ${{ env.SENTRY_PROJECT }} \
+            "$VERSION"
+
+      - name: Output release info
+        run: |
+          echo "✓ Sentry release created: ${{ steps.version.outputs.version }}"
+          echo "View at: https://sentry.io/organizations/${{ env.SENTRY_ORG }}/releases/${{ steps.version.outputs.version }}/"
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  # Deploy to staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: sentry-release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://staging.continuum.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        env:
+          VERSION: ${{ needs.sentry-release.outputs.version }}
+        run: |
+          # Your deployment script here
+          echo "Deploying version $VERSION to staging..."
+          # ./deploy.sh staging $VERSION
+
+      - name: Notify Sentry of deployment
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+
+          sentry-cli releases deploys "${{ needs.sentry-release.outputs.version }}" new \
+            --org ${{ env.SENTRY_ORG }} \
+            --project ${{ env.SENTRY_PROJECT }} \
+            --env staging
+
+      - name: Run smoke tests
+        run: |
+          # Basic health check
+          sleep 10
+          curl -f https://staging.continuum.example.com/v1/health || exit 1
+
+  # Deploy to production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: sentry-release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: production
+      url: https://continuum.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        env:
+          VERSION: ${{ needs.sentry-release.outputs.version }}
+        run: |
+          # Your deployment script here
+          echo "Deploying version $VERSION to production..."
+          # ./deploy.sh production $VERSION
+
+      - name: Notify Sentry of deployment
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          curl -sL https://sentry.io/get-cli/ | bash
+
+          sentry-cli releases deploys "${{ needs.sentry-release.outputs.version }}" new \
+            --org ${{ env.SENTRY_ORG }} \
+            --project ${{ env.SENTRY_PROJECT }} \
+            --env production
+
+      - name: Run smoke tests
+        run: |
+          # Basic health check
+          sleep 10
+          curl -f https://continuum.example.com/v1/health || exit 1
+
+      - name: Monitor for errors
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          echo "Monitoring Sentry for new errors..."
+          # Optional: Check for new errors in first 5 minutes
+          # sleep 300
+          # ./scripts/check_sentry_errors.sh ${{ needs.sentry-release.outputs.version }}
+
+  # Notify on failure
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [test, build, sentry-release, deploy-staging, deploy-production]
+    if: failure()
+
+    steps:
+      - name: Send notification
+        run: |
+          echo "Deployment failed! Check logs."
+          # Add Slack/Discord/email notification here

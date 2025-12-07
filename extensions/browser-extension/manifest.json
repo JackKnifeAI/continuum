@@ -1,0 +1,95 @@
+{
+  "manifest_version": 3,
+  "name": "CONTINUUM - AI Memory",
+  "version": "1.0.0",
+  "description": "Your AI never forgets. Capture, recall, and connect knowledge across the web.",
+  "author": "CONTINUUM",
+
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "activeTab",
+    "sidePanel",
+    "notifications",
+    "scripting"
+  ],
+
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "build/background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_popup": "build/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    },
+    "default_title": "CONTINUUM Memory"
+  },
+
+  "side_panel": {
+    "default_path": "build/sidebar.html"
+  },
+
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["build/content.js"],
+    "css": ["build/content.css"],
+    "run_at": "document_idle"
+  }],
+
+  "options_ui": {
+    "page": "build/options.html",
+    "open_in_tab": true
+  },
+
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+
+  "commands": {
+    "capture-selection": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+C",
+        "mac": "Command+Shift+C"
+      },
+      "description": "Capture selected text to CONTINUUM"
+    },
+    "quick-search": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Quick search CONTINUUM memories"
+    },
+    "toggle-sidebar": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M",
+        "mac": "Command+Shift+M"
+      },
+      "description": "Toggle CONTINUUM sidebar"
+    }
+  },
+
+  "web_accessible_resources": [{
+    "resources": [
+      "assets/*",
+      "build/overlay.html"
+    ],
+    "matches": ["<all_urls>"]
+  }],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

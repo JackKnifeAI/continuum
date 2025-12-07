@@ -1,0 +1,17 @@
+# PostHog Analytics Requirements for CONTINUUM
+
+# Core analytics SDK
+posthog>=3.0.0
+
+# Optional: For self-hosted PostHog
+# posthog-client>=3.0.0
+
+# Web framework integrations (install as needed)
+# fastapi>=0.104.0  # For ASGI middleware
+# starlette>=0.27.0  # For ASGI middleware
+# flask>=2.3.0      # For WSGI middleware
+# django>=4.2.0     # For Django integration
+
+# Already in CONTINUUM requirements (no need to reinstall)
+# click>=8.1.0      # CLI framework
+# pydantic>=2.0.0   # Data validation

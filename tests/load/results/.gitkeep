@@ -1,0 +1,4 @@
+# Results directory
+#
+# Load test results are stored here.
+# Files are gitignored but directory is tracked.

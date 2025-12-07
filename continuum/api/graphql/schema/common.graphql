@@ -1,0 +1,188 @@
+"""
+Common types, scalars, enums, and interfaces used throughout the schema.
+"""
+
+# =============================================================================
+# CUSTOM SCALARS
+# =============================================================================
+
+"""ISO-8601 datetime string (e.g., 2025-12-06T10:00:00Z)"""
+scalar DateTime
+
+"""Arbitrary JSON data"""
+scalar JSON
+
+"""Vector embedding (array of floats)"""
+scalar Vector
+
+"""Opaque cursor for pagination"""
+scalar Cursor
+
+
+# =============================================================================
+# ENUMS
+# =============================================================================
+
+enum MemoryType {
+  """User-generated content"""
+  USER_MESSAGE
+
+  """AI-generated content"""
+  AI_RESPONSE
+
+  """System event"""
+  SYSTEM_EVENT
+
+  """Decision made"""
+  DECISION
+
+  """Concept definition"""
+  CONCEPT
+}
+
+enum SearchType {
+  """Semantic search using embeddings"""
+  SEMANTIC
+
+  """Keyword-based search"""
+  KEYWORD
+
+  """Hybrid search (semantic + keyword)"""
+  HYBRID
+}
+
+enum ConceptRelationship {
+  """Concept A relates to concept B"""
+  RELATED_TO
+
+  """Concept A is part of concept B"""
+  PART_OF
+
+  """Concept A caused concept B"""
+  CAUSED_BY
+
+  """Concept A is similar to concept B"""
+  SIMILAR_TO
+
+  """Concept A contradicts concept B"""
+  CONTRADICTS
+
+  """Custom relationship"""
+  CUSTOM
+}
+
+enum OrderDirection {
+  """Ascending order"""
+  ASC
+
+  """Descending order"""
+  DESC
+}
+
+
+# =============================================================================
+# INTERFACES
+# =============================================================================
+
+"""Common fields for all entities"""
+interface Node {
+  """Unique identifier"""
+  id: ID!
+
+  """Creation timestamp"""
+  createdAt: DateTime!
+
+  """Last update timestamp"""
+  updatedAt: DateTime!
+}
+
+
+# =============================================================================
+# PAGINATION
+# =============================================================================
+
+"""Pagination input for cursor-based pagination"""
+input PaginationInput {
+  """Number of items to return (max 100)"""
+  first: Int = 20
+
+  """Cursor to start from"""
+  after: Cursor
+
+  """Number of items to return from end"""
+  last: Int
+
+  """Cursor to end at"""
+  before: Cursor
+}
+
+"""Page information for pagination"""
+type PageInfo {
+  """Whether more items exist after this page"""
+  hasNextPage: Boolean!
+
+  """Whether more items exist before this page"""
+  hasPreviousPage: Boolean!
+
+  """Cursor of first item"""
+  startCursor: Cursor
+
+  """Cursor of last item"""
+  endCursor: Cursor
+}
+
+
+# =============================================================================
+# COMMON RESPONSES
+# =============================================================================
+
+"""Generic success response"""
+type SuccessResponse {
+  """Whether operation succeeded"""
+  success: Boolean!
+
+  """Optional message"""
+  message: String
+}
+
+"""System health status"""
+type HealthStatus {
+  """Overall status (healthy, degraded, down)"""
+  status: String!
+
+  """Service name"""
+  service: String!
+
+  """API version"""
+  version: String!
+
+  """Current timestamp"""
+  timestamp: DateTime!
+
+  """Database connection status"""
+  database: Boolean!
+
+  """Cache connection status"""
+  cache: Boolean!
+}
+
+"""System statistics"""
+type SystemStats {
+  """Total number of memories"""
+  totalMemories: Int!
+
+  """Total number of concepts"""
+  totalConcepts: Int!
+
+  """Total number of users"""
+  totalUsers: Int!
+
+  """Total number of sessions"""
+  totalSessions: Int!
+
+  """Total API requests (last 24h)"""
+  apiRequests24h: Int!
+
+  """Average query time (ms)"""
+  avgQueryTimeMs: Float!
+}

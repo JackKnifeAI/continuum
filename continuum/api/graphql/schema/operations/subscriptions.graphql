@@ -1,0 +1,63 @@
+"""
+GraphQL subscriptions for real-time updates.
+"""
+
+type Subscription {
+  # =============================================================================
+  # MEMORY SUBSCRIPTIONS
+  # =============================================================================
+
+  """Subscribe to new memories being created"""
+  memoryCreated(
+    """Filter by memory type"""
+    memoryType: MemoryType
+
+    """Filter by session"""
+    sessionId: ID
+  ): Memory!
+
+  """Subscribe to memory updates"""
+  memoryUpdated(
+    """Filter by specific memory ID"""
+    id: ID
+  ): Memory!
+
+  """Subscribe to memory deletions"""
+  memoryDeleted: ID!
+
+  # =============================================================================
+  # CONCEPT SUBSCRIPTIONS
+  # =============================================================================
+
+  """Subscribe to newly discovered concepts"""
+  conceptDiscovered(
+    """Filter by concept type"""
+    conceptType: String
+  ): Concept!
+
+  """Subscribe to concept graph changes"""
+  conceptGraphUpdated(
+    """Root concept ID to watch"""
+    rootId: ID
+  ): ConceptGraph!
+
+  # =============================================================================
+  # FEDERATION SUBSCRIPTIONS
+  # =============================================================================
+
+  """Subscribe to federation sync events"""
+  federationSync(
+    """Filter by peer ID"""
+    peerId: ID
+  ): SyncEvent!
+
+  # =============================================================================
+  # SESSION SUBSCRIPTIONS
+  # =============================================================================
+
+  """Subscribe to session activity"""
+  sessionActivity(
+    """Filter by session ID"""
+    sessionId: ID
+  ): SessionEvent!
+}

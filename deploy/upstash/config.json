@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Upstash Redis Configuration for CONTINUUM",
+  "description": "Configuration template for Upstash serverless Redis",
+
+  "databases": {
+    "primary": {
+      "name": "continuum-cache-primary",
+      "region": "us-east-1",
+      "type": "regional",
+      "tls": true,
+      "eviction": true,
+      "maxmemory_policy": "allkeys-lru",
+      "usage": "Session caching, query results, hot memories"
+    },
+    "sessions": {
+      "name": "continuum-sessions",
+      "region": "us-east-1",
+      "type": "regional",
+      "tls": true,
+      "eviction": false,
+      "maxmemory_policy": "noeviction",
+      "usage": "User sessions - persistence required"
+    },
+    "global": {
+      "name": "continuum-federation-sync",
+      "region": "us-east-1",
+      "type": "global",
+      "read_regions": ["eu-west-1", "ap-southeast-1"],
+      "tls": true,
+      "eviction": false,
+      "usage": "Federation sync queue, cross-region coordination"
+    }
+  },
+
+  "connection": {
+    "mode": "rest",
+    "description": "REST mode for serverless (Cloudflare Workers compatible), 'redis' mode for traditional",
+    "pool_size": 10,
+    "timeout_ms": 5000,
+    "retry": {
+      "max_attempts": 3,
+      "backoff_ms": 100,
+      "backoff_multiplier": 2
+    }
+  },
+
+  "cache_layers": {
+    "sessions": {
+      "key_prefix": "session:",
+      "ttl_seconds": 3600,
+      "description": "User session data - 1 hour TTL"
+    },
+    "query_results": {
+      "key_prefix": "query:",
+      "ttl_seconds": 300,
+      "description": "Search/query result caching - 5 minutes TTL"
+    },
+    "hot_memories": {
+      "key_prefix": "memory:",
+      "ttl_seconds": 1800,
+      "description": "Frequently accessed memories - 30 minutes TTL"
+    },
+    "rate_limit": {
+      "key_prefix": "ratelimit:",
+      "ttl_seconds": 60,
+      "description": "Rate limit counters - 1 minute sliding window"
+    },
+    "federation_queue": {
+      "key_prefix": "fed:queue:",
+      "ttl_seconds": 86400,
+      "description": "Federation sync queue - 24 hour TTL"
+    },
+    "websocket_pubsub": {
+      "key_prefix": "ws:",
+      "ttl_seconds": 300,
+      "description": "WebSocket pub/sub channels - 5 minutes TTL"
+    }
+  },
+
+  "rate_limiting": {
+    "api_requests": {
+      "window_seconds": 60,
+      "max_requests": 100,
+      "key_pattern": "ratelimit:api:{user_id}:{window}"
+    },
+    "search_queries": {
+      "window_seconds": 60,
+      "max_requests": 20,
+      "key_pattern": "ratelimit:search:{user_id}:{window}"
+    },
+    "federation_sync": {
+      "window_seconds": 60,
+      "max_requests": 500,
+      "key_pattern": "ratelimit:fed:{instance_id}:{window}"
+    }
+  },
+
+  "pubsub_channels": {
+    "memory_updates": "ws:memory:updates",
+    "session_events": "ws:session:events",
+    "federation_sync": "fed:sync:events",
+    "cache_invalidation": "cache:invalidate"
+  },
+
+  "monitoring": {
+    "metrics_enabled": true,
+    "log_commands": false,
+    "alert_thresholds": {
+      "memory_usage_percent": 85,
+      "daily_commands_limit": 1000000,
+      "error_rate_percent": 5
+    }
+  },
+
+  "failover": {
+    "enabled": true,
+    "fallback_mode": "local_cache",
+    "description": "Fall back to in-memory cache if Upstash unavailable",
+    "health_check_interval_seconds": 30
+  },
+
+  "cost_tiers": {
+    "free": {
+      "max_request_size_kb": 1,
+      "max_data_size_mb": 256,
+      "max_daily_commands": 10000,
+      "max_concurrent_connections": 1000,
+      "estimated_monthly_cost_usd": 0
+    },
+    "pay_as_you_go": {
+      "price_per_100k_commands": 0.20,
+      "price_per_gb_storage": 0.25,
+      "price_per_gb_bandwidth": 0.15,
+      "estimated_monthly_cost_10k_users": {
+        "commands": "5M/month = $10/month",
+        "storage": "10GB = $2.50/month",
+        "bandwidth": "50GB = $7.50/month",
+        "total": "$20/month"
+      },
+      "estimated_monthly_cost_100k_users": {
+        "commands": "50M/month = $100/month",
+        "storage": "100GB = $25/month",
+        "bandwidth": "500GB = $75/month",
+        "total": "$200/month"
+      }
+    },
+    "pro_fixed": {
+      "price_per_month": 280,
+      "included_commands": 50000000,
+      "included_storage_gb": 100,
+      "included_bandwidth_gb": 500,
+      "description": "Best for 100k+ users with predictable usage"
+    }
+  },
+
+  "environment_variables": {
+    "required": {
+      "UPSTASH_REDIS_REST_URL": "https://YOUR-DATABASE.upstash.io",
+      "UPSTASH_REDIS_REST_TOKEN": "YOUR-REST-TOKEN"
+    },
+    "optional": {
+      "UPSTASH_REDIS_URL": "redis://default:TOKEN@YOUR-DATABASE.upstash.io:PORT (for redis mode)",
+      "CONTINUUM_CACHE_MODE": "upstash (enables Upstash adapter)",
+      "CONTINUUM_CACHE_FALLBACK": "true (enable local fallback)",
+      "UPSTASH_ENABLE_TELEMETRY": "false"
+    }
+  },
+
+  "security": {
+    "tls_required": true,
+    "token_rotation": "Rotate REST tokens quarterly",
+    "ip_allowlist": "Configure in Upstash dashboard for production",
+    "encryption_at_rest": "Enabled by default",
+    "data_residency": "Select region matching compliance requirements"
+  },
+
+  "best_practices": {
+    "key_naming": "Use consistent prefixes for pattern-based invalidation",
+    "ttl_strategy": "Always set TTL to prevent unbounded growth",
+    "serialization": "Use MessagePack for smaller payloads",
+    "batching": "Use pipelines for multiple operations",
+    "monitoring": "Set up alerts for memory and command usage",
+    "testing": "Test failover to local cache in development"
+  }
+}

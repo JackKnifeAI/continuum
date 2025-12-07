@@ -1,0 +1,12 @@
+aws_region          = "us-east-1"
+vpc_cidr            = "10.2.0.0/16"
+container_image     = "your-account.dkr.ecr.us-east-1.amazonaws.com/continuum-prod-app:latest"
+certificate_arn     = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+alarm_email         = "ops-team@example.com"
+domain_name         = "example.com"
+subdomain           = ""
+hosted_zone_id      = "Z1234567890ABC"
+cdn_domain_aliases  = ["www.example.com", "example.com"]
+cdn_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+cdn_logging_bucket  = "continuum-cdn-logs.s3.amazonaws.com"
+waf_web_acl_arn     = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/..."

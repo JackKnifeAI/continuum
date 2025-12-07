@@ -1,0 +1,148 @@
+"""
+Concept type definitions for knowledge graph.
+"""
+
+"""A concept/entity in the knowledge graph"""
+type Concept implements Node {
+  """Unique identifier"""
+  id: ID!
+
+  """Concept name"""
+  name: String!
+
+  """Description"""
+  description: String
+
+  """Confidence score (0.0 - 1.0)"""
+  confidence: Float!
+
+  """Concept type (e.g., person, project, topic)"""
+  conceptType: String
+
+  """Associated memories"""
+  memories(
+    """Pagination"""
+    pagination: PaginationInput
+  ): MemoryConnection!
+
+  """Related concepts"""
+  relatedConcepts(
+    """Maximum depth to traverse"""
+    depth: Int = 1
+
+    """Filter by relationship type"""
+    relationship: ConceptRelationship
+  ): [ConceptEdge!]!
+
+  """Metadata"""
+  metadata: JSON
+
+  """Creation timestamp"""
+  createdAt: DateTime!
+
+  """Last update timestamp"""
+  updatedAt: DateTime!
+
+  """Tenant ID"""
+  tenantId: String!
+}
+
+"""Edge between concepts"""
+type ConceptEdge {
+  """Source concept"""
+  from: Concept!
+
+  """Target concept"""
+  to: Concept!
+
+  """Relationship type"""
+  relationship: ConceptRelationship!
+
+  """Relationship label (custom)"""
+  label: String
+
+  """Strength/weight of relationship (0.0 - 1.0)"""
+  strength: Float!
+
+  """Metadata"""
+  metadata: JSON
+
+  """Creation timestamp"""
+  createdAt: DateTime!
+}
+
+"""Concept connection for pagination"""
+type ConceptConnection {
+  """List of concept edges"""
+  edges: [ConceptConnectionEdge!]!
+
+  """Page information"""
+  pageInfo: PageInfo!
+
+  """Total count"""
+  totalCount: Int!
+}
+
+"""Concept connection edge"""
+type ConceptConnectionEdge {
+  """Cursor"""
+  cursor: Cursor!
+
+  """The concept"""
+  node: Concept!
+}
+
+"""Filter options for concepts"""
+input ConceptFilter {
+  """Filter by concept type"""
+  conceptType: String
+
+  """Filter by minimum confidence"""
+  minConfidence: Float
+
+  """Search query"""
+  search: String
+
+  """Filter by creation date"""
+  createdAfter: DateTime
+  createdBefore: DateTime
+}
+
+"""Input for creating a concept"""
+input CreateConceptInput {
+  """Concept name"""
+  name: String!
+
+  """Description"""
+  description: String
+
+  """Confidence score"""
+  confidence: Float = 0.8
+
+  """Concept type"""
+  conceptType: String
+
+  """Metadata"""
+  metadata: JSON
+}
+
+"""Concept graph structure"""
+type ConceptGraph {
+  """Root concept"""
+  root: Concept!
+
+  """All nodes in the graph"""
+  nodes: [Concept!]!
+
+  """All edges in the graph"""
+  edges: [ConceptEdge!]!
+
+  """Graph depth"""
+  depth: Int!
+
+  """Total node count"""
+  nodeCount: Int!
+
+  """Total edge count"""
+  edgeCount: Int!
+}

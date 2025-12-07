@@ -1,0 +1,179 @@
+# CONTINUUM - Fly.io Application Configuration
+# Multi-region AI memory infrastructure deployment
+#
+# Deploy: fly deploy
+# Scale: fly scale count 3 --region iad,lhr,sin
+# Logs: fly logs
+# SSH: fly ssh console
+
+app = "continuum-memory"
+primary_region = "iad"  # Ashburn, VA (Primary US East)
+
+# Kill signal for graceful shutdown
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+# =============================================================================
+# BUILD CONFIGURATION
+# =============================================================================
+
+[build]
+  dockerfile = "Dockerfile"
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+
+[env]
+  # Application
+  CONTINUUM_ENV = "production"
+  CONTINUUM_PORT = "8420"
+
+  # CORS - Set via secrets for production domains
+  # CONTINUUM_CORS_ORIGINS will be set via fly secrets
+
+  # API Security
+  CONTINUUM_REQUIRE_API_KEY = "true"
+
+  # Database connection will be auto-configured via DATABASE_URL
+  # Redis connection via REDIS_URL (Upstash)
+
+  # Logging
+  LOG_LEVEL = "info"
+
+  # Performance
+  UVICORN_WORKERS = "2"
+
+# =============================================================================
+# SECRETS MANAGEMENT
+# =============================================================================
+# Set secrets via CLI:
+#   fly secrets set DATABASE_URL=postgres://...
+#   fly secrets set REDIS_URL=redis://...
+#   fly secrets set CONTINUUM_CORS_ORIGINS=https://app.example.com
+#   fly secrets set STRIPE_SECRET_KEY=sk_live_...
+#   fly secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+
+# =============================================================================
+# HTTP SERVICE
+# =============================================================================
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8420
+
+  # Auto-stop machines when no traffic (cost optimization)
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["http", "tls"]
+
+  # HTTP Health Checks
+  [services.http_checks]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/v1/health"
+    protocol = "http"
+
+    # Expected response
+    [services.http_checks.headers]
+      # Can add custom health check headers if needed
+
+  # TCP Health Checks (fallback)
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "10s"
+    grace_period = "30s"
+
+  # Concurrency limits
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+# =============================================================================
+# METRICS & MONITORING
+# =============================================================================
+
+[[vm]]
+  # Shared CPU for cost-efficiency
+  # Upgrade to dedicated CPU for production load
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+
+# =============================================================================
+# COMPUTE SCALING
+# =============================================================================
+
+# Auto-scaling configuration
+[http_service]
+  internal_port = 8420
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Scaling policies
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+# =============================================================================
+# PERSISTENT VOLUMES (Optional)
+# =============================================================================
+# Uncomment if you need persistent storage for SQLite fallback
+# Note: Fly Postgres is recommended for production
+
+# [[mounts]]
+#   source = "continuum_data"
+#   destination = "/data"
+#   initial_size = "1gb"
+
+# =============================================================================
+# EXPERIMENTAL FEATURES
+# =============================================================================
+
+[experimental]
+  # Enable metrics endpoint
+  enable_metrics = true
+
+  # Auto-scaling based on load
+  auto_rollback = true
+
+# =============================================================================
+# DEPLOY CONFIGURATION
+# =============================================================================
+
+[deploy]
+  # Rolling deployment strategy
+  strategy = "rolling"
+
+  # Release command (run migrations)
+  release_command = "python -m continuum.storage.migrations upgrade"
+
+# =============================================================================
+# MULTI-REGION CONFIGURATION
+# =============================================================================
+# Deploy to multiple regions for low latency globally
+#
+# Regions:
+#   iad - Ashburn, Virginia (US East)
+#   lhr - London, UK (Europe)
+#   sin - Singapore (Asia Pacific)
+#
+# Deploy:
+#   fly scale count 3 --region iad,lhr,sin
+#
+# Note: Requires Fly Postgres with multiple regions configured

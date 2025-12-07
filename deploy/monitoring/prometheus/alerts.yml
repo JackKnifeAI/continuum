@@ -1,0 +1,255 @@
+# Alert Rules for CONTINUUM
+
+groups:
+  - name: continuum_api
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(continuum_api_errors_total[5m])) / sum(rate(continuum_api_requests_total[5m]))) * 100 > 1
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High API error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
+          dashboard: "http://grafana:3000/d/continuum-api"
+
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95, rate(continuum_api_request_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API latency detected"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+          dashboard: "http://grafana:3000/d/continuum-api"
+
+      - alert: HighP99Latency
+        expr: |
+          histogram_quantile(0.99, rate(continuum_api_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Critical API latency detected"
+          description: "P99 latency is {{ $value | humanizeDuration }} (threshold: 2s)"
+          dashboard: "http://grafana:3000/d/continuum-api"
+
+      - alert: APIDown
+        expr: up{job="continuum"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "CONTINUUM API is down"
+          description: "API instance {{ $labels.instance }} is unreachable"
+
+  - name: continuum_memory
+    interval: 30s
+    rules:
+      - alert: MemoryOperationFailures
+        expr: |
+          rate(continuum_memory_operations_errors_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          component: memory
+        annotations:
+          summary: "High memory operation failure rate"
+          description: "{{ $value | humanize }} memory operations failing per second"
+
+      - alert: LowCacheHitRate
+        expr: |
+          rate(continuum_cache_hits_total[5m]) / (rate(continuum_cache_hits_total[5m]) + rate(continuum_cache_misses_total[5m])) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: memory
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 50%)"
+
+  - name: continuum_federation
+    interval: 30s
+    rules:
+      - alert: FederationSyncLag
+        expr: |
+          continuum_federation_sync_latency_seconds > 60
+        for: 5m
+        labels:
+          severity: critical
+          component: federation
+        annotations:
+          summary: "Federation sync lag detected"
+          description: "Peer {{ $labels.peer_id }} has sync latency of {{ $value | humanizeDuration }}"
+          dashboard: "http://grafana:3000/d/continuum-federation"
+
+      - alert: HighMessageQueueDepth
+        expr: |
+          continuum_federation_queue_depth > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: federation
+        annotations:
+          summary: "High federation message queue depth"
+          description: "Peer {{ $labels.peer_id }} has {{ $value }} messages queued"
+
+      - alert: PeerUnhealthy
+        expr: |
+          continuum_federation_peer_healthy == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: federation
+        annotations:
+          summary: "Federation peer unhealthy"
+          description: "Peer {{ $labels.peer_id }} is reporting unhealthy status"
+
+      - alert: LowPeerHealth
+        expr: |
+          (continuum_federation_peers_healthy / continuum_federation_peers_total) < 0.5
+        for: 5m
+        labels:
+          severity: critical
+          component: federation
+        annotations:
+          summary: "Low federation peer health"
+          description: "Only {{ $value | humanizePercentage }} of peers are healthy"
+
+      - alert: HighConflictRate
+        expr: |
+          rate(continuum_federation_conflicts_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: federation
+        annotations:
+          summary: "High conflict resolution rate"
+          description: "{{ $value | humanize }} conflicts per second being resolved"
+
+  - name: continuum_resources
+    interval: 30s
+    rules:
+      - alert: HighCPUUsage
+        expr: |
+          rate(process_cpu_seconds_total{job="continuum"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value | humanize }}% (threshold: 80%)"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (continuum_memory_usage_bytes / continuum_memory_limit_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+
+      - alert: HighDiskUsage
+        expr: |
+          (continuum_disk_usage_bytes / continuum_disk_limit_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+
+      - alert: CriticalDiskUsage
+        expr: |
+          (continuum_disk_usage_bytes / continuum_disk_limit_bytes) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical disk usage"
+          description: "Disk usage is {{ $value | humanizePercentage }} (threshold: 95%)"
+
+  - name: continuum_business
+    interval: 1m
+    rules:
+      - alert: NoActiveUsers
+        expr: |
+          count(count_over_time(continuum_api_requests_total{tenant_id!=""}[1h]) by (tenant_id)) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "No active users in last hour"
+          description: "No tenant activity detected for 30 minutes"
+
+      - alert: StorageGrowthAnomalous
+        expr: |
+          abs(delta(continuum_storage_bytes[1h])) > 10737418240
+        for: 5m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "Anomalous storage growth"
+          description: "Storage changed by {{ $value | humanize1024 }} in 1 hour (threshold: 10GB)"
+
+      - alert: LowQueryRate
+        expr: |
+          sum(rate(continuum_memory_operations_total{operation="query"}[10m])) < 0.1
+        for: 30m
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Low query rate"
+          description: "Query rate is {{ $value | humanize }} per second"
+
+  - name: continuum_health
+    interval: 1m
+    rules:
+      - alert: LowHealthScore
+        expr: |
+          (
+            (1 - rate(continuum_api_errors_total[5m]) / rate(continuum_api_requests_total[5m])) * 0.4 +
+            (continuum_federation_peers_healthy / continuum_federation_peers_total) * 0.3 +
+            (1 - (continuum_memory_usage_bytes / continuum_memory_limit_bytes)) * 0.15 +
+            (1 - (continuum_disk_usage_bytes / continuum_disk_limit_bytes)) * 0.15
+          ) * 100 < 70
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "Low system health score"
+          description: "Overall health score is {{ $value | humanize }}% (threshold: 70%)"
+          dashboard: "http://grafana:3000/d/continuum-overview"
+
+      - alert: CriticalHealthScore
+        expr: |
+          (
+            (1 - rate(continuum_api_errors_total[5m]) / rate(continuum_api_requests_total[5m])) * 0.4 +
+            (continuum_federation_peers_healthy / continuum_federation_peers_total) * 0.3 +
+            (1 - (continuum_memory_usage_bytes / continuum_memory_limit_bytes)) * 0.15 +
+            (1 - (continuum_disk_usage_bytes / continuum_disk_limit_bytes)) * 0.15
+          ) * 100 < 50
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical system health score"
+          description: "Overall health score is {{ $value | humanize }}% (threshold: 50%)"
+          dashboard: "http://grafana:3000/d/continuum-overview"

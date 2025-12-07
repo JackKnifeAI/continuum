@@ -1,0 +1,15 @@
+# CONTINUUM Load Testing Dependencies
+
+# Core load testing framework
+locust>=2.15.0
+
+# Fast HTTP client for better performance
+geventhttpclient>=2.0.0
+
+# Data analysis and reporting
+pandas>=2.0.0
+matplotlib>=3.7.0
+
+# Optional: Enhanced monitoring
+psutil>=5.9.0  # System resource monitoring
+prometheus-client>=0.17.0  # Prometheus metrics export

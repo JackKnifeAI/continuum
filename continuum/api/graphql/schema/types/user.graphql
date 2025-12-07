@@ -1,0 +1,193 @@
+"""
+User type definitions for authentication and profiles.
+"""
+
+"""User account"""
+type User implements Node {
+  """Unique identifier"""
+  id: ID!
+
+  """Username"""
+  username: String!
+
+  """Email address"""
+  email: String!
+
+  """Display name"""
+  displayName: String
+
+  """User role"""
+  role: UserRole!
+
+  """Profile settings"""
+  profile: UserProfile
+
+  """API usage settings"""
+  settings: UserSettings
+
+  """Sessions"""
+  sessions(
+    """Pagination"""
+    pagination: PaginationInput
+  ): SessionConnection!
+
+  """Total memories"""
+  memoryCount: Int!
+
+  """Total concepts"""
+  conceptCount: Int!
+
+  """Account creation timestamp"""
+  createdAt: DateTime!
+
+  """Last update timestamp"""
+  updatedAt: DateTime!
+
+  """Last login timestamp"""
+  lastLoginAt: DateTime
+}
+
+"""User role"""
+enum UserRole {
+  """Regular user"""
+  USER
+
+  """Administrator"""
+  ADMIN
+
+  """Read-only user"""
+  READONLY
+}
+
+"""User profile"""
+type UserProfile {
+  """Avatar URL"""
+  avatar: String
+
+  """Bio"""
+  bio: String
+
+  """Timezone"""
+  timezone: String
+
+  """Language preference"""
+  language: String
+
+  """Custom metadata"""
+  metadata: JSON
+}
+
+"""User settings"""
+type UserSettings {
+  """Enable real-time sync"""
+  realtimeSync: Boolean!
+
+  """Auto-save interval (seconds)"""
+  autoSaveInterval: Int!
+
+  """Default search type"""
+  defaultSearchType: SearchType!
+
+  """Max results per query"""
+  maxResultsPerQuery: Int!
+
+  """Embedding provider"""
+  embeddingProvider: String
+
+  """Custom settings"""
+  custom: JSON
+}
+
+"""User connection for pagination"""
+type UserConnection {
+  """List of user edges"""
+  edges: [UserConnectionEdge!]!
+
+  """Page information"""
+  pageInfo: PageInfo!
+
+  """Total count"""
+  totalCount: Int!
+}
+
+"""User connection edge"""
+type UserConnectionEdge {
+  """Cursor"""
+  cursor: Cursor!
+
+  """The user"""
+  node: User!
+}
+
+"""Filter options for users"""
+input UserFilter {
+  """Filter by role"""
+  role: UserRole
+
+  """Search query"""
+  search: String
+
+  """Filter by registration date"""
+  createdAfter: DateTime
+  createdBefore: DateTime
+}
+
+"""Input for updating user profile"""
+input UpdateProfileInput {
+  """Display name"""
+  displayName: String
+
+  """Avatar URL"""
+  avatar: String
+
+  """Bio"""
+  bio: String
+
+  """Timezone"""
+  timezone: String
+
+  """Language"""
+  language: String
+}
+
+"""Input for updating user settings"""
+input SettingsInput {
+  """Enable real-time sync"""
+  realtimeSync: Boolean
+
+  """Auto-save interval"""
+  autoSaveInterval: Int
+
+  """Default search type"""
+  defaultSearchType: SearchType
+
+  """Max results per query"""
+  maxResultsPerQuery: Int
+
+  """Embedding provider"""
+  embeddingProvider: String
+
+  """Custom settings"""
+  custom: JSON
+}
+
+"""Settings type"""
+type Settings {
+  """Real-time sync enabled"""
+  realtimeSync: Boolean!
+
+  """Auto-save interval"""
+  autoSaveInterval: Int!
+
+  """Default search type"""
+  defaultSearchType: SearchType!
+
+  """Max results"""
+  maxResultsPerQuery: Int!
+
+  """Embedding provider"""
+  embeddingProvider: String
+
+  """Custom settings"""
+  custom: JSON
+}

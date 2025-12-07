@@ -1,0 +1,152 @@
+{
+  "posthog": {
+    "api_key": "${POSTHOG_API_KEY}",
+    "host": "https://app.posthog.com",
+    "enabled": true,
+    "anonymize_users": true,
+    "opt_out": false,
+    "capture_ip": false,
+    "capture_user_agent": true,
+    "batch_size": 10,
+    "flush_interval": 10.0,
+    "enable_feature_flags": true,
+    "poll_interval": 300
+  },
+  "privacy": {
+    "anonymize_users": true,
+    "no_pii": true,
+    "gdpr_compliant": true,
+    "opt_out_mechanism": "CONTINUUM_ANALYTICS_OPT_OUT environment variable"
+  },
+  "events": {
+    "user": [
+      "user_signup",
+      "user_login",
+      "session_start",
+      "session_end"
+    ],
+    "memory": [
+      "memory_create",
+      "memory_read",
+      "memory_update",
+      "memory_delete",
+      "memory_search"
+    ],
+    "federation": [
+      "federation_join",
+      "federation_sync",
+      "federation_disconnect"
+    ],
+    "api": [
+      "api_request"
+    ],
+    "cli": [
+      "cli_command"
+    ],
+    "errors": [
+      "error"
+    ]
+  },
+  "user_properties": {
+    "plan": {
+      "type": "string",
+      "values": ["free", "pro", "enterprise"],
+      "description": "User's subscription plan"
+    },
+    "account_age": {
+      "type": "number",
+      "description": "Days since account creation"
+    },
+    "total_memories": {
+      "type": "number",
+      "description": "Total number of memories stored"
+    },
+    "federation_participant": {
+      "type": "boolean",
+      "description": "Whether user participates in federation"
+    },
+    "signup_date": {
+      "type": "string",
+      "description": "ISO 8601 timestamp of signup"
+    }
+  },
+  "feature_flags": {
+    "beta_features": {
+      "description": "Enable beta features for testing",
+      "default": false,
+      "rollout_percentage": 10
+    },
+    "new_search_algorithm": {
+      "description": "Enable new semantic search algorithm",
+      "default": false,
+      "rollout_percentage": 25
+    },
+    "federation_v2": {
+      "description": "Enable federation v2 protocol",
+      "default": false,
+      "rollout_percentage": 5
+    },
+    "enhanced_analytics": {
+      "description": "Track additional analytics events",
+      "default": false,
+      "rollout_percentage": 50
+    },
+    "realtime_sync": {
+      "description": "Enable realtime federation sync",
+      "default": false,
+      "rollout_percentage": 0
+    }
+  },
+  "dashboards": {
+    "product_overview": {
+      "description": "High-level product metrics",
+      "metrics": [
+        "daily_active_users",
+        "weekly_active_users",
+        "monthly_active_users",
+        "signup_rate",
+        "retention_rate"
+      ]
+    },
+    "memory_analytics": {
+      "description": "Memory system usage patterns",
+      "metrics": [
+        "memories_created_per_day",
+        "memory_searches_per_user",
+        "average_search_duration",
+        "memory_types_distribution",
+        "search_results_quality"
+      ]
+    },
+    "federation_analytics": {
+      "description": "Federation network health",
+      "metrics": [
+        "active_federation_nodes",
+        "sync_frequency",
+        "data_exchanged",
+        "sync_errors",
+        "contribution_ratios"
+      ]
+    },
+    "api_performance": {
+      "description": "API performance and reliability",
+      "metrics": [
+        "requests_per_second",
+        "average_response_time",
+        "p95_response_time",
+        "error_rate",
+        "status_code_distribution"
+      ]
+    },
+    "user_journey": {
+      "description": "User onboarding and engagement",
+      "metrics": [
+        "signup_to_first_memory",
+        "activation_rate",
+        "feature_adoption",
+        "churn_rate",
+        "session_duration"
+      ]
+    }
+  }
+}

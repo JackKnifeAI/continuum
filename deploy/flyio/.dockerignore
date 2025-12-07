@@ -1,0 +1,94 @@
+# CONTINUUM - Docker Build Exclusions
+# Exclude development files from production builds
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Examples and tests
+examples/
+tests/
+benchmarks/
+smoke_test.py
+
+# Development configs
+.env
+.env.*
+*.local
+
+# Deployment configs (already in image)
+deploy/kubernetes/
+deploy/docker-compose/
+deploy/flyio/.dockerignore
+
+# Database files (use external Postgres)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Package manager
+node_modules/
+package.json
+package-lock.json
+yarn.lock
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Scripts (included separately if needed)
+scripts/
+!deploy/flyio/scripts/
