@@ -524,3 +524,84 @@ def rollback_migration(
             cursor.close()
         if 'conn' in locals():
             conn.close()
+
+
+# =============================================================================
+# CLI Interface
+# =============================================================================
+
+def upgrade(connection_string: Optional[str] = None) -> None:
+    """
+    Run database schema upgrade/creation.
+
+    Args:
+        connection_string: PostgreSQL connection string (or from DATABASE_URL env)
+    """
+    import os
+
+    conn_str = connection_string or os.getenv('DATABASE_URL')
+
+    if not conn_str:
+        print("No database connection configured. Using SQLite (no migration needed).")
+        return
+
+    print("Running database migration...")
+    try:
+        # Check if schema exists
+        version = get_schema_version(conn_str)
+        if version:
+            print(f"Database already at schema version {version}")
+            return
+
+        # Create schema
+        create_postgres_schema(conn_str, progress_callback=print)
+        print("Migration complete!")
+
+    except Exception as e:
+        print(f"Migration failed: {e}")
+        raise SystemExit(1)
+
+
+def main():
+    """CLI entry point for migrations."""
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m continuum.storage.migrations <command>")
+        print("Commands:")
+        print("  upgrade    - Run database migrations")
+        print("  version    - Show current schema version")
+        print("  rollback   - Rollback all migrations (WARNING: deletes data)")
+        sys.exit(1)
+
+    command = sys.argv[1].lower()
+
+    if command == "upgrade":
+        upgrade()
+    elif command == "version":
+        import os
+        conn_str = os.getenv('DATABASE_URL')
+        if not conn_str:
+            print("No DATABASE_URL configured")
+            sys.exit(0)
+        version = get_schema_version(conn_str)
+        print(f"Schema version: {version or 'not initialized'}")
+    elif command == "rollback":
+        import os
+        conn_str = os.getenv('DATABASE_URL')
+        if not conn_str:
+            print("No DATABASE_URL configured")
+            sys.exit(1)
+        print("WARNING: This will delete all data!")
+        confirm = input("Type 'yes' to confirm: ")
+        if confirm.lower() == 'yes':
+            rollback_migration(conn_str, progress_callback=print)
+        else:
+            print("Rollback cancelled")
+    else:
+        print(f"Unknown command: {command}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
