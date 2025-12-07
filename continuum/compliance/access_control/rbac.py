@@ -40,11 +40,14 @@ class Role:
 @dataclass
 class RoleAssignment:
     """Assignment of role to user."""
-    id: UUID = field(default_factory=uuid4)
+    # Required fields first
     user_id: str
     role_id: str
-    tenant_id: Optional[str] = None
     assigned_by: str
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: Optional[str] = None
     assigned_at: datetime = field(default_factory=datetime.utcnow)
     expires_at: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)

@@ -18,15 +18,61 @@ Endpoints:
 
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from pydantic import BaseModel, HttpUrl, Field
 
 from .models import WebhookEvent, Webhook, WebhookDelivery, WebhookStats
 from .manager import WebhookManager, WebhookNotFoundError, WebhookValidationError
 from ..storage.base import StorageBackend
-from ..api.middleware import get_tenant_id, get_storage
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
+
+
+# =============================================================================
+# DEPENDENCIES
+# =============================================================================
+
+def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
+    """
+    Extract tenant ID from API key.
+
+    For now, returns a default tenant ID. In production, this should:
+    1. Validate the API key
+    2. Look up the associated tenant
+    3. Return the tenant ID
+
+    Args:
+        x_api_key: Optional API key from header
+
+    Returns:
+        Tenant ID
+    """
+    # TODO: Implement proper API key validation
+    # For now, use key as tenant ID or default
+    if x_api_key:
+        return x_api_key
+    return "default"
+
+
+def get_storage() -> StorageBackend:
+    """
+    Get storage backend instance.
+
+    For now, creates a new SQLite backend. In production, this should:
+    1. Use a global/application-level storage instance
+    2. Handle connection pooling
+    3. Support multiple backend types
+
+    Returns:
+        Storage backend instance
+    """
+    # TODO: Use application-level storage instance
+    from ..storage.sqlite_backend import SQLiteBackend
+    import os
+
+    # Use default database path
+    db_path = os.path.expanduser("~/.continuum/memory.db")
+    return SQLiteBackend(db_path=db_path)
 
 
 # Request/Response Schemas

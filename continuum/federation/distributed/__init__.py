@@ -38,21 +38,24 @@ Example:
     await coordinator.sync_state()
 """
 
-from .coordinator import FederationCoordinator, NodeHealth
+from .coordinator import FederationCoordinator, NodeHealth, LoadBalance
 from .consensus import RaftConsensus, ConsensusState
 from .replication import MultiMasterReplicator, ConflictResolver
-from .discovery import NodeDiscovery, DiscoveryMethod
-from .mesh import GossipMesh, GossipMessage
+from .discovery import NodeDiscovery, DiscoveryMethod, DiscoveryConfig
+from .mesh import GossipMesh, GossipMessage, MeshConfig
 
 __all__ = [
     'FederationCoordinator',
     'NodeHealth',
+    'LoadBalance',
     'RaftConsensus',
     'ConsensusState',
     'MultiMasterReplicator',
     'ConflictResolver',
     'NodeDiscovery',
     'DiscoveryMethod',
+    'DiscoveryConfig',
     'GossipMesh',
     'GossipMessage',
+    'MeshConfig',
 ]

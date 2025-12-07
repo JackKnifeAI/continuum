@@ -59,6 +59,9 @@ federation = [
 monitoring = [
     "sentry-sdk[fastapi]>=1.40.0",
 ]
+billing = [
+    "stripe>=7.0.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
@@ -71,7 +74,7 @@ dev = [
     "build>=1.0.0",
 ]
 full = [
-    "continuum-memory[postgres,redis,embeddings,federation,monitoring]",
+    "continuum-memory[postgres,redis,embeddings,federation,monitoring,billing]",
 ]
 all = [
     "continuum-memory[full,dev]",

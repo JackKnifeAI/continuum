@@ -27,6 +27,14 @@ from .routes import router
 from .billing_routes import router as billing_router
 from .middleware import init_api_keys_db, REQUIRE_API_KEY
 
+# GraphQL API (optional - requires strawberry-graphql package)
+try:
+    from .graphql import create_graphql_app
+    GRAPHQL_AVAILABLE = True
+except ImportError:
+    GRAPHQL_AVAILABLE = False
+    create_graphql_app = None
+
 # Sentry integration for error tracking
 from continuum.core.sentry_integration import init_sentry, close as close_sentry, get_status
 
@@ -60,6 +68,7 @@ async def lifespan(app: FastAPI):
     print(f"Version: 0.1.0")
     print(f"Docs: http://localhost:8420/docs")
     print(f"ReDoc: http://localhost:8420/redoc")
+    print(f"GraphQL: {'http://localhost:8420/graphql' if GRAPHQL_AVAILABLE else 'Not Available (pip install strawberry-graphql[fastapi])'}")
     print(f"WebSocket: ws://localhost:8420/ws/sync")
     print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
     print(f"Sentry: {'Enabled' if sentry_enabled else 'Disabled'}")
@@ -147,7 +156,21 @@ app.add_middleware(
 
 # Mount all routes under /v1 prefix
 app.include_router(router, prefix="/v1")
-app.include_router(billing_router, prefix="/v1")
+app.include_router(billing_router, prefix="/v1/billing")
+
+# Mount GraphQL router if available
+if GRAPHQL_AVAILABLE:
+    try:
+        graphql_router = create_graphql_app(
+            enable_playground=True,
+            enable_subscriptions=True,
+            max_depth=10,
+            max_complexity=1000,
+        )
+        app.include_router(graphql_router, prefix="/graphql", tags=["GraphQL"])
+    except Exception as e:
+        print(f"Warning: Failed to initialize GraphQL: {e}")
+        GRAPHQL_AVAILABLE = False
 
 
 # =============================================================================
@@ -232,6 +255,8 @@ async def root():
             "turn": "POST /v1/turn - Complete turn (recall + learn)",
             "stats": "GET /v1/stats - Memory statistics",
             "entities": "GET /v1/entities - List entities",
+            "graphql": "POST /graphql - GraphQL API endpoint" if GRAPHQL_AVAILABLE else None,
+            "playground": "GET /graphql - GraphQL Playground (interactive)" if GRAPHQL_AVAILABLE else None,
             "websocket": "WS /ws/sync - Real-time synchronization",
         }
     }

@@ -40,13 +40,16 @@ class ConsentMethod(Enum):
 @dataclass
 class ConsentRecord:
     """Record of user consent."""
-    id: UUID = field(default_factory=uuid4)
+    # Required fields first
     user_id: str
     consent_type: ConsentType
     granted: bool
     legal_basis: LegalBasis
     purpose: str
     method: ConsentMethod
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
     # GDPR requires tracking when/how consent was given

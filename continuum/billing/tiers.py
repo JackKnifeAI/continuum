@@ -42,13 +42,13 @@ class TierLimits:
     semantic_search_enabled: bool
     realtime_sync_enabled: bool
 
-    # Support and SLA
+    # Support and SLA (required fields)
     support_level: str  # "community", "email", "priority"
+    monthly_price_usd: float
+
+    # Optional fields (must come after required fields)
     sla_uptime: Optional[float] = None  # e.g., 0.99 = 99%
     sla_response_hours: Optional[int] = None
-
-    # Cost
-    monthly_price_usd: float
     overage_price_per_1k_calls: Optional[float] = None
     custom_pricing: bool = False
 

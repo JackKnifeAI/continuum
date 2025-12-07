@@ -21,12 +21,15 @@ class RetentionPeriod(Enum):
 @dataclass
 class RetentionPolicy:
     """Data retention policy definition."""
-    id: UUID = field(default_factory=uuid4)
+    # Required fields first
     name: str
     resource_type: str
     retention_days: int
     legal_basis: str
     description: str
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
     auto_delete: bool = True
     grace_period_days: int = 30  # Soft delete grace period
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -48,11 +51,14 @@ class RetentionResult:
 @dataclass
 class ScheduledDeletion:
     """Scheduled future deletion."""
-    id: UUID = field(default_factory=uuid4)
+    # Required fields first
     resource_type: str
     resource_id: str
     deletion_date: datetime
     reason: str
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=datetime.utcnow)
     executed: bool = False
     executed_at: Optional[datetime] = None

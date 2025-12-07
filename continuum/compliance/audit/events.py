@@ -194,13 +194,13 @@ class AuditLogEntry:
     - Tamper detection
     """
 
+    # Event Details (required fields first)
+    event_type: AuditEventType
+    outcome: Outcome
+
     # Core Identity
     id: UUID = field(default_factory=uuid4)
     timestamp: datetime = field(default_factory=datetime.utcnow)
-
-    # Event Details
-    event_type: AuditEventType
-    outcome: Outcome
 
     # Actor Information
     actor_id: Optional[str] = None

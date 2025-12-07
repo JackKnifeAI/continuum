@@ -5,7 +5,6 @@ Handles customer management, subscriptions, usage-based billing, and webhooks.
 """
 
 import os
-import stripe
 import hmac
 import hashlib
 from typing import Optional, Dict, Any, List
@@ -14,6 +13,14 @@ from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Try to import stripe, but allow graceful degradation to mock mode
+try:
+    import stripe
+    STRIPE_AVAILABLE = True
+except ImportError:
+    STRIPE_AVAILABLE = False
+    logger.warning("Stripe library not installed. Running in mock mode. Install with: pip install stripe")
 
 
 class SubscriptionStatus(Enum):
@@ -38,12 +45,17 @@ class StripeClient:
     - Usage-based metering for API calls
     - Webhook signature verification
     - Payment method management
+
+    **Mock Mode:**
+    If Stripe SDK is not installed or API key is not provided,
+    the client runs in mock mode for development/testing.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        webhook_secret: Optional[str] = None
+        webhook_secret: Optional[str] = None,
+        mock_mode: bool = False
     ):
         """
         Initialize Stripe client.
@@ -51,15 +63,55 @@ class StripeClient:
         Args:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
+            mock_mode: Force mock mode (useful for testing without Stripe)
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
 
-        if not self.api_key:
-            raise ValueError("Stripe API key not provided")
+        # Determine if we should run in mock mode
+        self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
 
-        stripe.api_key = self.api_key
-        logger.info("Stripe client initialized")
+        if self.mock_mode:
+            logger.warning(
+                "Stripe client running in MOCK MODE. "
+                "No real Stripe API calls will be made. "
+                "Set STRIPE_SECRET_KEY environment variable to enable live mode."
+            )
+        else:
+            stripe.api_key = self.api_key
+            logger.info("Stripe client initialized in LIVE MODE")
+
+    def _mock_customer(self, email: str, tenant_id: str, metadata: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Generate a mock customer object for development"""
+        import random
+        return {
+            "id": f"cus_mock_{random.randint(100000, 999999)}",
+            "object": "customer",
+            "email": email,
+            "metadata": {"tenant_id": tenant_id, **(metadata or {})},
+            "created": int(datetime.now(timezone.utc).timestamp()),
+        }
+
+    def _mock_subscription(self, customer_id: str, price_id: str, metadata: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Generate a mock subscription object for development"""
+        import random
+        now = datetime.now(timezone.utc)
+        return {
+            "id": f"sub_mock_{random.randint(100000, 999999)}",
+            "object": "subscription",
+            "customer": customer_id,
+            "status": "active",
+            "items": {
+                "data": [{
+                    "id": f"si_mock_{random.randint(100000, 999999)}",
+                    "price": {"id": price_id},
+                }]
+            },
+            "metadata": metadata or {},
+            "created": int(now.timestamp()),
+            "current_period_start": int(now.timestamp()),
+            "current_period_end": int((now.replace(month=now.month+1 if now.month < 12 else 1)).timestamp()),
+        }
 
     # Customer Management
 
@@ -80,6 +132,10 @@ class StripeClient:
         Returns:
             Customer object
         """
+        if self.mock_mode:
+            logger.info(f"[MOCK] Creating customer for {email} (tenant: {tenant_id})")
+            return self._mock_customer(email, tenant_id, metadata)
+
         try:
             customer_metadata = {"tenant_id": tenant_id}
             if metadata:
@@ -146,6 +202,10 @@ class StripeClient:
         Returns:
             Subscription object
         """
+        if self.mock_mode:
+            logger.info(f"[MOCK] Creating subscription for customer {customer_id} with price {price_id}")
+            return self._mock_subscription(customer_id, price_id, metadata)
+
         try:
             params = {
                 "customer": customer_id,
@@ -392,6 +452,16 @@ class StripeClient:
         Raises:
             ValueError: If signature is invalid
         """
+        if self.mock_mode:
+            # In mock mode, parse payload as JSON
+            import json
+            logger.warning("[MOCK] Skipping webhook signature verification")
+            try:
+                event = json.loads(payload.decode('utf-8'))
+                return event
+            except Exception as e:
+                raise ValueError(f"Invalid webhook payload in mock mode: {e}")
+
         if not self.webhook_secret:
             raise ValueError("Webhook secret not configured")
 

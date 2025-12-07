@@ -9,10 +9,13 @@ from uuid import UUID, uuid4
 @dataclass
 class SOC2Report:
     """SOC2 Type II Compliance Report."""
-    id: UUID = field(default_factory=uuid4)
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    # Required fields first
     period_start: datetime
     period_end: datetime
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
+    generated_at: datetime = field(default_factory=datetime.utcnow)
 
     # Trust Services Criteria
     security: Dict[str, Any] = field(default_factory=dict)
@@ -29,10 +32,13 @@ class SOC2Report:
 @dataclass
 class GDPRReport:
     """GDPR Compliance Report (Article 30)."""
-    id: UUID = field(default_factory=uuid4)
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    # Required fields first
     period_start: datetime
     period_end: datetime
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
+    generated_at: datetime = field(default_factory=datetime.utcnow)
 
     # Article 30 requirements
     processing_activities: List[Dict[str, Any]] = field(default_factory=list)
@@ -56,11 +62,13 @@ class GDPRReport:
 @dataclass
 class AccessReport:
     """Data access summary report."""
-    id: UUID = field(default_factory=uuid4)
-    generated_at: datetime = field(default_factory=datetime.utcnow)
+    # Required fields first
     period_start: datetime
     period_end: datetime
 
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
+    generated_at: datetime = field(default_factory=datetime.utcnow)
     user_id: Optional[str] = None
     total_accesses: int = 0
     by_resource_type: Dict[str, int] = field(default_factory=dict)

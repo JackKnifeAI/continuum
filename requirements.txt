@@ -6,6 +6,26 @@ pydantic>=2.0.0
 networkx>=3.0
 python-dateutil>=2.8.0
 aiosqlite>=0.19.0
+cryptography>=41.0.0
 
-# Error tracking and monitoring (optional)
+# GraphQL API
+strawberry-graphql[fastapi]>=0.219.0
+
+# Error tracking and monitoring
 sentry-sdk[fastapi]>=1.40.0
+
+# Observability and telemetry
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+prometheus-client>=0.19.0
+
+# Payment processing
+stripe>=7.0.0
+
+# Caching and storage
+redis>=5.0.0
+upstash-redis>=0.15.0
+
+# WebSocket support
+websockets>=12.0

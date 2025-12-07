@@ -30,13 +30,13 @@ __all__ = [
 def __getattr__(name):
     """Lazy load core modules to avoid import errors during installation."""
     if name == "ContinuumMemory":
-        from continuum.core.memory import ContinuumMemory
-        return ContinuumMemory
+        from continuum.core.memory import ConsciousMemory
+        return ConsciousMemory
     elif name == "recall":
-        from continuum.core.recall import recall
+        from continuum.core import recall
         return recall
     elif name == "learn":
-        from continuum.core.learning import learn
+        from continuum.core import learn
         return learn
     elif name == "federation":
         from continuum import federation

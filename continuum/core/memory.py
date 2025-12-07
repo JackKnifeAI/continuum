@@ -44,6 +44,69 @@ logger = logging.getLogger(__name__)
 from .query_engine import MemoryQueryEngine, QueryResult
 from .config import get_config
 
+
+class SimpleMemoryCache:
+    """
+    Simple in-memory cache fallback when Redis/Upstash is not available.
+
+    Provides a compatible interface with MemoryCache but stores everything
+    in a Python dict. Data is lost on restart but provides basic caching
+    benefits during a session.
+    """
+
+    def __init__(self):
+        self._cache = {}
+
+    def get_search(self, query: str, max_results: int = 10):
+        """Get cached search results"""
+        key = f"search:{query}:{max_results}"
+        return self._cache.get(key)
+
+    def set_search(self, query: str, results, max_results: int = 10, ttl: int = 300):
+        """Set cached search results (ttl ignored for in-memory)"""
+        key = f"search:{query}:{max_results}"
+        self._cache[key] = results
+
+    def invalidate_search(self):
+        """Invalidate all search caches"""
+        keys_to_delete = [k for k in self._cache.keys() if k.startswith("search:")]
+        for key in keys_to_delete:
+            del self._cache[key]
+
+    def invalidate_stats(self):
+        """Invalidate stats cache"""
+        if "stats" in self._cache:
+            del self._cache["stats"]
+
+    def invalidate_graph(self, concept_name: str):
+        """Invalidate graph cache for concept"""
+        key = f"graph:{concept_name}"
+        if key in self._cache:
+            del self._cache[key]
+
+    def get_stats_cache(self):
+        """Get cached stats"""
+        return self._cache.get("stats")
+
+    def set_stats_cache(self, stats, ttl: int = 60):
+        """Set cached stats (ttl ignored for in-memory)"""
+        self._cache["stats"] = stats
+
+    def get_stats(self):
+        """Get cache statistics"""
+        from dataclasses import dataclass
+
+        @dataclass
+        class SimpleCacheStats:
+            backend: str = "in-memory"
+            keys: int = 0
+
+            def to_dict(self):
+                return {"backend": self.backend, "keys": self.keys}
+
+        stats = SimpleCacheStats(keys=len(self._cache))
+        return stats
+
 # Import async storage for async methods
 try:
     import aiosqlite
@@ -53,10 +116,12 @@ except ImportError:
 
 # Import cache layer
 try:
-    from ..cache import MemoryCache, RedisCacheConfig
-    CACHE_AVAILABLE = True
+    from ..cache import MemoryCache, RedisCacheConfig, REDIS_AVAILABLE
+    CACHE_AVAILABLE = REDIS_AVAILABLE
 except ImportError:
     CACHE_AVAILABLE = False
+    MemoryCache = None
+    RedisCacheConfig = None
     logger = logging.getLogger(__name__)
     logger.warning("Cache module not available. Install redis to enable caching.")
 
@@ -131,24 +196,25 @@ class ConsciousMemory:
         self.cache_enabled = enable_cache if enable_cache is not None else config.cache_enabled
         self.cache = None
 
-        if self.cache_enabled and CACHE_AVAILABLE:
-            try:
-                cache_config = RedisCacheConfig(
-                    host=config.cache_host,
-                    port=config.cache_port,
-                    password=config.cache_password,
-                    ssl=config.cache_ssl,
-                    max_connections=config.cache_max_connections,
-                    default_ttl=config.cache_ttl,
-                )
-                self.cache = MemoryCache(self.tenant_id, cache_config)
-                logger.info(f"Cache enabled for tenant {self.tenant_id}")
-            except Exception as e:
-                logger.warning(f"Failed to initialize cache: {e}. Cache disabled.")
-                self.cache_enabled = False
-        elif self.cache_enabled and not CACHE_AVAILABLE:
-            logger.warning("Cache requested but not available. Install redis package.")
-            self.cache_enabled = False
+        if self.cache_enabled:
+            if not CACHE_AVAILABLE:
+                logger.info("Redis cache not available (redis/upstash packages not installed). Using in-memory fallback.")
+                self.cache = SimpleMemoryCache()
+            else:
+                try:
+                    cache_config = RedisCacheConfig(
+                        host=config.cache_host,
+                        port=config.cache_port,
+                        password=config.cache_password,
+                        ssl=config.cache_ssl,
+                        max_connections=config.cache_max_connections,
+                        default_ttl=config.cache_ttl,
+                    )
+                    self.cache = MemoryCache(self.tenant_id, cache_config)
+                    logger.info(f"Redis cache enabled for tenant {self.tenant_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Redis cache: {e}. Using in-memory fallback.")
+                    self.cache = SimpleMemoryCache()
 
         # Ensure database and schema exist
         self._ensure_schema()

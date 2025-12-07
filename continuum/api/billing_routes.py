@@ -55,10 +55,17 @@ class SubscriptionStatusResponse(BaseModel):
 # ROUTER SETUP
 # =============================================================================
 
-router = APIRouter(prefix="/billing", tags=["Billing"])
+# Router WITHOUT prefix - will be mounted with /v1/billing prefix in server.py
+router = APIRouter(tags=["Billing"])
 
-# Initialize Stripe client
-stripe_client = StripeClient()
+# Initialize Stripe client (will auto-detect mock mode if no API key)
+try:
+    stripe_client = StripeClient()
+except Exception as e:
+    # Fallback to mock mode if initialization fails
+    import logging
+    logging.warning(f"Failed to initialize StripeClient in live mode: {e}. Using mock mode.")
+    stripe_client = StripeClient(mock_mode=True)
 
 
 # =============================================================================
@@ -126,6 +133,16 @@ async def create_checkout_session(
         )
 
         # Create checkout session
+        if stripe_client.mock_mode:
+            # Mock checkout session for development
+            import random
+            mock_session_id = f"cs_mock_{random.randint(100000, 999999)}"
+            return CreateCheckoutSessionResponse(
+                session_id=mock_session_id,
+                url=f"https://checkout.stripe.com/mock/{mock_session_id}"
+            )
+
+        # Live Stripe checkout
         import stripe
         session = stripe.checkout.Session.create(
             customer=customer.id,
@@ -152,10 +169,12 @@ async def create_checkout_session(
             url=session.url
         )
 
-    except stripe.error.StripeError as e:
-        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Checkout session creation failed: {str(e)}")
+        # Handle both Stripe errors and general exceptions
+        error_msg = str(e)
+        if "stripe" in str(type(e).__module__):
+            error_msg = f"Stripe error: {error_msg}"
+        raise HTTPException(status_code=500, detail=f"Checkout session creation failed: {error_msg}")
 
 
 # =============================================================================

@@ -31,11 +31,14 @@ class AlertType(Enum):
 @dataclass
 class Alert:
     """Compliance alert."""
-    id: UUID = field(default_factory=uuid4)
+    # Required fields first
     type: AlertType
     severity: AlertSeverity
     title: str
     description: str
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
     details: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
     resolved: bool = False

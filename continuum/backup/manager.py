@@ -31,68 +31,10 @@ from .types import (
     BackupStatus,
     StorageBackend,
     CompressionAlgorithm,
+    BackupConfig,
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class BackupConfig:
-    """Central backup system configuration"""
-
-    # Storage
-    primary_storage: StorageConfig
-    secondary_storage: Optional[StorageConfig] = None
-
-    # Encryption
-    encryption: EncryptionConfig = field(default_factory=EncryptionConfig)
-
-    # Compression
-    compression_enabled: bool = True
-    compression_algorithm: CompressionAlgorithm = CompressionAlgorithm.ZSTD
-    compression_level: int = 3  # Balance between speed and ratio
-
-    # Retention
-    retention_policy: RetentionPolicy = field(default_factory=RetentionPolicy)
-
-    # Schedule
-    schedule: BackupSchedule = field(default_factory=BackupSchedule)
-
-    # Verification
-    verify_after_backup: bool = True
-    weekly_restore_test: bool = True
-    checksum_algorithm: str = "sha256"
-
-    # Performance
-    max_concurrent_backups: int = 1  # Prevent concurrent backups
-    backup_timeout_seconds: int = 3600  # 1 hour
-    restore_timeout_seconds: int = 7200  # 2 hours
-
-    # Database settings
-    db_path: Path = Path("continuum_data/memory.db")
-    temp_dir: Path = Path("continuum_data/backup_temp")
-
-    # Metadata storage
-    metadata_db_path: Path = Path("continuum_data/backups/metadata.db")
-
-    # Notifications
-    notify_on_success: bool = False
-    notify_on_failure: bool = True
-    notification_channels: List[str] = field(default_factory=list)
-
-    # SLA targets
-    target_rpo_minutes: int = 5  # Recovery Point Objective
-    target_rto_minutes: int = 60  # Recovery Time Objective
-
-    # Tenant configuration
-    tenant_id: str = "default"
-
-    def ensure_directories(self):
-        """Ensure all required directories exist"""
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
-        self.metadata_db_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.primary_storage.local_path:
-            self.primary_storage.local_path.mkdir(parents=True, exist_ok=True)
 
 
 class BackupManager:

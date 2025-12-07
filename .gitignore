@@ -154,3 +154,7 @@ secrets.yaml
 credentials.json
 *.key
 *.pem
+
+# CONTINUUM
+continuum_data/
+.continuum/

@@ -28,7 +28,13 @@ import logging
 from typing import Optional, AsyncIterator
 from datetime import datetime, timedelta
 from uuid import UUID
-import redis.asyncio as redis
+
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis = None
 
 from .models import WebhookDelivery, DeliveryStatus
 
@@ -59,7 +65,13 @@ class DeliveryQueue:
 
         Args:
             redis_url: Redis connection URL
+
+        Raises:
+            ImportError: If redis is not installed
         """
+        if not REDIS_AVAILABLE:
+            raise ImportError("redis package is required for DeliveryQueue. Install with: pip install redis")
+
         self.redis_url = redis_url
         self.redis: Optional[redis.Redis] = None
 

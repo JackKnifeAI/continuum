@@ -22,9 +22,12 @@ class AnomalyType(Enum):
 @dataclass
 class Anomaly:
     """Detected anomaly."""
-    id: UUID = field(default_factory=uuid4)
+    # Required fields first
     type: AnomalyType
     severity: str  # low, medium, high, critical
+
+    # Optional fields with defaults
+    id: UUID = field(default_factory=uuid4)
     user_id: Optional[str] = None
     description: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
