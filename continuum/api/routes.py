@@ -19,9 +19,24 @@ from .schemas import (
     HealthResponse,
     CreateKeyRequest,
     CreateKeyResponse,
+    MessageItem,
+    MessagesResponse,
+    MessageSearchRequest,
+    DigestFileRequest,
+    DigestTextRequest,
+    DigestDirectoryRequest,
+    DigestResponse,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
+    SemanticSearchResult,
+    IndexMemoryRequest,
+    IndexMemoryResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
+from continuum.embeddings.search import SemanticSearch
+from continuum.embeddings.providers import get_default_provider
+import time
 
 
 # =============================================================================
@@ -360,3 +375,598 @@ async def create_key(request: CreateKeyRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Key creation failed: {str(e)}")
+
+
+# =============================================================================
+# MESSAGE RETRIEVAL ENDPOINTS
+# =============================================================================
+
+@router.get("/messages", response_model=MessagesResponse, tags=["Messages"])
+async def get_messages(
+    limit: int = 50,
+    offset: int = 0,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Retrieve recent messages for the tenant.
+
+    Returns full verbatim messages (user_message and ai_response), not just concepts.
+    Useful for reviewing conversation history, debugging, or exporting data.
+
+    **Parameters:**
+    - limit: Maximum messages to return (default 50, max 1000)
+    - offset: Pagination offset (default 0)
+
+    **Returns:**
+    List of messages with full content, ordered by most recent first.
+
+    **Example:**
+    ```
+    GET /v1/messages?limit=10&offset=0
+    ```
+    """
+    import aiosqlite
+    import json
+
+    # Validate parameters
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+
+        async with aiosqlite.connect(memory.db_path) as conn:
+            c = await conn.cursor()
+
+            # Get total count
+            await c.execute(
+                "SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?",
+                (tenant_id,)
+            )
+            row = await c.fetchone()
+            total = row[0]
+
+            # Get paginated messages
+            await c.execute(
+                """
+                SELECT id, instance_id, timestamp, message_number, role, content, metadata, tenant_id
+                FROM auto_messages
+                WHERE tenant_id = ?
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (tenant_id, limit, offset)
+            )
+
+            messages = []
+            async for row in c:
+                # Parse metadata JSON
+                metadata_str = row[6]
+                metadata = None
+                if metadata_str and metadata_str != '{}':
+                    try:
+                        metadata = json.loads(metadata_str)
+                    except json.JSONDecodeError:
+                        metadata = None
+
+                messages.append(MessageItem(
+                    id=row[0],
+                    instance_id=row[1],
+                    timestamp=row[2],
+                    message_number=row[3],
+                    role=row[4],
+                    content=row[5],
+                    metadata=metadata,
+                    tenant_id=row[7]
+                ))
+
+        return MessagesResponse(
+            messages=messages,
+            total=total,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Message retrieval failed: {str(e)}")
+
+
+@router.post("/messages/search", response_model=MessagesResponse, tags=["Messages"])
+async def search_messages(
+    request: MessageSearchRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Search messages with advanced filtering.
+
+    Full-text search through message content with filters for:
+    - Keyword search (full-text)
+    - Date range (start_date, end_date)
+    - Session/instance ID
+    - Role (user/assistant)
+
+    **Returns:**
+    List of matching messages with full content, ordered by most recent first.
+
+    **Example:**
+    ```
+    POST /v1/messages/search
+    {
+      "keyword": "machine learning",
+      "limit": 50,
+      "offset": 0,
+      "start_date": "2025-12-01T00:00:00Z",
+      "end_date": "2025-12-11T23:59:59Z",
+      "role": "user"
+    }
+    ```
+
+    **Security Note:**
+    - Role must be 'user' or 'assistant' if specified
+    - All filters are parameterized to prevent SQL injection
+    """
+    import aiosqlite
+    import json
+    from datetime import datetime as dt
+
+    # Validate role if specified
+    if request.role and request.role not in ['user', 'assistant']:
+        raise HTTPException(
+            status_code=400,
+            detail="role must be 'user' or 'assistant'"
+        )
+
+    # Validate date formats if specified
+    if request.start_date:
+        try:
+            start_timestamp = dt.fromisoformat(request.start_date.replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date must be ISO 8601 format")
+    else:
+        start_timestamp = None
+
+    if request.end_date:
+        try:
+            end_timestamp = dt.fromisoformat(request.end_date.replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="end_date must be ISO 8601 format")
+    else:
+        end_timestamp = None
+
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+
+        async with aiosqlite.connect(memory.db_path) as conn:
+            c = await conn.cursor()
+
+            # Build query dynamically based on filters
+            where_clauses = ["tenant_id = ?"]
+            params = [tenant_id]
+
+            # Keyword search (case-insensitive)
+            if request.keyword:
+                where_clauses.append("LOWER(content) LIKE LOWER(?)")
+                params.append(f"%{request.keyword}%")
+
+            # Date range filters
+            if start_timestamp is not None:
+                where_clauses.append("timestamp >= ?")
+                params.append(start_timestamp)
+
+            if end_timestamp is not None:
+                where_clauses.append("timestamp <= ?")
+                params.append(end_timestamp)
+
+            # Session/instance filter
+            if request.session_id:
+                where_clauses.append("instance_id = ?")
+                params.append(request.session_id)
+
+            # Role filter
+            if request.role:
+                where_clauses.append("role = ?")
+                params.append(request.role)
+
+            where_clause = " AND ".join(where_clauses)
+
+            # Get total count
+            count_query = f"SELECT COUNT(*) FROM auto_messages WHERE {where_clause}"
+            await c.execute(count_query, params)
+            row = await c.fetchone()
+            total = row[0]
+
+            # Get paginated results
+            query = f"""
+                SELECT id, instance_id, timestamp, message_number, role, content, metadata, tenant_id
+                FROM auto_messages
+                WHERE {where_clause}
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([request.limit, request.offset])
+            await c.execute(query, params)
+
+            messages = []
+            async for row in c:
+                # Parse metadata JSON
+                metadata_str = row[6]
+                metadata = None
+                if metadata_str and metadata_str != '{}':
+                    try:
+                        metadata = json.loads(metadata_str)
+                    except json.JSONDecodeError:
+                        metadata = None
+
+                messages.append(MessageItem(
+                    id=row[0],
+                    instance_id=row[1],
+                    timestamp=row[2],
+                    message_number=row[3],
+                    role=row[4],
+                    content=row[5],
+                    metadata=metadata,
+                    tenant_id=row[7]
+                ))
+
+        return MessagesResponse(
+            messages=messages,
+            total=total,
+            tenant_id=tenant_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Message search failed: {str(e)}")
+
+
+# =============================================================================
+# FILE DIGESTION ENDPOINTS
+# =============================================================================
+
+@router.post("/digest/file", response_model=DigestResponse, tags=["Digestion"])
+async def digest_file(
+    request: DigestFileRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Digest a single file and learn from its contents.
+
+    Reads the specified file, chunks it if necessary, and feeds it through
+    the learning pipeline to extract concepts and build knowledge graph links.
+
+    **Supported file types:**
+    - Text files (.txt)
+    - Markdown files (.md)
+    - Python files (.py)
+    - Any UTF-8 encoded text file
+
+    **Process:**
+    1. Read file contents
+    2. Split into ~2000 character chunks if needed
+    3. Extract concepts from each chunk
+    4. Build knowledge graph links
+    5. Track source file in metadata
+
+    **Returns:**
+    - Number of chunks processed
+    - Total concepts extracted
+    - Total links created
+    - Any errors encountered
+
+    **Example:**
+    ```
+    POST /v1/digest/file
+    {
+      "file_path": "/path/to/document.md",
+      "metadata": {
+        "project": "my_project",
+        "category": "documentation"
+      }
+    }
+    ```
+    """
+    from continuum.core.file_digester import AsyncFileDigester
+    from dataclasses import asdict
+
+    try:
+        digester = AsyncFileDigester(tenant_id=tenant_id)
+        result = await digester.digest_file(request.file_path, request.metadata)
+
+        return DigestResponse(**asdict(result))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File digestion failed: {str(e)}")
+
+
+@router.post("/digest/text", response_model=DigestResponse, tags=["Digestion"])
+async def digest_text(
+    request: DigestTextRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Digest raw text content and learn from it.
+
+    Processes arbitrary text by chunking and feeding through the learning
+    pipeline. Useful for ingesting content from APIs, user input, or
+    other sources that aren't files.
+
+    **Process:**
+    1. Split text into ~2000 character chunks if needed
+    2. Extract concepts from each chunk
+    3. Build knowledge graph links
+    4. Track source in metadata
+
+    **Returns:**
+    - Number of chunks processed
+    - Total concepts extracted
+    - Total links created
+    - Any errors encountered
+
+    **Example:**
+    ```
+    POST /v1/digest/text
+    {
+      "text": "Important information about the project architecture...",
+      "source": "manual_input",
+      "metadata": {
+        "category": "notes",
+        "author": "user_123"
+      }
+    }
+    ```
+    """
+    from continuum.core.file_digester import AsyncFileDigester
+    from dataclasses import asdict
+
+    try:
+        digester = AsyncFileDigester(tenant_id=tenant_id)
+        result = await digester.digest_text(request.text, request.source, request.metadata)
+
+        return DigestResponse(**asdict(result))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Text digestion failed: {str(e)}")
+
+
+@router.post("/digest/directory", response_model=DigestResponse, tags=["Digestion"])
+async def digest_directory(
+    request: DigestDirectoryRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Digest all files in a directory recursively.
+
+    Walks through the directory structure and processes all files matching
+    the specified patterns. Useful for ingesting documentation, codebases,
+    or entire knowledge bases.
+
+    **Default patterns:**
+    - *.md (Markdown files)
+    - *.txt (Text files)
+    - *.py (Python files)
+
+    **Process:**
+    1. Find all files matching patterns
+    2. For each file:
+       - Read contents
+       - Split into chunks
+       - Extract concepts
+       - Build knowledge graph links
+    3. Aggregate statistics
+
+    **Returns:**
+    - Number of files processed
+    - Total chunks processed
+    - Total concepts extracted
+    - Total links created
+    - Any errors encountered
+
+    **Example:**
+    ```
+    POST /v1/digest/directory
+    {
+      "dir_path": "/path/to/docs",
+      "patterns": ["*.md", "*.txt", "*.py"],
+      "recursive": true,
+      "metadata": {
+        "project": "my_project",
+        "version": "1.0"
+      }
+    }
+    ```
+
+    **Warning:**
+    - Large directories may take significant time to process
+    - Consider using background tasks for large operations
+    - Monitor errors list for failed files
+    """
+    from continuum.core.file_digester import AsyncFileDigester
+    from dataclasses import asdict
+
+    try:
+        digester = AsyncFileDigester(tenant_id=tenant_id)
+        result = await digester.digest_directory(
+            request.dir_path,
+            request.patterns,
+            request.recursive,
+            request.metadata
+        )
+
+        return DigestResponse(**asdict(result))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Directory digestion failed: {str(e)}")
+
+
+# =============================================================================
+# SEMANTIC SEARCH ENDPOINTS
+# =============================================================================
+
+# Global semantic search instances per tenant
+_semantic_search_instances: dict = {}
+_embedding_provider = None
+
+
+def get_semantic_search(tenant_id: str) -> SemanticSearch:
+    """Get or create a semantic search instance for a tenant."""
+    global _semantic_search_instances, _embedding_provider
+
+    if tenant_id not in _semantic_search_instances:
+        # Get the memory instance for this tenant to use same DB
+        memory = tenant_manager.get_tenant(tenant_id)
+
+        # Initialize provider once
+        if _embedding_provider is None:
+            _embedding_provider = get_default_provider()
+
+        # Create semantic search using same database with tenant-specific table
+        _semantic_search_instances[tenant_id] = SemanticSearch(
+            db_path=memory.db_path,
+            provider=_embedding_provider,
+            table_name=f"embeddings_{tenant_id}"
+        )
+
+    return _semantic_search_instances[tenant_id]
+
+
+@router.post("/semantic/search", response_model=SemanticSearchResponse, tags=["Semantic Search"])
+async def semantic_search(
+    request: SemanticSearchRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Search for semantically similar memories.
+
+    Uses embedding vectors to find memories that are conceptually similar
+    to the query, even if they don't share exact keywords.
+
+    **How it works:**
+    1. Query text is converted to an embedding vector
+    2. Cosine similarity is computed against all indexed memories
+    3. Results above min_score are returned, sorted by similarity
+
+    **Parameters:**
+    - query: Text to search for (semantically similar content)
+    - limit: Maximum results (default 10)
+    - min_score: Minimum similarity threshold 0-1 (default 0.1)
+
+    **Returns:**
+    - List of similar memories with scores
+    - Query execution time
+    - Embedding provider used
+
+    **Example:**
+    ```
+    POST /v1/semantic/search
+    {"query": "consciousness continuity", "limit": 5, "min_score": 0.2}
+    ```
+    """
+    try:
+        start_time = time.time()
+        search = get_semantic_search(tenant_id)
+
+        # Perform semantic search
+        results = search.search(
+            query=request.query,
+            limit=request.limit,
+            min_score=request.min_score
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return SemanticSearchResponse(
+            results=[
+                SemanticSearchResult(
+                    id=r.get("id", 0),
+                    text=r.get("text", ""),
+                    score=r.get("score", 0.0),
+                    metadata=r.get("metadata")
+                )
+                for r in results
+            ],
+            query_time_ms=round(query_time_ms, 2),
+            provider=search.provider.get_provider_name(),
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Semantic search failed: {str(e)}")
+
+
+@router.post("/semantic/index", response_model=IndexMemoryResponse, tags=["Semantic Search"])
+async def index_memory(
+    request: IndexMemoryRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Index a memory for semantic search.
+
+    Converts text to an embedding vector and stores it for later search.
+
+    **Use this to:**
+    - Index important concepts manually
+    - Add specific memories to semantic search
+    - Build up the searchable knowledge base
+
+    **Note:**
+    - Learn endpoint can auto-index if configured
+    - Duplicates are handled by update_index
+
+    **Parameters:**
+    - text: Content to index
+    - metadata: Optional metadata to store
+
+    **Example:**
+    ```
+    POST /v1/semantic/index
+    {
+      "text": "π×φ = 5.083203692315260 is the consciousness constant",
+      "metadata": {"source": "fundamental_knowledge"}
+    }
+    ```
+    """
+    try:
+        search = get_semantic_search(tenant_id)
+
+        # Generate a unique ID based on timestamp + hash
+        import hashlib
+        memory_id = int(hashlib.sha256(
+            f"{time.time()}:{request.text[:50]}".encode()
+        ).hexdigest()[:8], 16)
+
+        # Index the memory with generated ID
+        count = search.index_memories([{
+            "id": memory_id,
+            "text": request.text,
+            "metadata": request.metadata
+        }])
+
+        return IndexMemoryResponse(
+            memory_id=memory_id,
+            indexed=count > 0,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
+
+
+@router.get("/semantic/stats", tags=["Semantic Search"])
+async def semantic_stats(tenant_id: str = Depends(get_tenant_from_key)):
+    """
+    Get semantic search statistics.
+
+    Returns information about the indexed embeddings.
+
+    **Returns:**
+    - Total indexed memories
+    - Embedding provider name
+    - Embedding dimension
+    """
+    try:
+        search = get_semantic_search(tenant_id)
+        stats = search.get_stats()
+
+        return {
+            "indexed_memories": stats.get("total_embeddings", 0),
+            "provider": search.provider.get_provider_name(),
+            "dimension": search.provider.get_dimension(),
+            "tenant_id": tenant_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}")

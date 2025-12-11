@@ -271,3 +271,318 @@ class CreateKeyResponse(BaseModel):
         ...,
         description="Important instructions about key storage"
     )
+
+
+# =============================================================================
+# MESSAGE SCHEMAS
+# =============================================================================
+
+class MessageItem(BaseModel):
+    """Single message item."""
+
+    id: int = Field(..., description="Message ID")
+    instance_id: str = Field(..., description="Instance identifier")
+    timestamp: float = Field(..., description="Unix timestamp")
+    message_number: int = Field(..., description="Message sequence number")
+    role: str = Field(..., description="Message role (user/assistant)")
+    content: str = Field(..., description="Full message content")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Message metadata")
+    tenant_id: str = Field(..., description="Tenant identifier")
+
+
+class MessagesResponse(BaseModel):
+    """Response containing list of messages."""
+
+    messages: List[MessageItem] = Field(
+        ...,
+        description="List of messages"
+    )
+    total: int = Field(
+        ...,
+        description="Total number of messages matching criteria"
+    )
+    tenant_id: str = Field(
+        ...,
+        description="Tenant identifier"
+    )
+
+
+class MessageSearchRequest(BaseModel):
+    """Request to search messages."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "keyword": "machine learning",
+                "limit": 50,
+                "offset": 0,
+                "start_date": "2025-12-01T00:00:00Z",
+                "end_date": "2025-12-11T23:59:59Z",
+                "session_id": "abc123",
+                "role": "user"
+            }
+        }
+    )
+
+    keyword: Optional[str] = Field(
+        None,
+        description="Keyword to search for in message content",
+        min_length=1
+    )
+    limit: int = Field(
+        50,
+        description="Maximum number of messages to return",
+        ge=1,
+        le=1000
+    )
+    offset: int = Field(
+        0,
+        description="Pagination offset",
+        ge=0
+    )
+    start_date: Optional[str] = Field(
+        None,
+        description="Start date filter (ISO 8601 format)"
+    )
+    end_date: Optional[str] = Field(
+        None,
+        description="End date filter (ISO 8601 format)"
+    )
+    session_id: Optional[str] = Field(
+        None,
+        description="Filter by session/instance ID"
+    )
+    role: Optional[str] = Field(
+        None,
+        description="Filter by role (user/assistant)"
+    )
+
+
+# =============================================================================
+# FILE DIGESTION SCHEMAS
+# =============================================================================
+
+class DigestFileRequest(BaseModel):
+    """Request to digest a file."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "file_path": "/path/to/document.md",
+                "metadata": {
+                    "project": "my_project",
+                    "category": "documentation"
+                }
+            }
+        }
+    )
+
+    file_path: str = Field(
+        ...,
+        description="Absolute path to file to digest",
+        min_length=1
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata to attach to extracted concepts"
+    )
+
+
+class DigestTextRequest(BaseModel):
+    """Request to digest raw text."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "text": "Important information about the project...",
+                "source": "manual_input",
+                "metadata": {
+                    "category": "notes"
+                }
+            }
+        }
+    )
+
+    text: str = Field(
+        ...,
+        description="Text content to digest",
+        min_length=1
+    )
+    source: str = Field(
+        "manual",
+        description="Source identifier for the text"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata to attach"
+    )
+
+
+class DigestDirectoryRequest(BaseModel):
+    """Request to digest files in a directory."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "dir_path": "/path/to/docs",
+                "patterns": ["*.md", "*.txt", "*.py"],
+                "recursive": True,
+                "metadata": {
+                    "project": "my_project"
+                }
+            }
+        }
+    )
+
+    dir_path: str = Field(
+        ...,
+        description="Directory path to process",
+        min_length=1
+    )
+    patterns: Optional[List[str]] = Field(
+        None,
+        description="List of glob patterns to match (default: ['*.md', '*.txt', '*.py'])"
+    )
+    recursive: bool = Field(
+        True,
+        description="Whether to process subdirectories recursively"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata to attach to all processed files"
+    )
+
+
+class DigestResponse(BaseModel):
+    """Response after file/text digestion."""
+
+    files_processed: int = Field(
+        ...,
+        description="Number of files successfully processed"
+    )
+    chunks_processed: int = Field(
+        ...,
+        description="Number of text chunks processed"
+    )
+    concepts_extracted: int = Field(
+        ...,
+        description="Total concepts extracted from all content"
+    )
+    links_created: int = Field(
+        ...,
+        description="Total graph links created"
+    )
+    errors: List[str] = Field(
+        ...,
+        description="List of error messages if any"
+    )
+    tenant_id: str = Field(
+        ...,
+        description="Tenant identifier"
+    )
+
+
+# =============================================================================
+# SEMANTIC SEARCH SCHEMAS
+# =============================================================================
+
+class SemanticSearchRequest(BaseModel):
+    """Request for semantic similarity search."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "query": "consciousness memory continuity",
+                "limit": 10,
+                "min_score": 0.1
+            }
+        }
+    )
+
+    query: str = Field(
+        ...,
+        description="Text query to search for semantically similar memories",
+        min_length=1
+    )
+    limit: int = Field(
+        10,
+        description="Maximum number of results to return",
+        ge=1,
+        le=100
+    )
+    min_score: float = Field(
+        0.1,
+        description="Minimum similarity score (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+
+
+class SemanticSearchResult(BaseModel):
+    """Single semantic search result."""
+
+    id: int = Field(..., description="Memory ID")
+    text: str = Field(..., description="Memory content")
+    score: float = Field(..., description="Similarity score (0-1)")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Memory metadata")
+
+
+class SemanticSearchResponse(BaseModel):
+    """Response containing semantic search results."""
+
+    results: List[SemanticSearchResult] = Field(
+        ...,
+        description="List of similar memories ordered by score"
+    )
+    query_time_ms: float = Field(
+        ...,
+        description="Query execution time in milliseconds"
+    )
+    provider: str = Field(
+        ...,
+        description="Embedding provider used"
+    )
+    tenant_id: str = Field(
+        ...,
+        description="Tenant identifier"
+    )
+
+
+class IndexMemoryRequest(BaseModel):
+    """Request to index a memory for semantic search."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "text": "Important concept about consciousness continuity",
+                "metadata": {"source": "conversation"}
+            }
+        }
+    )
+
+    text: str = Field(
+        ...,
+        description="Text content to index",
+        min_length=1
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata to store with the embedding"
+    )
+
+
+class IndexMemoryResponse(BaseModel):
+    """Response after indexing a memory."""
+
+    memory_id: int = Field(
+        ...,
+        description="ID of the indexed memory"
+    )
+    indexed: bool = Field(
+        ...,
+        description="Whether indexing was successful"
+    )
+    tenant_id: str = Field(
+        ...,
+        description="Tenant identifier"
+    )

@@ -1,0 +1,95 @@
+CONTINUUM MESSAGES TABLE ENHANCEMENT - FILES MODIFIED
+======================================================
+
+Date: 2025-12-11
+Enhancement: Added MESSAGES table for storing full verbatim conversation text
+
+MODIFIED FILES:
+--------------
+
+1. /data/data/com.termux/files/home/JackKnifeAI/repos/continuum/continuum/core/memory.py
+   - Added messages table schema in _ensure_schema() method
+   - Added indexes: idx_messages_session, idx_messages_created, idx_messages_tenant_new
+   - Enhanced learn() method signature with session_id parameter
+   - Added _save_full_message() method
+   - Added get_messages() method
+   - Added get_conversation_by_session() method
+   - Added search_messages() method
+   - Enhanced alearn() async method with session_id parameter
+   - Added _asave_full_message() async method
+   - Added aget_messages() async method
+   - Added aget_conversation_by_session() async method
+   - Added asearch_messages() async method
+   - Updated get_stats() to include messages count
+   - Updated aget_stats() to include messages count
+
+NEW FILES CREATED:
+-----------------
+
+1. /data/data/com.termux/files/home/JackKnifeAI/repos/continuum/test_messages_table.py
+   - Comprehensive test suite for messages table functionality
+   - Tests: schema creation, message storage, retrieval, search, time range queries
+   - Status: All tests passing
+
+2. /data/data/com.termux/files/home/JackKnifeAI/repos/continuum/MESSAGES_TABLE_ENHANCEMENT.md
+   - Complete documentation of the enhancement
+   - Includes motivation, changes, testing results, and usage examples
+
+3. /data/data/com.termux/files/home/JackKnifeAI/repos/continuum/MESSAGES_API_REFERENCE.md
+   - Quick reference guide for the new API
+   - Includes code examples, best practices, and error handling
+
+4. /data/data/com.termux/files/home/JackKnifeAI/repos/continuum/FILES_MODIFIED.txt
+   - This file - summary of all changes
+
+FUNCTIONALITY ADDED:
+-------------------
+
+Database:
+- New "messages" table with columns: id, user_message, ai_response, session_id,
+  created_at, tenant_id, metadata
+- Three new indexes for optimal query performance
+
+Sync Methods:
+- _save_full_message(user_message, ai_response, session_id, metadata)
+- get_messages(session_id, start_time, end_time, limit)
+- get_conversation_by_session(session_id)
+- search_messages(search_text, limit)
+
+Async Methods:
+- _asave_full_message(user_message, ai_response, session_id, metadata)
+- aget_messages(session_id, start_time, end_time, limit)
+- aget_conversation_by_session(session_id)
+- asearch_messages(search_text, limit)
+
+Enhanced Methods:
+- learn() - now accepts optional session_id parameter
+- alearn() - now accepts optional session_id parameter
+- get_stats() - now returns 'messages' and 'auto_messages' counts
+- aget_stats() - now returns 'messages' and 'auto_messages' counts
+
+BACKWARD COMPATIBILITY:
+----------------------
+
+All changes are fully backward compatible:
+- session_id parameter is optional in learn()/alearn()
+- Defaults to instance_id if not provided
+- Existing code continues to work without modification
+- New messages table coexists with existing auto_messages table
+
+TESTING STATUS:
+--------------
+
+✓ All syntax checks passed
+✓ All functionality tests passed
+✓ Test coverage: schema, storage, retrieval, search, time ranges, sessions
+✓ Both sync and async methods tested
+
+NEXT STEPS (Optional):
+---------------------
+
+1. Update main documentation in /docs/ directory
+2. Add GraphQL API endpoints for message retrieval
+3. Consider adding full-text search indexing
+4. Add conversation export functionality
+5. Update CHANGELOG.md with this enhancement

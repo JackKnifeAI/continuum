@@ -113,6 +113,10 @@ app = FastAPI(
             "description": "Core memory operations (recall, learn, turn)"
         },
         {
+            "name": "Messages",
+            "description": "Message retrieval and search (full verbatim messages)"
+        },
+        {
             "name": "Statistics",
             "description": "Memory statistics and entity listing"
         },
@@ -253,6 +257,8 @@ async def root():
             "recall": "POST /v1/recall - Query memory for context",
             "learn": "POST /v1/learn - Store learning from exchange",
             "turn": "POST /v1/turn - Complete turn (recall + learn)",
+            "messages": "GET /v1/messages - Retrieve recent messages",
+            "messages_search": "POST /v1/messages/search - Search messages with filters",
             "stats": "GET /v1/stats - Memory statistics",
             "entities": "GET /v1/entities - List entities",
             "graphql": "POST /graphql - GraphQL API endpoint" if GRAPHQL_AVAILABLE else None,

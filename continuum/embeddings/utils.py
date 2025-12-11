@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Union, Optional
 import numpy as np
 
 from .providers import EmbeddingProvider, get_default_provider
-from .search import SemanticSearch
+# Note: SemanticSearch import removed to avoid circular import
 
 
 # Global default provider for convenience functions

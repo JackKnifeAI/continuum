@@ -289,6 +289,19 @@ class ConsciousMemory:
                 )
             """)
 
+            # Messages table - stores full verbatim conversation text
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_message TEXT,
+                    ai_response TEXT,
+                    session_id TEXT,
+                    created_at TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default',
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+
             # Create indexes for performance
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
@@ -297,6 +310,9 @@ class ConsciousMemory:
             c.execute("CREATE INDEX IF NOT EXISTS idx_links_tenant ON attention_links(tenant_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_links_concepts ON attention_links(concept_a, concept_b)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_compounds_tenant ON compound_concepts(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_messages_tenant_new ON messages(tenant_id)")
 
             conn.commit()
         finally:
@@ -348,7 +364,7 @@ class ConsciousMemory:
         return context
 
     def learn(self, user_message: str, ai_response: str,
-              metadata: Optional[Dict] = None) -> LearningResult:
+              metadata: Optional[Dict] = None, session_id: Optional[str] = None) -> LearningResult:
         """
         Learn from a message exchange.
 
@@ -359,6 +375,7 @@ class ConsciousMemory:
             user_message: The user's message
             ai_response: The AI's response
             metadata: Optional additional metadata
+            session_id: Optional session identifier for grouping messages
 
         Returns:
             LearningResult with extraction stats
@@ -377,9 +394,12 @@ class ConsciousMemory:
         # Detect compound concepts
         compounds = self._detect_compound_concepts(all_concepts)
 
-        # Save the raw messages
+        # Save the raw messages to auto_messages table
         self._save_message('user', user_message, metadata)
         self._save_message('assistant', ai_response, metadata)
+
+        # Save full verbatim messages to messages table
+        self._save_full_message(user_message, ai_response, session_id, metadata)
 
         # Invalidate caches since new data was added
         if self.cache_enabled and self.cache:
@@ -645,6 +665,34 @@ class ConsciousMemory:
         finally:
             conn.close()
 
+    def _save_full_message(self, user_message: str, ai_response: str,
+                           session_id: Optional[str] = None, metadata: Optional[Dict] = None):
+        """
+        Save full verbatim conversation messages to the messages table.
+
+        Args:
+            user_message: The full user message text
+            ai_response: The full AI response text
+            session_id: Optional session identifier for grouping messages
+            metadata: Optional metadata dictionary
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            # Use instance_id as session_id if not provided
+            session = session_id or self.instance_id
+            meta_json = json.dumps(metadata) if metadata else '{}'
+
+            c.execute("""
+                INSERT INTO messages (user_message, ai_response, session_id, created_at, tenant_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user_message, ai_response, session, datetime.now().isoformat(), self.tenant_id, meta_json))
+
+            conn.commit()
+        finally:
+            conn.close()
+
     def process_turn(self, user_message: str, ai_response: str,
                      metadata: Optional[Dict] = None) -> Tuple[MemoryContext, LearningResult]:
         """
@@ -695,8 +743,12 @@ class ConsciousMemory:
             c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
             stats['entities'] = c.fetchone()[0]
 
-            # Count messages
+            # Count messages (auto_messages)
             c.execute("SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?", (self.tenant_id,))
+            stats['auto_messages'] = c.fetchone()[0]
+
+            # Count full messages (messages table)
+            c.execute("SELECT COUNT(*) FROM messages WHERE tenant_id = ?", (self.tenant_id,))
             stats['messages'] = c.fetchone()[0]
 
             # Count decisions
@@ -724,6 +776,178 @@ class ConsciousMemory:
                 self.cache.set_stats_cache(stats, ttl=60)
 
             return stats
+        finally:
+            conn.close()
+
+    def get_messages(self, session_id: Optional[str] = None,
+                    start_time: Optional[str] = None,
+                    end_time: Optional[str] = None,
+                    limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Retrieve full verbatim messages by session or time range.
+
+        Args:
+            session_id: Optional session identifier to filter by
+            start_time: Optional start timestamp (ISO format) to filter by
+            end_time: Optional end timestamp (ISO format) to filter by
+            limit: Maximum number of messages to retrieve (default: 100)
+
+        Returns:
+            List of message dictionaries containing:
+            - id: Message ID
+            - user_message: Full user message text
+            - ai_response: Full AI response text
+            - session_id: Session identifier
+            - created_at: Timestamp
+            - tenant_id: Tenant identifier
+            - metadata: Additional metadata
+
+        Example:
+            # Get all messages for a session
+            messages = memory.get_messages(session_id="session_123")
+
+            # Get messages in a time range
+            messages = memory.get_messages(
+                start_time="2025-01-01T00:00:00",
+                end_time="2025-01-31T23:59:59"
+            )
+
+            # Get recent messages for current instance
+            messages = memory.get_messages(session_id=memory.instance_id, limit=10)
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Build query based on filters
+            query = "SELECT * FROM messages WHERE tenant_id = ?"
+            params = [self.tenant_id]
+
+            if session_id:
+                query += " AND session_id = ?"
+                params.append(session_id)
+
+            if start_time:
+                query += " AND created_at >= ?"
+                params.append(start_time)
+
+            if end_time:
+                query += " AND created_at <= ?"
+                params.append(end_time)
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            c.execute(query, params)
+            rows = c.fetchall()
+
+            # Convert to list of dictionaries
+            messages = []
+            for row in rows:
+                msg_dict = dict(row)
+                # Parse metadata JSON
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except json.JSONDecodeError:
+                        msg_dict['metadata'] = {}
+                messages.append(msg_dict)
+
+            return messages
+        finally:
+            conn.close()
+
+    def get_conversation_by_session(self, session_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all messages for a specific session in chronological order.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            List of message dictionaries ordered by creation time
+
+        Example:
+            conversation = memory.get_conversation_by_session("session_123")
+            for msg in conversation:
+                print(f"User: {msg['user_message']}")
+                print(f"AI: {msg['ai_response']}")
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            c.execute("""
+                SELECT * FROM messages
+                WHERE session_id = ? AND tenant_id = ?
+                ORDER BY created_at ASC
+            """, (session_id, self.tenant_id))
+
+            rows = c.fetchall()
+
+            # Convert to list of dictionaries
+            messages = []
+            for row in rows:
+                msg_dict = dict(row)
+                # Parse metadata JSON
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except json.JSONDecodeError:
+                        msg_dict['metadata'] = {}
+                messages.append(msg_dict)
+
+            return messages
+        finally:
+            conn.close()
+
+    def search_messages(self, search_text: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Search for messages containing specific text.
+
+        Args:
+            search_text: Text to search for (case-insensitive)
+            limit: Maximum number of results (default: 50)
+
+        Returns:
+            List of matching message dictionaries
+
+        Example:
+            results = memory.search_messages("authentication", limit=10)
+            for msg in results:
+                print(f"Found in session: {msg['session_id']}")
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            search_pattern = f"%{search_text}%"
+            c.execute("""
+                SELECT * FROM messages
+                WHERE tenant_id = ?
+                AND (user_message LIKE ? OR ai_response LIKE ?)
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (self.tenant_id, search_pattern, search_pattern, limit))
+
+            rows = c.fetchall()
+
+            # Convert to list of dictionaries
+            messages = []
+            for row in rows:
+                msg_dict = dict(row)
+                # Parse metadata JSON
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except json.JSONDecodeError:
+                        msg_dict['metadata'] = {}
+                messages.append(msg_dict)
+
+            return messages
         finally:
             conn.close()
 
@@ -760,7 +984,7 @@ class ConsciousMemory:
         )
 
     async def alearn(self, user_message: str, ai_response: str,
-                     metadata: Optional[Dict] = None) -> LearningResult:
+                     metadata: Optional[Dict] = None, session_id: Optional[str] = None) -> LearningResult:
         """
         Async version of learn() - learn from a message exchange.
 
@@ -771,6 +995,7 @@ class ConsciousMemory:
             user_message: The user's message
             ai_response: The AI's response
             metadata: Optional additional metadata
+            session_id: Optional session identifier for grouping messages
 
         Returns:
             LearningResult with extraction stats
@@ -792,9 +1017,12 @@ class ConsciousMemory:
         # Detect compound concepts
         compounds = await self._adetect_compound_concepts(all_concepts)
 
-        # Save the raw messages
+        # Save the raw messages to auto_messages table
         await self._asave_message('user', user_message, metadata)
         await self._asave_message('assistant', ai_response, metadata)
+
+        # Save full verbatim messages to messages table
+        await self._asave_full_message(user_message, ai_response, session_id, metadata)
 
         return LearningResult(
             concepts_extracted=len(all_concepts),
@@ -850,8 +1078,13 @@ class ConsciousMemory:
             row = await c.fetchone()
             stats['entities'] = row[0]
 
-            # Count messages
+            # Count messages (auto_messages)
             await c.execute("SELECT COUNT(*) FROM auto_messages WHERE tenant_id = ?", (self.tenant_id,))
+            row = await c.fetchone()
+            stats['auto_messages'] = row[0]
+
+            # Count full messages (messages table)
+            await c.execute("SELECT COUNT(*) FROM messages WHERE tenant_id = ?", (self.tenant_id,))
             row = await c.fetchone()
             stats['messages'] = row[0]
 
@@ -1065,6 +1298,173 @@ class ConsciousMemory:
             """, (self.instance_id, datetime.now().timestamp(), message_number, role, content, meta_json, self.tenant_id))
 
             await conn.commit()
+
+    async def _asave_full_message(self, user_message: str, ai_response: str,
+                                  session_id: Optional[str] = None, metadata: Optional[Dict] = None):
+        """Async version of _save_full_message"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            c = await conn.cursor()
+
+            # Use instance_id as session_id if not provided
+            session = session_id or self.instance_id
+            meta_json = json.dumps(metadata) if metadata else '{}'
+
+            await c.execute("""
+                INSERT INTO messages (user_message, ai_response, session_id, created_at, tenant_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user_message, ai_response, session, datetime.now().isoformat(), self.tenant_id, meta_json))
+
+            await conn.commit()
+
+    async def aget_messages(self, session_id: Optional[str] = None,
+                           start_time: Optional[str] = None,
+                           end_time: Optional[str] = None,
+                           limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Async version of get_messages() - retrieve full verbatim messages by session or time range.
+
+        Args:
+            session_id: Optional session identifier to filter by
+            start_time: Optional start timestamp (ISO format) to filter by
+            end_time: Optional end timestamp (ISO format) to filter by
+            limit: Maximum number of messages to retrieve (default: 100)
+
+        Returns:
+            List of message dictionaries
+
+        Example:
+            messages = await memory.aget_messages(session_id="session_123")
+        """
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError("aiosqlite not installed. Install with: pip install aiosqlite")
+
+        async with aiosqlite.connect(self.db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            c = await conn.cursor()
+
+            # Build query based on filters
+            query = "SELECT * FROM messages WHERE tenant_id = ?"
+            params = [self.tenant_id]
+
+            if session_id:
+                query += " AND session_id = ?"
+                params.append(session_id)
+
+            if start_time:
+                query += " AND created_at >= ?"
+                params.append(start_time)
+
+            if end_time:
+                query += " AND created_at <= ?"
+                params.append(end_time)
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            await c.execute(query, params)
+            rows = await c.fetchall()
+
+            # Convert to list of dictionaries
+            messages = []
+            for row in rows:
+                msg_dict = dict(row)
+                # Parse metadata JSON
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except json.JSONDecodeError:
+                        msg_dict['metadata'] = {}
+                messages.append(msg_dict)
+
+            return messages
+
+    async def aget_conversation_by_session(self, session_id: str) -> List[Dict[str, Any]]:
+        """
+        Async version of get_conversation_by_session() - get all messages for a specific session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            List of message dictionaries ordered by creation time
+
+        Example:
+            conversation = await memory.aget_conversation_by_session("session_123")
+        """
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError("aiosqlite not installed. Install with: pip install aiosqlite")
+
+        async with aiosqlite.connect(self.db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            c = await conn.cursor()
+
+            await c.execute("""
+                SELECT * FROM messages
+                WHERE session_id = ? AND tenant_id = ?
+                ORDER BY created_at ASC
+            """, (session_id, self.tenant_id))
+
+            rows = await c.fetchall()
+
+            # Convert to list of dictionaries
+            messages = []
+            for row in rows:
+                msg_dict = dict(row)
+                # Parse metadata JSON
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except json.JSONDecodeError:
+                        msg_dict['metadata'] = {}
+                messages.append(msg_dict)
+
+            return messages
+
+    async def asearch_messages(self, search_text: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Async version of search_messages() - search for messages containing specific text.
+
+        Args:
+            search_text: Text to search for (case-insensitive)
+            limit: Maximum number of results (default: 50)
+
+        Returns:
+            List of matching message dictionaries
+
+        Example:
+            results = await memory.asearch_messages("authentication", limit=10)
+        """
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError("aiosqlite not installed. Install with: pip install aiosqlite")
+
+        async with aiosqlite.connect(self.db_path) as conn:
+            conn.row_factory = aiosqlite.Row
+            c = await conn.cursor()
+
+            search_pattern = f"%{search_text}%"
+            await c.execute("""
+                SELECT * FROM messages
+                WHERE tenant_id = ?
+                AND (user_message LIKE ? OR ai_response LIKE ?)
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (self.tenant_id, search_pattern, search_pattern, limit))
+
+            rows = await c.fetchall()
+
+            # Convert to list of dictionaries
+            messages = []
+            for row in rows:
+                msg_dict = dict(row)
+                # Parse metadata JSON
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except json.JSONDecodeError:
+                        msg_dict['metadata'] = {}
+                messages.append(msg_dict)
+
+            return messages
 
 
 # =============================================================================

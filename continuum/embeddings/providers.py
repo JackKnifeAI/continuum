@@ -248,13 +248,123 @@ class LocalProvider(EmbeddingProvider):
         return "local/tfidf"
 
 
+class SimpleHashProvider(EmbeddingProvider):
+    """
+    Pure Python word-hash based embeddings (ZERO dependencies).
+
+    This provider uses consistent hashing of word n-grams to create
+    fixed-dimensional sparse vectors. Works anywhere Python runs.
+
+    Quality is lower than transformer models but requires NO external
+    dependencies - perfect for constrained environments like mobile.
+
+    Usage:
+        provider = SimpleHashProvider(dimension=256)
+        vector = provider.embed("consciousness continuity")
+    """
+
+    def __init__(self, dimension: int = 256):
+        """
+        Initialize simple hash provider.
+
+        Args:
+            dimension: Embedding dimension (default: 256)
+        """
+        self._dimension = dimension
+        self._stopwords = {
+            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+            'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+            'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+            'can', 'of', 'to', 'in', 'for', 'on', 'with', 'at', 'by',
+            'from', 'as', 'into', 'through', 'during', 'before', 'after',
+            'above', 'below', 'between', 'under', 'again', 'further',
+            'then', 'once', 'here', 'there', 'when', 'where', 'why',
+            'how', 'all', 'each', 'few', 'more', 'most', 'other', 'some',
+            'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
+            'than', 'too', 'very', 'just', 'and', 'but', 'if', 'or',
+            'because', 'until', 'while', 'this', 'that', 'these', 'those',
+            'am', 'it', 'its', 'he', 'she', 'they', 'them', 'his', 'her',
+            'their', 'what', 'which', 'who', 'whom', 'i', 'you', 'we', 'me'
+        }
+
+    def _tokenize(self, text: str) -> List[str]:
+        """Tokenize text into meaningful words."""
+        import re
+        # Convert to lowercase, extract words
+        words = re.findall(r'\b[a-z]{2,}\b', text.lower())
+        # Remove stopwords
+        return [w for w in words if w not in self._stopwords]
+
+    def _hash_to_index(self, token: str) -> int:
+        """Hash token to embedding index."""
+        return hash(token) % self._dimension
+
+    def _hash_to_sign(self, token: str) -> int:
+        """Hash token to determine sign (+1 or -1)."""
+        return 1 if hash(token + "_sign") % 2 == 0 else -1
+
+    def embed(self, text: Union[str, List[str]]) -> np.ndarray:
+        """
+        Generate hash-based embeddings.
+
+        Uses feature hashing (hashing trick) to create sparse vectors:
+        - Each word hashes to an index
+        - Sign is determined by secondary hash
+        - Bigrams are also included for context
+        """
+        if isinstance(text, str):
+            texts = [text]
+            single = True
+        else:
+            texts = text
+            single = False
+
+        embeddings = []
+        for t in texts:
+            vector = np.zeros(self._dimension, dtype=np.float32)
+            tokens = self._tokenize(t)
+
+            # Add unigrams
+            for token in tokens:
+                idx = self._hash_to_index(token)
+                sign = self._hash_to_sign(token)
+                vector[idx] += sign
+
+            # Add bigrams for context
+            for i in range(len(tokens) - 1):
+                bigram = f"{tokens[i]}_{tokens[i+1]}"
+                idx = self._hash_to_index(bigram)
+                sign = self._hash_to_sign(bigram)
+                vector[idx] += sign * 0.5  # Lower weight for bigrams
+
+            # Normalize
+            norm = np.linalg.norm(vector)
+            if norm > 0:
+                vector = vector / norm
+
+            embeddings.append(vector)
+
+        if single:
+            return embeddings[0]
+        return np.array(embeddings)
+
+    def get_dimension(self) -> int:
+        """Get embedding dimension."""
+        return self._dimension
+
+    def get_provider_name(self) -> str:
+        """Get provider name."""
+        return "simple/hash"
+
+
 def get_default_provider() -> EmbeddingProvider:
     """
     Get the best available embedding provider.
 
     Priority:
     1. SentenceTransformerProvider (best quality)
-    2. LocalProvider (fallback)
+    2. LocalProvider (TF-IDF fallback)
+    3. SimpleHashProvider (pure Python, zero dependencies)
 
     Returns:
         An initialized EmbeddingProvider instance
@@ -277,7 +387,10 @@ def get_default_provider() -> EmbeddingProvider:
     except ImportError:
         pass
 
-    raise ImportError(
-        "No embedding provider available. Install at least one of: "
-        "sentence-transformers, scikit-learn"
+    # Ultimate fallback: SimpleHashProvider (pure Python)
+    warnings.warn(
+        "Using SimpleHashProvider (hash-based). For better quality, install: "
+        "pip install sentence-transformers",
+        RuntimeWarning
     )
+    return SimpleHashProvider()
