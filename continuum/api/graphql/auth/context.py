@@ -73,8 +73,8 @@ async def get_context(request: Request) -> GraphQLContext:
             # Invalid API key - context will have no auth
             pass
 
-    # Get database path
-    db_path = config.get("database", {}).get("path", "memory.db")
+    # Get database path from config dataclass
+    db_path = str(config.db_path)
 
     return GraphQLContext(
         request=request,

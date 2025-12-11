@@ -14,13 +14,13 @@ from enum import Enum
 # CUSTOM SCALARS
 # =============================================================================
 
-JSON = strawberry.scalar(
-    object,
-    name="JSON",
-    description="Arbitrary JSON data",
-    serialize=lambda v: v,
-    parse_value=lambda v: v,
-)
+# JSON scalar using strawberry.scalars if available, else fallback
+try:
+    from strawberry.scalars import JSON
+except ImportError:
+    # Fallback: use Dict[str, Any] as JSON type
+    from typing import Dict, Any
+    JSON = Dict[str, Any]
 
 Vector = strawberry.scalar(
     List[float],

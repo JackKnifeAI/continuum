@@ -21,6 +21,7 @@ _spec.loader.exec_module(_old_middleware)
 get_tenant_from_key = _old_middleware.get_tenant_from_key
 optional_tenant_from_key = _old_middleware.optional_tenant_from_key
 validate_api_key = _old_middleware.validate_api_key
+verify_api_key = _old_middleware.validate_api_key  # Alias for GraphQL context
 verify_key = _old_middleware.verify_key
 hash_key = _old_middleware.hash_key
 init_api_keys_db = _old_middleware.init_api_keys_db
@@ -39,6 +40,7 @@ try:
         "get_tenant_from_key",
         "optional_tenant_from_key",
         "validate_api_key",
+        "verify_api_key",
         "verify_key",
         "hash_key",
         "init_api_keys_db",
@@ -54,6 +56,7 @@ except ImportError:
         "get_tenant_from_key",
         "optional_tenant_from_key",
         "validate_api_key",
+        "verify_api_key",
         "verify_key",
         "hash_key",
         "init_api_keys_db",

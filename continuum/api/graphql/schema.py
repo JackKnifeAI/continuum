@@ -3,7 +3,7 @@ Main GraphQL schema with Query, Mutation, and Subscription classes.
 """
 
 import strawberry
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 from datetime import datetime
 
 from .types import (
@@ -292,7 +292,7 @@ class Mutation:
     @strawberry.mutation
     @authenticated
     async def start_session(
-        self, info, title: Optional[str] = None, metadata: Optional[object] = None
+        self, info, title: Optional[str] = None, metadata: Optional[str] = None
     ) -> Session:
         """Start a new session"""
         from .resolvers.mutation_resolvers import resolve_start_session
@@ -361,7 +361,7 @@ class Subscription:
         info,
         memory_type: Optional[str] = None,
         session_id: Optional[strawberry.ID] = None,
-    ):
+    ) -> AsyncGenerator[Memory, None]:
         """Subscribe to new memories"""
         from .resolvers.subscription_resolvers import subscribe_memory_created
         async for memory in subscribe_memory_created(info, memory_type, session_id):
@@ -369,7 +369,7 @@ class Subscription:
 
     @strawberry.subscription
     @authenticated
-    async def concept_discovered(self, info, concept_type: Optional[str] = None):
+    async def concept_discovered(self, info, concept_type: Optional[str] = None) -> AsyncGenerator[Concept, None]:
         """Subscribe to newly discovered concepts"""
         from .resolvers.subscription_resolvers import subscribe_concept_discovered
         async for concept in subscribe_concept_discovered(info, concept_type):
@@ -377,7 +377,7 @@ class Subscription:
 
     @strawberry.subscription
     @authenticated
-    async def federation_sync(self, info, peer_id: Optional[strawberry.ID] = None):
+    async def federation_sync(self, info, peer_id: Optional[strawberry.ID] = None) -> AsyncGenerator[SyncEvent, None]:
         """Subscribe to federation sync events"""
         from .resolvers.subscription_resolvers import subscribe_federation_sync
         async for event in subscribe_federation_sync(info, peer_id):
@@ -385,7 +385,7 @@ class Subscription:
 
     @strawberry.subscription
     @authenticated
-    async def session_activity(self, info, session_id: Optional[strawberry.ID] = None):
+    async def session_activity(self, info, session_id: Optional[strawberry.ID] = None) -> AsyncGenerator[SessionEvent, None]:
         """Subscribe to session activity"""
         from .resolvers.subscription_resolvers import subscribe_session_activity
         async for event in subscribe_session_activity(info, session_id):
