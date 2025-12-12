@@ -121,11 +121,14 @@ async def learn(
     Call this AFTER generating an AI response to extract concepts,
     detect decisions, and build knowledge graph links.
 
+    **Also auto-indexes for semantic search** when OPENAI_API_KEY is set!
+
     **Flow:**
     1. User message received
     2. AI response generated
     3. Call /learn with both messages
     4. System extracts and stores knowledge
+    5. (Auto) Index for semantic search if embedding provider available
 
     **Extracts:**
     - Concepts and entities mentioned
@@ -140,6 +143,29 @@ async def learn(
             request.ai_response,
             request.metadata
         )
+
+        # Auto-index for semantic search (non-blocking, best-effort)
+        try:
+            import hashlib
+            search = get_semantic_search(tenant_id)
+
+            # Combine user + AI messages for semantic indexing
+            combined_text = f"User: {request.user_message}\nAssistant: {request.ai_response}"
+
+            # Generate unique ID
+            memory_id = int(hashlib.sha256(
+                f"{time.time()}:{combined_text[:50]}".encode()
+            ).hexdigest()[:8], 16)
+
+            # Index the conversation turn
+            search.index_memories([{
+                "id": memory_id,
+                "text": combined_text,
+                "metadata": request.metadata
+            }])
+        except Exception:
+            # Don't fail learn if semantic indexing fails
+            pass
 
         return LearnResponse(
             concepts_extracted=result.concepts_extracted,

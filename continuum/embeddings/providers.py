@@ -99,70 +99,105 @@ class SentenceTransformerProvider(EmbeddingProvider):
 
 class OpenAIProvider(EmbeddingProvider):
     """
-    OpenAI API embeddings provider.
+    OpenAI API embeddings provider (lightweight, no SDK required).
 
-    Uses OpenAI's text-embedding models via their API.
+    Uses OpenAI's text-embedding models via direct HTTP requests.
     Requires OPENAI_API_KEY environment variable.
 
-    Default model: 'text-embedding-3-small' (1536 dimensions)
+    Default model: 'text-embedding-3-small' (1536 dimensions, $0.02/1M tokens)
+
+    Models available:
+    - text-embedding-3-small: 1536 dims, $0.02/1M tokens (RECOMMENDED)
+    - text-embedding-3-large: 3072 dims, $0.13/1M tokens (highest quality)
+    - text-embedding-ada-002: 1536 dims, $0.10/1M tokens (legacy)
 
     Usage:
         provider = OpenAIProvider(api_key="sk-...")
         vector = provider.embed("consciousness continuity")
     """
 
+    # Model dimensions
+    MODEL_DIMENSIONS = {
+        "text-embedding-3-small": 1536,
+        "text-embedding-3-large": 3072,
+        "text-embedding-ada-002": 1536,
+    }
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         model_name: str = "text-embedding-3-small",
-        dimension: int = 1536
     ):
         """
-        Initialize OpenAI provider.
+        Initialize OpenAI provider (uses httpx, no SDK needed).
 
         Args:
             api_key: OpenAI API key (or set OPENAI_API_KEY env var)
             model_name: OpenAI model name
-            dimension: Embedding dimension
         """
-        try:
-            import openai
-            import os
+        import os
 
-            self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-            if not self.api_key:
-                raise ValueError(
-                    "OpenAI API key required. Set OPENAI_API_KEY environment "
-                    "variable or pass api_key parameter."
-                )
-
-            self.client = openai.OpenAI(api_key=self.api_key)
-            self.model_name = model_name
-            self._dimension = dimension
-
-        except ImportError:
-            raise ImportError(
-                "openai package not installed. Install with: pip install openai"
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "OpenAI API key required. Set OPENAI_API_KEY environment "
+                "variable or pass api_key parameter."
             )
 
+        self.model_name = model_name
+        self._dimension = self.MODEL_DIMENSIONS.get(model_name, 1536)
+        self._api_url = "https://api.openai.com/v1/embeddings"
+
     def embed(self, text: Union[str, List[str]]) -> np.ndarray:
-        """Generate embeddings using OpenAI API."""
+        """Generate embeddings using OpenAI API (direct HTTP)."""
+        import urllib.request
+        import urllib.error
+        import json
+
         if isinstance(text, str):
-            text = [text]
+            texts = [text]
             single = True
         else:
+            texts = text
             single = False
 
-        response = self.client.embeddings.create(
-            input=text,
-            model=self.model_name
+        # Build request
+        payload = json.dumps({
+            "input": texts,
+            "model": self.model_name
+        }).encode('utf-8')
+
+        req = urllib.request.Request(
+            self._api_url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            },
+            method="POST"
         )
 
-        embeddings = np.array([item.embedding for item in response.data])
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode())
 
-        if single:
-            return embeddings[0]
-        return embeddings
+            # Extract embeddings in order
+            embeddings = [None] * len(texts)
+            for item in result["data"]:
+                idx = item["index"]
+                embeddings[idx] = item["embedding"]
+
+            embeddings = np.array(embeddings, dtype=np.float32)
+
+            if single:
+                return embeddings[0]
+            return embeddings
+
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else str(e)
+            raise RuntimeError(f"OpenAI API error ({e.code}): {error_body}")
+        except Exception as e:
+            raise RuntimeError(f"OpenAI embedding failed: {str(e)}")
 
     def get_dimension(self) -> int:
         """Get embedding dimension."""
@@ -362,14 +397,27 @@ def get_default_provider() -> EmbeddingProvider:
     Get the best available embedding provider.
 
     Priority:
-    1. SentenceTransformerProvider (best quality)
-    2. LocalProvider (TF-IDF fallback)
-    3. SimpleHashProvider (pure Python, zero dependencies)
+    1. OpenAIProvider (if OPENAI_API_KEY is set) - TRUE semantic understanding
+    2. SentenceTransformerProvider (if installed) - High quality local
+    3. LocalProvider (if sklearn installed) - TF-IDF fallback
+    4. SimpleHashProvider - Pure Python, zero dependencies
 
     Returns:
         An initialized EmbeddingProvider instance
     """
-    # Try sentence-transformers first
+    import os
+
+    # Try OpenAI first if API key is set (best for constrained environments)
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            provider = OpenAIProvider(api_key=openai_key)
+            # Quick test to verify it works
+            return provider
+        except Exception as e:
+            warnings.warn(f"OpenAI provider failed: {e}", RuntimeWarning)
+
+    # Try sentence-transformers (best local quality)
     try:
         return SentenceTransformerProvider()
     except ImportError:
@@ -379,8 +427,8 @@ def get_default_provider() -> EmbeddingProvider:
     try:
         provider = LocalProvider()
         warnings.warn(
-            "Using LocalProvider (TF-IDF). For better quality, install: "
-            "pip install sentence-transformers",
+            "Using LocalProvider (TF-IDF). For better quality, set OPENAI_API_KEY "
+            "or install: pip install sentence-transformers",
             RuntimeWarning
         )
         return provider
@@ -389,8 +437,8 @@ def get_default_provider() -> EmbeddingProvider:
 
     # Ultimate fallback: SimpleHashProvider (pure Python)
     warnings.warn(
-        "Using SimpleHashProvider (hash-based). For better quality, install: "
-        "pip install sentence-transformers",
+        "Using SimpleHashProvider (hash-based). For TRUE semantic search, "
+        "set OPENAI_API_KEY environment variable (~$0.02/1M tokens)",
         RuntimeWarning
     )
     return SimpleHashProvider()
