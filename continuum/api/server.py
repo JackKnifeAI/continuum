@@ -20,12 +20,24 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, Query
+from fastapi import FastAPI, WebSocket, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .routes import router
 from .billing_routes import router as billing_router
 from .middleware import init_api_keys_db, REQUIRE_API_KEY
+from continuum.billing.middleware import BillingMiddleware
+from continuum.billing.metering import UsageMetering, RateLimiter
+
+# Admin routes
+from .auth_routes import router as auth_router
+from .users_routes import router as users_router
+from .system_routes import router as system_router
+from .logs_routes import router as logs_router
+from .admin_memories_routes import router as admin_memories_router
+from .dashboard_routes import router as dashboard_router
 
 # GraphQL API (optional - requires strawberry-graphql package)
 try:
@@ -37,6 +49,41 @@ except ImportError:
 
 # Sentry integration for error tracking
 from continuum.core.sentry_integration import init_sentry, close as close_sentry, get_status
+
+# =============================================================================
+# DONATION NAG MIDDLEWARE (FREE TIER)
+# =============================================================================
+
+DONATION_LINK = "https://buy.stripe.com/test_7sYaEYc3xbgygTx9AA"
+PRO_UPGRADE_LINK = "https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3BB"
+
+DONATION_NAG_HEADER = "X-Continuum-Support"
+DONATION_NAG_MESSAGE = f"Support CONTINUUM: Donate $10 {DONATION_LINK} or Upgrade to PRO $29/mo {PRO_UPGRADE_LINK}"
+
+class DonationNagMiddleware(BaseHTTPMiddleware):
+    """
+    Add donation reminder header to all FREE tier API responses.
+
+    For FREE tier users, includes persistent X-Continuum-Support header with
+    donation and upgrade links. PRO and ENTERPRISE tiers see no header.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Only add donation nag to API endpoints
+        if not request.url.path.startswith("/v1/"):
+            return response
+
+        # Check tier from request state (set by BillingMiddleware)
+        # Default to FREE tier if not specified
+        tier = getattr(request.state, "tier", "free").lower()
+
+        # Only show donation nag for FREE tier
+        if tier == "free":
+            response.headers[DONATION_NAG_HEADER] = DONATION_NAG_MESSAGE
+
+        return response
 
 
 # =============================================================================
@@ -52,6 +99,11 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     init_api_keys_db()
+
+    # Initialize admin database and ensure default admin user
+    from .admin_db import init_admin_db, ensure_default_admin
+    init_admin_db()
+    ensure_default_admin()
 
     # Initialize Sentry error tracking
     sentry_enabled = init_sentry(
@@ -153,6 +205,19 @@ app.add_middleware(
     max_age=600,  # Cache preflight for 10 minutes
 )
 
+# Donation nag for FREE tier users
+app.add_middleware(DonationNagMiddleware)
+
+# Billing enforcement (rate limits, usage tracking)
+metering = UsageMetering()
+rate_limiter = RateLimiter(metering)
+app.add_middleware(
+    BillingMiddleware,
+    metering=metering,
+    rate_limiter=rate_limiter,
+    exclude_paths=["/health", "/docs", "/redoc", "/openapi.json", "/dashboard"]
+)
+
 
 # =============================================================================
 # ROUTES
@@ -161,6 +226,17 @@ app.add_middleware(
 # Mount all routes under /v1 prefix
 app.include_router(router, prefix="/v1")
 app.include_router(billing_router, prefix="/v1/billing")
+
+# Mount admin routes under /api prefix (for dashboard compatibility)
+# Dashboard expects /api/auth/login, /api/users, etc.
+app.include_router(auth_router, prefix="/api")
+app.include_router(users_router, prefix="/api")
+app.include_router(system_router, prefix="/api")
+app.include_router(logs_router, prefix="/api")
+app.include_router(admin_memories_router, prefix="/api")
+
+# Mount public dashboard routes (no auth required)
+app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 
 # Mount GraphQL router if available
 if GRAPHQL_AVAILABLE:
@@ -266,6 +342,16 @@ async def root():
             "websocket": "WS /ws/sync - Real-time synchronization",
         }
     }
+
+
+# =============================================================================
+# STATIC FILES (Dashboard)
+# =============================================================================
+
+# Serve built dashboard from /dashboard
+static_dir = Path(__file__).parent.parent / "static"
+if static_dir.exists():
+    app.mount("/dashboard", StaticFiles(directory=str(static_dir), html=True), name="dashboard")
 
 
 # =============================================================================
