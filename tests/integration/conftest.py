@@ -140,12 +140,16 @@ def api_client_with_auth(test_memory_config):
         from continuum.api.server import app
         from continuum.api.middleware import init_api_keys_db, hash_key, get_api_keys_db_path
         import sqlite3
+        import uuid
 
         # Initialize API keys DB
         init_api_keys_db()
 
-        # Create test API key
-        api_key = "cm_test_key_12345"
+        # Create UNIQUE test API key and tenant per test to avoid rate limiting
+        # Each test gets its own tenant so rate limits don't interfere
+        unique_id = str(uuid.uuid4())[:8]
+        api_key = f"cm_test_key_{unique_id}"
+        tenant_id = f"test_tenant_{unique_id}"
         key_hash = hash_key(api_key)
 
         db_path = get_api_keys_db_path()
@@ -156,7 +160,7 @@ def api_client_with_auth(test_memory_config):
             INSERT INTO api_keys (key_hash, tenant_id, created_at, name)
             VALUES (?, ?, ?, ?)
             """,
-            (key_hash, "test_tenant", "2025-12-07T00:00:00", "Test Key")
+            (key_hash, tenant_id, "2025-12-07T00:00:00", f"Test Key {unique_id}")
         )
         conn.commit()
         conn.close()

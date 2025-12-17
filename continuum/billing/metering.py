@@ -76,14 +76,16 @@ class UsageMetering:
         day_key = timestamp.strftime("%Y-%m-%d")
         minute_key = timestamp.strftime("%Y-%m-%d-%H-%M")
 
-        cache_key = f"{tenant_id}:{day_key}"
-        self._usage_cache[cache_key]['api_calls'] += 1
-        self._usage_cache[cache_key]['api_calls_minute'] = self._usage_cache.get(
-            f"{tenant_id}:{minute_key}", {}
-        ).get('api_calls', 0) + 1
+        # Track per-day usage (for daily limits)
+        day_cache_key = f"{tenant_id}:{day_key}"
+        self._usage_cache[day_cache_key]['api_calls'] += 1
+
+        # Track per-minute usage (for rate limiting)
+        minute_cache_key = f"{tenant_id}:{minute_key}"
+        self._usage_cache[minute_cache_key]['api_calls'] += 1
 
         # Track endpoint-specific usage
-        self._usage_cache[cache_key][f'endpoint:{endpoint}'] += 1
+        self._usage_cache[day_cache_key][f'endpoint:{endpoint}'] += 1
 
         logger.debug(f"Recorded API call for {tenant_id}: {endpoint}")
 

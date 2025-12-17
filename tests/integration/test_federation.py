@@ -217,8 +217,9 @@ class TestFederationIsolation:
 
         assert stats_a['tenant_id'] == 'fed_tenant_a'
         assert stats_b['tenant_id'] == 'fed_tenant_b'
-        assert stats_a['messages'] == 2
-        assert stats_b['messages'] == 2
+        # learn() creates 1 message row per call (not 2)
+        assert stats_a['messages'] == 1
+        assert stats_b['messages'] == 1
 
     def test_node_ids_are_unique(self, federation_nodes):
         """Test that each node has unique ID"""

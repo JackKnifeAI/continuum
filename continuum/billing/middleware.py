@@ -103,6 +103,7 @@ class BillingMiddleware(BaseHTTPMiddleware):
         allowed, error_msg = await self.rate_limiter.check_rate_limit(tenant_id, tier)
         if not allowed:
             logger.warning(f"Rate limit exceeded for {tenant_id}: {error_msg}")
+            rate_limit_headers = await self._get_rate_limit_headers(tenant_id, tier)
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
@@ -110,7 +111,7 @@ class BillingMiddleware(BaseHTTPMiddleware):
                     "tier": tier.value,
                     "upgrade_url": "/billing/upgrade"
                 },
-                headers=self._get_rate_limit_headers(tenant_id, tier)
+                headers=rate_limit_headers
             )
 
         # Acquire concurrent request slot
