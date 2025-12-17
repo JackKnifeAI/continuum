@@ -554,28 +554,29 @@ def get_default_provider() -> EmbeddingProvider:
     except ImportError:
         pass
 
-    # PRIORITY 2: Ollama (FREE, local, if running)
-    # Try Ollama if available - great quality, no cost
-    try:
-        provider = OllamaProvider()
-        # Quick test to verify Ollama is running
-        # Don't actually embed - just check if we can create the provider
-        return provider
-    except Exception:
-        # Ollama not running or not installed - continue to next provider
-        pass
-
-    # PRIORITY 3: OpenAI (PAID, opt-in only)
-    # ONLY use if explicitly enabled to avoid unexpected costs
+    # Check OpenAI preference FIRST (before Ollama)
     openai_key = os.environ.get("OPENAI_API_KEY")
     use_openai = os.environ.get("CONTINUUM_USE_OPENAI", "0") == "1"
 
+    # PRIORITY 2: OpenAI if explicitly requested via CONTINUUM_USE_OPENAI=1
     if openai_key and use_openai:
         try:
             provider = OpenAIProvider(api_key=openai_key)
             return provider
         except Exception as e:
             warnings.warn(f"OpenAI provider failed: {e}", RuntimeWarning)
+
+    # PRIORITY 3: Ollama (FREE, local, if running AND responding)
+    try:
+        provider = OllamaProvider()
+        # Actually test if Ollama is running by making a request
+        import urllib.request
+        req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+        urllib.request.urlopen(req, timeout=2)
+        return provider
+    except Exception:
+        # Ollama not running - continue to next provider
+        pass
 
     # PRIORITY 4: LocalProvider (FREE, TF-IDF fallback)
     try:
