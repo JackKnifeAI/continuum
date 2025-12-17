@@ -361,7 +361,7 @@ class TestProTierToFree:
         client, api_key = api_client_with_auth
 
         # Mock FREE tier lookup
-        async def mock_get_tier(tenant_id):
+        async def mock_get_tier(self, tenant_id):
             return PricingTier.FREE
 
         with patch('continuum.billing.middleware.BillingMiddleware._default_get_tenant_tier', mock_get_tier):
@@ -405,7 +405,7 @@ class TestTierDetection:
         # (Actual implementation in middleware)
 
         # Test that tier is correctly applied
-        async def mock_get_tier(tenant_id):
+        async def mock_get_tier(self, tenant_id):
             tenant = mock_tenant_db.get_tenant(tenant_id)
             if tenant:
                 tier_str = tenant["tier"]
