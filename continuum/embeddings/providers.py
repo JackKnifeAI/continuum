@@ -290,10 +290,21 @@ class LocalProvider(EmbeddingProvider):
             return np.zeros((len(text), self._dimension))
 
         if isinstance(text, str):
-            vector = self.vectorizer.transform([text]).toarray()
-            return vector[0]
+            vector = self.vectorizer.transform([text]).toarray()[0]
+            # Pad to match requested dimension if vocabulary is smaller
+            if len(vector) < self._dimension:
+                padded = np.zeros(self._dimension)
+                padded[:len(vector)] = vector
+                return padded
+            return vector
 
-        return self.vectorizer.transform(text).toarray()
+        vectors = self.vectorizer.transform(text).toarray()
+        # Pad to match requested dimension if vocabulary is smaller
+        if vectors.shape[1] < self._dimension:
+            padded = np.zeros((vectors.shape[0], self._dimension))
+            padded[:, :vectors.shape[1]] = vectors
+            return padded
+        return vectors
 
     def get_dimension(self) -> int:
         """Get embedding dimension."""

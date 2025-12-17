@@ -90,8 +90,8 @@ class DonationNagMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
 
-        # Only add donation nag to API endpoints
-        if not request.url.path.startswith("/v1/"):
+        # Only add donation nag to API endpoints (/v1/ and /api/)
+        if not (request.url.path.startswith("/v1/") or request.url.path.startswith("/api/")):
             return response
 
         # Check tier from request state (set by BillingMiddleware)

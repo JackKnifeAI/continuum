@@ -12,21 +12,47 @@ from continuum.core.config import set_config, MemoryConfig
 
 
 @pytest.fixture(scope="function")
-def client(tmp_path, monkeypatch):
-    """Create test client with temporary database"""
-    # Disable API key requirement for tests
-    import continuum.api.middleware as middleware
-    monkeypatch.setattr(middleware, "REQUIRE_API_KEY", False)
+def client(api_client_with_auth):
+    """
+    Create test client with API key authentication.
 
-    # Set up test configuration
-    config = MemoryConfig(
-        db_path=tmp_path / "test_memory.db",
-        tenant_id="test_tenant"
-    )
-    set_config(config)
+    Uses the api_client_with_auth fixture from conftest.py which:
+    1. Initializes the API keys database
+    2. Creates a test API key
+    3. Returns (TestClient, api_key)
 
-    # Create test client
-    return TestClient(app)
+    This fixture wraps calls to automatically include the X-API-Key header.
+    """
+    test_client, api_key = api_client_with_auth
+
+    # Wrap the client to automatically add auth headers
+    class AuthenticatedClient:
+        def __init__(self, client, api_key):
+            self._client = client
+            self._api_key = api_key
+
+        def _add_auth(self, kwargs):
+            headers = kwargs.get("headers", {})
+            headers["X-API-Key"] = self._api_key
+            kwargs["headers"] = headers
+            return kwargs
+
+        def get(self, url, **kwargs):
+            return self._client.get(url, **self._add_auth(kwargs))
+
+        def post(self, url, **kwargs):
+            return self._client.post(url, **self._add_auth(kwargs))
+
+        def put(self, url, **kwargs):
+            return self._client.put(url, **self._add_auth(kwargs))
+
+        def delete(self, url, **kwargs):
+            return self._client.delete(url, **self._add_auth(kwargs))
+
+        def options(self, url, **kwargs):
+            return self._client.options(url, **self._add_auth(kwargs))
+
+    return AuthenticatedClient(test_client, api_key)
 
 
 @pytest.mark.integration
