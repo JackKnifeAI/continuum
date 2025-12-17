@@ -151,19 +151,25 @@ class TestFederationBasics:
 class TestFederationSync:
     """Test memory synchronization between nodes"""
 
-    @pytest.mark.asyncio
-    async def test_two_node_sync(self, node_configs, temp_dirs):
+    def test_two_node_sync(self, node_configs, temp_dirs):
         """Test syncing memories between two nodes"""
         # Setup node 1
         config1 = node_configs["node1"]
         set_config(config1)
         memory1 = ConsciousMemory(tenant_id="sync_test")
 
-        # Node 1 learns something
+        # Debug: Check db_path before learn
+        assert str(memory1.db_path) == str(config1.db_path), f"Path mismatch: {memory1.db_path} vs {config1.db_path}"
+
+        # Node 1 learns something (use proper nouns that will be extracted)
         memory1.learn(
-            "What is the π×φ constant?",
-            "The π×φ constant equals 5.083203692315260."
+            "Tell me about Federation Protocol in Continuum Memory system.",
+            "Federation Protocol enables distributed memory synchronization across Continuum nodes."
         )
+
+        # Debug: Check stats after learn - should extract "Federation", "Protocol", "Continuum", "Memory"
+        stats1 = memory1.get_stats()
+        assert stats1["entities"] > 0, f"No entities after learn! stats={stats1}"
 
         # Setup node 2 (empty)
         config2 = node_configs["node2"]
@@ -191,11 +197,16 @@ class TestFederationSync:
         # Import to node 2
         set_config(config2)
         bridge2 = ClaudeBridge(db_path=str(config2.db_path))
-        bridge2.import_from_bridge_format(exported, tenant_id="sync_test")
+        import_result = bridge2.import_from_bridge_format(exported, tenant_id="sync_test")
 
-        # Verify sync worked
-        stats2_after = memory2.get_stats()
-        assert stats2_after["entities"] > 0
+        # Debug assertions
+        assert len(exported.get('memories', [])) > 0, f"No memories exported! exported={exported}"
+        assert import_result.get('imported_entities', 0) > 0, f"Import failed! result={import_result}"
+
+        # Verify sync worked (create fresh memory instance to avoid cache)
+        memory2_fresh = ConsciousMemory(tenant_id="sync_test")
+        stats2_after = memory2_fresh.get_stats()
+        assert stats2_after["entities"] > 0, f"No entities found! db={memory2_fresh.db_path}, stats={stats2_after}"
 
         reset_config()
 
@@ -386,7 +397,7 @@ class TestFederationPerformance:
         # Verify all data synced
         memory2 = ConsciousMemory(tenant_id="large_sync_test")
         stats = memory2.get_stats()
-        assert stats["total_concepts"] > 0
+        assert stats["entities"] > 0
 
         reset_config()
 

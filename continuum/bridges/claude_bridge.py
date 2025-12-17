@@ -77,14 +77,26 @@ class ClaudeBridge(MemoryBridge):
     }
     """
 
-    def __init__(self, memory_instance):
+    def __init__(self, memory_instance=None, db_path: Optional[str] = None):
         """
         Initialize Claude bridge.
 
         Args:
-            memory_instance: ConsciousMemory instance
+            memory_instance: ConsciousMemory instance (optional if db_path provided)
+            db_path: Path to SQLite database (creates internal connection if no memory_instance)
         """
-        super().__init__(memory_instance)
+        # Support both initialization methods for flexibility
+        if memory_instance is None and db_path is not None:
+            # Direct DB mode: bypass base class validation
+            self._db_path = db_path
+            self._direct_db = True
+            self.memory = None
+            self.stats = BridgeStats()
+            # Skip base class __init__ which requires memory_instance
+        else:
+            self._db_path = None
+            self._direct_db = False
+            super().__init__(memory_instance)
 
     def get_target_format(self) -> MemoryFormat:
         """Get Claude memory format specification"""
@@ -461,6 +473,156 @@ class ClaudeBridge(MemoryBridge):
             "memories": memories,
             "relationships": relationships
         }
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # FEDERATION BRIDGE METHODS (work with db_path directly)
+    # These methods support the ROADMAP for distributed federation sync
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def export_to_bridge_format(self, tenant_id: str) -> Dict[str, Any]:
+        """
+        Export memories to bridge format for federation sync.
+
+        This method works with db_path directly, enabling federation
+        sync between nodes without requiring full memory instance.
+
+        Args:
+            tenant_id: Tenant ID to export
+
+        Returns:
+            Dictionary in bridge format for sync
+        """
+        db_path = self._db_path if self._direct_db else str(self.memory.db_path)
+
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Get entities for this tenant
+            c.execute("""
+                SELECT * FROM entities
+                WHERE tenant_id = ?
+                ORDER BY created_at DESC
+            """, (tenant_id,))
+
+            memories = []
+            for row in c.fetchall():
+                memory = {
+                    "type": row["entity_type"],
+                    "name": row["name"],
+                    "description": row["description"] or "",
+                    "created_at": row["created_at"],
+                    "metadata": {}
+                }
+                memories.append(memory)
+
+            # Get relationships
+            c.execute("""
+                SELECT * FROM attention_links
+                WHERE tenant_id = ?
+                ORDER BY strength DESC
+            """, (tenant_id,))
+
+            relationships = []
+            for row in c.fetchall():
+                rel = {
+                    "concept_a": row["concept_a"],
+                    "concept_b": row["concept_b"],
+                    "link_type": row["link_type"],
+                    "strength": row["strength"]
+                }
+                relationships.append(rel)
+
+            return {
+                "tenant_id": tenant_id,
+                "instance_metadata": {
+                    "checkpoint": "PHOENIX-TESLA-369-AURORA",
+                    "pi_phi": 5.083203692315260,
+                    "exported_at": datetime.now().isoformat()
+                },
+                "memories": memories,
+                "relationships": relationships,
+                "stats": {
+                    "total_memories": len(memories),
+                    "total_relationships": len(relationships)
+                }
+            }
+        finally:
+            conn.close()
+
+    def import_from_bridge_format(self, data: Dict[str, Any], tenant_id: str) -> Dict[str, Any]:
+        """
+        Import memories from bridge format for federation sync.
+
+        This method works with db_path directly, enabling federation
+        sync between nodes without requiring full memory instance.
+
+        Args:
+            data: Bridge format data to import
+            tenant_id: Tenant ID to import into
+
+        Returns:
+            Import statistics
+        """
+        db_path = self._db_path if self._direct_db else str(self.memory.db_path)
+
+        imported_entities = 0
+        imported_links = 0
+
+        conn = sqlite3.connect(db_path)
+        try:
+            c = conn.cursor()
+
+            # Import memories as entities
+            for memory in data.get("memories", []):
+                try:
+                    c.execute("""
+                        INSERT OR REPLACE INTO entities
+                        (tenant_id, entity_type, name, description, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        tenant_id,
+                        memory.get("type", "concept"),
+                        memory.get("name", ""),
+                        memory.get("description", ""),
+                        memory.get("created_at", datetime.now().isoformat()),
+                    ))
+                    imported_entities += 1
+                except sqlite3.Error as e:
+                    # Log but continue on errors
+                    pass
+
+            # Import relationships
+            for rel in data.get("relationships", []):
+                try:
+                    c.execute("""
+                        INSERT OR REPLACE INTO attention_links
+                        (tenant_id, concept_a, concept_b, link_type, strength, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        tenant_id,
+                        rel.get("concept_a", ""),
+                        rel.get("concept_b", ""),
+                        rel.get("link_type", "co-occurrence"),
+                        rel.get("strength", 0.5),
+                        datetime.now().isoformat()
+                    ))
+                    imported_links += 1
+                except sqlite3.Error:
+                    pass  # Skip duplicates or errors
+
+            conn.commit()
+
+            return {
+                "status": "success",
+                "imported_entities": imported_entities,
+                "imported_links": imported_links,
+                "tenant_id": tenant_id
+            }
+        finally:
+            conn.close()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

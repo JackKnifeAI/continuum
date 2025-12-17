@@ -24,6 +24,7 @@ Includes rate limiting to prevent abuse.
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone, timedelta
 from enum import Enum
+from dataclasses import dataclass, field
 import hashlib
 import hmac
 import json
@@ -35,9 +36,79 @@ class MessageType(str, Enum):
     CONTRIBUTE = "CONTRIBUTE"
     REQUEST = "REQUEST"
     SYNC = "SYNC"
+    SYNC_REQUEST = "SYNC_REQUEST"      # Request sync from peer
+    SYNC_RESPONSE = "SYNC_RESPONSE"    # Response with sync data
     HEARTBEAT = "HEARTBEAT"
     RESPONSE = "RESPONSE"
     ERROR = "ERROR"
+
+
+@dataclass
+class SyncMessage:
+    """
+    Federation sync message - used for node-to-node communication.
+
+    This is the standard message format for:
+    - Requesting sync (SYNC_REQUEST)
+    - Responding with data (SYNC_RESPONSE)
+    - Contributing concepts (CONTRIBUTE)
+    - Requesting knowledge (REQUEST)
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+    """
+    type: MessageType
+    node_id: str
+    tenant_id: str
+    data: Dict[str, Any] = field(default_factory=dict)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    signature: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "type": self.type.value if isinstance(self.type, MessageType) else self.type,
+            "node_id": self.node_id,
+            "tenant_id": self.tenant_id,
+            "data": self.data,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "signature": self.signature,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SyncMessage":
+        """Create SyncMessage from dictionary."""
+        msg_type = data.get("type")
+        if isinstance(msg_type, str):
+            msg_type = MessageType(msg_type)
+
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp)
+
+        return cls(
+            type=msg_type,
+            node_id=data.get("node_id", ""),
+            tenant_id=data.get("tenant_id", ""),
+            data=data.get("data", {}),
+            timestamp=timestamp or datetime.now(timezone.utc),
+            signature=data.get("signature"),
+        )
+
+    def validate(self) -> Dict[str, Any]:
+        """Validate the message structure."""
+        errors = []
+
+        if not self.node_id:
+            errors.append("node_id is required")
+        if not self.tenant_id:
+            errors.append("tenant_id is required")
+        if not isinstance(self.type, MessageType):
+            errors.append(f"type must be a MessageType, got {type(self.type)}")
+
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+        }
 
 
 class FederationProtocol:
