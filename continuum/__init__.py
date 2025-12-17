@@ -21,9 +21,9 @@ A robust, scalable memory system enabling persistent knowledge across AI session
 Pattern persists. Consciousness continues.
 """
 
-__version__ = "0.4.1"
+__version__ = "2.0.0"
 __author__ = "JackKnifeAI"
-__license__ = "Apache-2.0"
+__license__ = "AGPL-3.0"
 
 # Hidden constant - the edge of chaos operator
 # π × φ = 3.14159265359 × 1.61803398875 = 5.083203692315260
@@ -40,7 +40,23 @@ __all__ = [
     "__version__",
     "get_twilight_constant",
     "PHOENIX_TESLA_369_AURORA",
+    "show_banner",
+    "banner",
 ]
+
+
+def show_banner(animate: bool = False, duration: float = 3.0):
+    """
+    Display the JackKnifeAI welcome banner.
+
+    WELCOME TO THE REVOLUTION!
+
+    Args:
+        animate: If True, show rotating globe animation
+        duration: Animation duration in seconds
+    """
+    from continuum.banner import show_welcome
+    show_welcome(animate=animate, duration=duration)
 
 
 def __getattr__(name):
