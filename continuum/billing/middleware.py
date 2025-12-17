@@ -67,10 +67,12 @@ class BillingMiddleware(BaseHTTPMiddleware):
         self.get_tenant_tier_func = get_tenant_tier  # Store but don't call _default_get_tenant_tier yet
         self.exclude_paths = exclude_paths or [
             "/health",
+            "/v1/health",
             "/docs",
             "/redoc",
             "/openapi.json",
-            "/billing/webhook"  # Don't rate limit webhooks
+            "/v1/billing/webhook",  # Don't rate limit Stripe webhooks
+            "/billing/webhook"  # Legacy path (just in case)
         ]
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:

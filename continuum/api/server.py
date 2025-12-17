@@ -234,7 +234,16 @@ app.add_middleware(
     BillingMiddleware,
     metering=metering,
     rate_limiter=rate_limiter,
-    exclude_paths=["/health", "/docs", "/redoc", "/openapi.json", "/dashboard"]
+    exclude_paths=[
+        "/health",
+        "/v1/health",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/dashboard",
+        "/v1/billing/webhook",  # Stripe webhooks - don't rate limit or require auth
+        "/billing/webhook",      # Legacy path
+    ]
 )
 
 # Authentication middleware (extract tenant_id from X-API-Key)
