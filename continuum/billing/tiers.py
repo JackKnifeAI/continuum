@@ -74,13 +74,13 @@ class TierLimits:
 FREE_TIER = TierLimits(
     tier=PricingTier.FREE,
     # Memory limits
-    max_memories=1000,
-    max_embeddings=1000,
-    max_storage_mb=100,
-    # API limits
-    api_calls_per_day=100,
-    api_calls_per_minute=10,
-    concurrent_requests=2,
+    max_memories=10000,
+    max_embeddings=10000,
+    max_storage_mb=500,
+    # API limits - generous for local/dev use
+    api_calls_per_day=10000,
+    api_calls_per_minute=100,
+    concurrent_requests=10,
     # Federation
     federation_enabled=False,
     federation_priority=0,
