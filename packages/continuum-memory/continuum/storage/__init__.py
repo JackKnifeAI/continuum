@@ -15,91 +15,61 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-CONTINUUM Storage Module
-=========================
+CONTINUUM Storage Module (OSS Tier)
+====================================
 
 Pluggable storage backends for memory persistence.
 
-Supported backends:
+Supported backends (OSS):
 - SQLite (default, file-based)
-- PostgreSQL (production, distributed)
-- Custom backends via StorageBackend interface
+- Async SQLite (async operations)
+
+For PostgreSQL and enterprise backends, see continuum-cloud.
 
 Usage:
-    from continuum.storage import SQLiteBackend, PostgresBackend
+    from continuum.storage import SQLiteBackend
 
     # SQLite backend
     storage = SQLiteBackend(db_path="/path/to/memory.db")
 
-    # PostgreSQL backend
-    storage = PostgresBackend(
-        connection_string="postgresql://user:pass@localhost:5432/continuum"
-    )
-
-    # Auto-detect from connection string
-    storage = get_backend("postgresql://user:pass@localhost/db")  # PostgreSQL
-    storage = get_backend("/path/to/memory.db")  # SQLite
+    # In-memory SQLite
+    storage = SQLiteBackend(db_path=":memory:")
 
     with storage.connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM entities")
         results = cursor.fetchall()
-
-Migration:
-    from continuum.storage import migrate_sqlite_to_postgres
-
-    migrate_sqlite_to_postgres(
-        sqlite_path="/path/to/memory.db",
-        postgres_connection="postgresql://user:pass@localhost/continuum"
-    )
 """
 
 from .base import StorageBackend
 from .sqlite_backend import SQLiteBackend
-from .postgres_backend import PostgresBackend
-from .migrations import (
-    migrate_sqlite_to_postgres,
-    create_postgres_schema,
-    get_schema_version,
-    rollback_migration,
-    MigrationResult,
-    MigrationError,
-    SCHEMA_VERSION
-)
+from .async_backend import AsyncSQLiteBackend
 
 __all__ = [
     'StorageBackend',
     'SQLiteBackend',
-    'PostgresBackend',
+    'AsyncSQLiteBackend',
     'get_backend',
-    'migrate_sqlite_to_postgres',
-    'create_postgres_schema',
-    'get_schema_version',
-    'rollback_migration',
-    'MigrationResult',
-    'MigrationError',
-    'SCHEMA_VERSION'
 ]
 
 
 def get_backend(connection_string: str, **config) -> StorageBackend:
     """
-    Auto-detect and return appropriate storage backend based on connection string.
+    Auto-detect and return appropriate storage backend.
 
     Args:
         connection_string: Database connection string or file path
-            - "postgresql://..." or "postgres://..." → PostgresBackend
             - "/path/to/file.db" or "file.db" → SQLiteBackend
             - ":memory:" → SQLiteBackend (in-memory)
         **config: Additional backend-specific configuration
 
     Returns:
-        Appropriate StorageBackend instance
+        SQLiteBackend instance
+
+    Note:
+        For PostgreSQL support, upgrade to continuum-cloud.
 
     Examples:
-        # PostgreSQL
-        storage = get_backend("postgresql://user:pass@localhost/continuum")
-
         # SQLite file
         storage = get_backend("/var/lib/continuum/memory.db")
 
@@ -109,7 +79,10 @@ def get_backend(connection_string: str, **config) -> StorageBackend:
     conn_str = connection_string.lower()
 
     if conn_str.startswith('postgresql://') or conn_str.startswith('postgres://'):
-        return PostgresBackend(connection_string=connection_string, **config)
+        raise ImportError(
+            "PostgreSQL backend requires continuum-cloud. "
+            "Install with: pip install continuum-cloud[postgres]"
+        )
     else:
         # Treat as SQLite path (file or :memory:)
         return SQLiteBackend(db_path=connection_string, **config)
