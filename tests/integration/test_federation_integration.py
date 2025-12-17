@@ -243,7 +243,10 @@ class TestFederationSync:
         # Initial sync
         set_config(config1)
         memory1 = ConsciousMemory(tenant_id="incremental_test")
-        memory1.learn("Q1", "A1")
+        memory1.learn(
+            "Tell me about Incremental Sync in Continuum Federation.",
+            "Incremental Sync enables efficient delta synchronization in Continuum Federation nodes."
+        )
 
         # Simulate sync (export/import)
         from continuum.bridges.claude_bridge import ClaudeBridge
@@ -260,7 +263,10 @@ class TestFederationSync:
 
         # Node 1 learns more
         set_config(config1)
-        memory1.learn("Q2", "A2")
+        memory1.learn(
+            "How does Delta Transfer work in Federation Protocol?",
+            "Delta Transfer in Federation Protocol only sends changed data between nodes."
+        )
 
         # Second sync should only transfer new data
         # TODO: Implement incremental sync tracking
@@ -327,26 +333,32 @@ class TestFederationSecurity:
         set_config(config1)
         memory1 = ConsciousMemory(tenant_id="integrity_test")
         memory1.learn(
-            "Important data",
-            "This data must not be corrupted during sync"
+            "Tell me about Data Integrity in Continuum Federation Protocol.",
+            "Data Integrity ensures Continuum Federation Protocol maintains accurate synchronization."
         )
 
-        # Export and import
+        # Setup node 2 FIRST to ensure tables exist
+        set_config(config2)
+        memory2 = ConsciousMemory(tenant_id="integrity_test")
+
+        # Export from node 1
+        set_config(config1)
         from continuum.bridges.claude_bridge import ClaudeBridge
         bridge1 = ClaudeBridge(db_path=str(config1.db_path))
         exported = bridge1.export_to_bridge_format(tenant_id="integrity_test")
 
+        # Import to node 2
         set_config(config2)
         bridge2 = ClaudeBridge(db_path=str(config2.db_path))
         bridge2.import_from_bridge_format(exported, tenant_id="integrity_test")
 
-        # Verify data integrity
+        # Verify data integrity (recreate memory to avoid cache)
         memory2 = ConsciousMemory(tenant_id="integrity_test")
         stats = memory2.get_stats()
         assert stats["entities"] > 0
 
         # Try to recall
-        context = memory2.recall("Important data")
+        context = memory2.recall("Data Integrity in Continuum")
         # Should at least attempt to recall (may or may not find concepts)
         assert context.concepts_found >= 0
 
@@ -371,17 +383,25 @@ class TestFederationPerformance:
         set_config(config1)
         memory1 = ConsciousMemory(tenant_id="large_sync_test")
 
+        # Use proper nouns to ensure entity extraction
+        topics = ["Federation", "Continuum", "Protocol", "Memory", "Sync"]
         for i in range(100):
+            topic = topics[i % len(topics)]
             memory1.learn(
-                f"Question {i} about complex topics",
-                f"Detailed answer {i} with multiple concepts and relationships"
+                f"Tell me about {topic} System version {i} in Continuum Memory.",
+                f"{topic} System version {i} provides advanced capabilities for Continuum Memory federation."
             )
+
+        # Setup node 2 FIRST to ensure tables exist
+        set_config(config2)
+        memory2 = ConsciousMemory(tenant_id="large_sync_test")
 
         # Measure sync time
         from continuum.bridges.claude_bridge import ClaudeBridge
 
         start_time = time.time()
 
+        set_config(config1)
         bridge1 = ClaudeBridge(db_path=str(config1.db_path))
         exported = bridge1.export_to_bridge_format(tenant_id="large_sync_test")
 
@@ -394,7 +414,7 @@ class TestFederationPerformance:
         # Sync should complete in reasonable time (< 10 seconds for 100 turns)
         assert sync_time < 10.0
 
-        # Verify all data synced
+        # Verify all data synced (recreate memory to avoid cache)
         memory2 = ConsciousMemory(tenant_id="large_sync_test")
         stats = memory2.get_stats()
         assert stats["entities"] > 0
