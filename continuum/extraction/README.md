@@ -100,12 +100,68 @@ print(mapper.canonicalize('machine_learning'))  # 'machine learning'
 print(mapper.canonicalize('ML'))                # 'machine learning'
 ```
 
-### 5. AutoMemoryHook (`auto_hook.py`)
+### 5. SemanticConceptExtractor (`semantic_extractor.py`)
+
+**NEW**: Extracts concepts using embedding-based semantic similarity to catch synonyms and variations that pattern matching misses.
+
+Uses sentence-transformers (local, free) or OpenAI embeddings to compare text segments against known concepts from the database. Particularly effective for:
+
+- **Synonyms**: "neural nets" → "neural networks"
+- **Abbreviations**: "ML tasks" → "machine learning"
+- **Semantic variations**: "quantum computers" → "quantum computing"
+- **Related concepts**: "spacetime distortion" → "spacetime manipulation"
+
+**Example:**
+```python
+from continuum.extraction import create_semantic_extractor
+from pathlib import Path
+
+# Create extractor (graceful fallback if unavailable)
+extractor = create_semantic_extractor(
+    db_path=Path("memory.db"),
+    similarity_threshold=0.7  # Cosine similarity threshold
+)
+
+if extractor:
+    # Extract semantically similar concepts
+    concepts = extractor.extract("Using neural nets for classification")
+    print(concepts)  # ['neural networks', 'machine learning']
+
+    # Extract with confidence scores
+    results = extractor.extract_with_scores("AI research")
+    for concept, score in results:
+        print(f"{concept}: {score:.2f}")
+    # Output:
+    # artificial intelligence: 0.89
+    # machine learning: 0.72
+```
+
+**Requirements:**
+- Best: `pip install sentence-transformers` (local, free, private)
+- Alternative: Set `OPENAI_API_KEY` environment variable
+- Fallback: Pattern-based extraction only
+
+**Cache Management:**
+```python
+# Pre-loads all concepts from entities table into memory
+stats = extractor.get_cache_stats()
+print(stats)
+# {
+#   'cached_concepts': 150,
+#   'provider': 'sentence-transformers/all-MiniLM-L6-v2',
+#   'embedding_dimension': 384
+# }
+
+# Refresh cache after adding new concepts to database
+concepts = extractor.extract(text, refresh_cache=True)
+```
+
+### 6. AutoMemoryHook (`auto_hook.py`)
 
 Integrates all extractors with automatic persistence. Every message triggers:
 
 1. Save raw message (optional)
-2. Extract concepts → add to knowledge graph
+2. Extract concepts → pattern-based + semantic (if available)
 3. Detect decisions → log autonomous choices
 4. Build attention graph → preserve relational structure
 
@@ -114,22 +170,41 @@ Integrates all extractors with automatic persistence. Every message triggers:
 from continuum.extraction import AutoMemoryHook
 from pathlib import Path
 
+# Initialize with semantic extraction enabled (default)
 hook = AutoMemoryHook(
     db_path=Path("memory.db"),
     instance_id="session-001",
     save_messages=True,
-    occurrence_threshold=2  # Concepts must appear 2x before adding
+    occurrence_threshold=2,  # Concepts must appear 2x before adding
+    enable_semantic_extraction=True,  # Enable semantic matching (default)
+    semantic_similarity_threshold=0.7  # Cosine similarity threshold
 )
 
 # Process messages
 stats = hook.save_message("user", "Let's build a recommender system")
-print(stats)  # {'concepts': 1, 'decisions': 0, 'links': 0, 'compounds': 0}
+print(stats)
+# {
+#   'concepts': 1,              # Pattern-based extraction
+#   'semantic_concepts': 0,      # Semantic extraction
+#   'total_concepts': 1,         # Unique merged total
+#   'decisions': 0,
+#   'links': 0,
+#   'compounds': 0
+# }
 
 stats = hook.save_message(
     "assistant",
-    "I am going to implement the recommendation engine using collaborative filtering"
+    "I am going to implement the recommendation engine using neural nets"
 )
-print(stats)  # {'concepts': 2, 'decisions': 1, 'links': 3, 'compounds': 1}
+print(stats)
+# {
+#   'concepts': 1,               # Found "recommendation"
+#   'semantic_concepts': 1,      # Found "neural networks" (semantic match)
+#   'total_concepts': 2,
+#   'decisions': 1,
+#   'links': 2,
+#   'compounds': 1
+# }
 
 # Get session statistics
 session_stats = hook.get_session_stats()
@@ -140,6 +215,15 @@ print(session_stats)
 #   'decisions': 1,
 #   'concepts_added': 3
 # }
+```
+
+**Disable semantic extraction:**
+```python
+# For environments without sentence-transformers
+hook = AutoMemoryHook(
+    db_path=Path("memory.db"),
+    enable_semantic_extraction=False  # Pattern matching only
+)
 ```
 
 ## Database Schema

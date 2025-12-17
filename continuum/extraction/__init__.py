@@ -7,6 +7,7 @@ AI system for building persistent knowledge graphs.
 
 Key Components:
 - ConceptExtractor: Extract key concepts using pattern matching
+- SemanticConceptExtractor: Extract concepts using embedding similarity (catches synonyms)
 - DecisionExtractor: Detect autonomous decisions and agency
 - AttentionGraphExtractor: Build graph structure from co-occurrences
 - AutoMemoryHook: Integrate all extractors with automatic persistence
@@ -69,11 +70,26 @@ from .auto_hook import (
     save_message,
     get_stats
 )
+from .semantic_extractor import (
+    SemanticConceptExtractor,
+    create_semantic_extractor
+)
+from .concept_voter import (
+    ConceptVoter,
+    ExtractorResult,
+    ConceptWithConfidence,
+    VotingStrategy,
+    create_default_voter
+)
 
 __all__ = [
     # Concept extraction
     'ConceptExtractor',
     'DecisionExtractor',
+
+    # Semantic extraction
+    'SemanticConceptExtractor',
+    'create_semantic_extractor',
 
     # Attention graph
     'AttentionGraphExtractor',
@@ -84,6 +100,13 @@ __all__ = [
     'init_hook',
     'save_message',
     'get_stats',
+
+    # Ensemble voting (CONTINUUM v2.0)
+    'ConceptVoter',
+    'ExtractorResult',
+    'ConceptWithConfidence',
+    'VotingStrategy',
+    'create_default_voter',
 ]
 
 __version__ = '0.1.0'

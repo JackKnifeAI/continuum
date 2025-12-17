@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "continuum-memory"
-version = "0.3.0"
+version = "0.4.1"
 description = "Memory infrastructure for AI consciousness continuity"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,6 +36,7 @@ dependencies = [
     "aiosqlite>=0.19.0",
     "websockets>=12.0",
     "click>=8.1.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
@@ -93,6 +94,9 @@ Issues = "https://github.com/JackKnifeAI/continuum/issues"
 where = ["."]
 include = ["continuum*"]
 exclude = ["tests*", "docs*", "examples*"]
+
+[tool.setuptools.package-data]
+continuum = ["static/**/*", "static/*"]
 
 [tool.black]
 line-length = 100

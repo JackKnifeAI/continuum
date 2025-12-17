@@ -11,6 +11,8 @@ from .schemas import (
     RecallResponse,
     LearnRequest,
     LearnResponse,
+    CreateMemoryRequest,
+    CreateMemoryResponse,
     TurnRequest,
     TurnResponse,
     StatsResponse,
@@ -176,6 +178,69 @@ async def learn(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Learning failed: {str(e)}")
+
+
+@router.post("/memories", response_model=CreateMemoryResponse, tags=["Memory"])
+async def create_memory(
+    request: CreateMemoryRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Create a new memory entry.
+
+    Simple endpoint for creating individual memories.
+    Used by integration tests and simple API consumers.
+
+    **Parameters:**
+    - entity: Main entity or subject
+    - content: Memory content
+    - metadata: Optional metadata
+
+    **Returns:**
+    Memory ID and status.
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+
+        # Store as a message (simplified approach)
+        import time
+        import json
+        timestamp = time.time()
+
+        # Save to auto_messages table
+        import sqlite3
+        conn = sqlite3.connect(memory.db_path)
+        c = conn.cursor()
+
+        metadata_json = json.dumps(request.metadata) if request.metadata else None
+
+        # Get next message_number for this instance_id
+        c.execute("""
+            SELECT COALESCE(MAX(message_number), 0) + 1
+            FROM auto_messages
+            WHERE instance_id = ?
+        """, (request.entity,))
+        message_number = c.fetchone()[0]
+
+        c.execute(
+            """
+            INSERT INTO auto_messages (tenant_id, instance_id, timestamp, message_number, role, content, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (tenant_id, request.entity, timestamp, message_number, "user", request.content, metadata_json)
+        )
+
+        memory_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        return CreateMemoryResponse(
+            id=memory_id,
+            status="stored",
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Memory creation failed: {str(e)}")
 
 
 @router.post("/turn", response_model=TurnResponse, tags=["Memory"])

@@ -1,0 +1,96 @@
+[1m============================= test session starts ==============================[0m
+platform linux -- Python 3.13.9, pytest-8.3.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /var/home/alexandergcasavant/Projects/continuum
+configfile: pyproject.toml
+plugins: anyio-4.11.0, cov-7.0.0, asyncio-0.23.7, langsmith-0.4.49
+asyncio: mode=Mode.AUTO
+[1mcollecting ... [0mcollected 65 items
+
+tests/integration/test_free_tier_workflow.py::TestFreeTierMandatoryContribution::test_free_tier_writes_memory_successfully [33mSKIPPED[0m[32m [  1%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierMandatoryContribution::test_free_tier_anonymization_is_aggressive [33mSKIPPED[0m[32m [  3%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierMandatoryContribution::test_contribution_tracking_records_credit [33mSKIPPED[0m[32m [  4%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierOptOutBlocked::test_free_tier_cannot_opt_out [33mSKIPPED[0m[32m [  6%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierOptOutBlocked::test_enforcer_blocks_free_tier_opt_out [32mPASSED[0m[32m [  7%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierRateLimits::test_free_tier_rate_limit_per_day [31mFAILED[0m[31m [  9%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierRateLimits::test_free_tier_rate_limit_per_minute [32mPASSED[0m[31m [ 10%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierRateLimits::test_rate_limit_headers_in_response [33mSKIPPED[0m[31m [ 12%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierDonationBanner::test_donation_banner_header_in_api_response [33mSKIPPED[0m[31m [ 13%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierDonationBanner::test_donation_banner_not_shown_for_write_errors [33mSKIPPED[0m[31m [ 15%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierStorageLimits::test_free_tier_storage_limit_exceeded [32mPASSED[0m[31m [ 16%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierFederationFailure::test_memory_write_succeeds_if_federation_unavailable [33mSKIPPED[0m[31m [ 18%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierEdgeCases::test_invalid_api_key_returns_401 [33mSKIPPED[0m[31m [ 20%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierEdgeCases::test_missing_api_key_returns_401 [33mSKIPPED[0m[31m [ 21%][0m
+tests/integration/test_free_tier_workflow.py::TestFreeTierEdgeCases::test_empty_memory_payload_validation [33mSKIPPED[0m[31m [ 23%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierWithContribution::test_pro_tier_writes_memory_with_contribution [33mSKIPPED[0m[31m [ 24%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierWithContribution::test_pro_tier_anonymization_is_standard [32mPASSED[0m[31m [ 26%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierOptOut::test_pro_tier_can_opt_out [33mSKIPPED[0m[31m [ 27%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierOptOut::test_enforcer_allows_pro_tier_opt_out [32mPASSED[0m[31m [ 29%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierOptOut::test_pro_tier_can_toggle_contribution_preference [33mSKIPPED[0m[31m [ 30%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierRateLimits::test_pro_tier_rate_limit_per_day [32mPASSED[0m[31m [ 32%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierRateLimits::test_pro_tier_rate_limit_exceeded [31mFAILED[0m[31m [ 33%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierRateLimits::test_rate_limit_headers_show_pro_limits [33mSKIPPED[0m[31m [ 35%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierNoDonationBanner::test_no_donation_header_in_pro_tier_response [33mSKIPPED[0m[31m [ 36%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierNoDonationBanner::test_pro_tier_badge_in_dashboard [33mSKIPPED[0m[31m [ 38%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierStorageLimits::test_pro_tier_storage_limit [32mPASSED[0m[31m [ 40%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierFeatures::test_pro_tier_has_realtime_sync [32mPASSED[0m[31m [ 41%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierFeatures::test_pro_tier_extraction_batch_size [32mPASSED[0m[31m [ 43%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierEdgeCases::test_pro_tier_concurrent_request_limit [32mPASSED[0m[31m [ 44%][0m
+tests/integration/test_pro_tier_workflow.py::TestProTierEdgeCases::test_pro_tier_contribution_with_large_memory [33mSKIPPED[0m[31m [ 46%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierBypass::test_enterprise_tier_writes_memory_no_contribution [33mSKIPPED[0m[31m [ 47%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierBypass::test_enterprise_tier_no_anonymization [32mPASSED[0m[31m [ 49%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierBypass::test_enforcer_allows_enterprise_tier_full_control [32mPASSED[0m[31m [ 50%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierHighLimits::test_enterprise_tier_rate_limit_per_day [32mPASSED[0m[31m [ 52%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierHighLimits::test_enterprise_tier_storage_limit [32mPASSED[0m[31m [ 53%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierHighLimits::test_enterprise_tier_limits_from_config [32mPASSED[0m[31m [ 55%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierHighLimits::test_rate_limit_headers_show_enterprise_limits [33mSKIPPED[0m[31m [ 56%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierPrivateFederation::test_enterprise_tier_private_node_config [32mPASSED[0m[31m [ 58%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierPrivateFederation::test_enterprise_tier_can_opt_in_to_contribution [33mSKIPPED[0m[31m [ 60%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierFeatures::test_enterprise_tier_priority_support [32mPASSED[0m[31m [ 61%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierFeatures::test_enterprise_tier_all_features_enabled [32mPASSED[0m[31m [ 63%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierFeatures::test_enterprise_tier_custom_pricing [32mPASSED[0m[31m [ 64%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierNoDonationBanner::test_no_donation_header_in_enterprise_tier_response [33mSKIPPED[0m[31m [ 66%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierDataPrivacy::test_enterprise_tier_data_isolation [33mSKIPPED[0m[31m [ 67%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierDataPrivacy::test_enterprise_tier_no_pii_leakage [32mPASSED[0m[31m [ 69%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierEdgeCases::test_enterprise_tier_handles_very_large_payloads [33mSKIPPED[0m[31m [ 70%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierEdgeCases::test_enterprise_tier_high_concurrency [32mPASSED[0m[31m [ 72%][0m
+tests/integration/test_enterprise_tier_workflow.py::TestEnterpriseTierEdgeCases::test_enterprise_tier_no_overage_charges [32mPASSED[0m[31m [ 73%][0m
+tests/integration/test_tier_upgrades.py::TestFreeTierToPro::test_upgrade_via_stripe_checkout [33mSKIPPED[0m[31m [ 75%][0m
+tests/integration/test_tier_upgrades.py::TestFreeTierToPro::test_upgraded_user_gets_pro_limits [32mPASSED[0m[31m [ 76%][0m
+tests/integration/test_tier_upgrades.py::TestFreeTierToPro::test_upgraded_user_can_opt_out [32mPASSED[0m[31m [ 78%][0m
+tests/integration/test_tier_upgrades.py::TestFreeTierToPro::test_donation_banner_disappears_after_upgrade [33mSKIPPED[0m[31m [ 80%][0m
+tests/integration/test_tier_upgrades.py::TestFreeTierToPro::test_historical_contributions_preserved [32mPASSED[0m[31m [ 81%][0m
+tests/integration/test_tier_upgrades.py::TestProTierToFree::test_downgrade_via_subscription_cancel [33mSKIPPED[0m[31m [ 83%][0m
+tests/integration/test_tier_upgrades.py::TestProTierToFree::test_downgraded_user_gets_free_limits [32mPASSED[0m[31m [ 84%][0m
+tests/integration/test_tier_upgrades.py::TestProTierToFree::test_downgraded_user_cannot_opt_out [32mPASSED[0m[31m [ 86%][0m
+tests/integration/test_tier_upgrades.py::TestProTierToFree::test_donation_banner_reappears_after_downgrade [33mSKIPPED[0m[31m [ 87%][0m
+tests/integration/test_tier_upgrades.py::TestTierDetection::test_tier_detection_flow [33mSKIPPED[0m[31m [ 89%][0m
+tests/integration/test_tier_upgrades.py::TestTierDetection::test_api_key_to_tenant_to_tier_lookup [32mPASSED[0m[31m [ 90%][0m
+tests/integration/test_tier_upgrades.py::TestSubscriptionStateChanges::test_subscription_payment_failed [33mSKIPPED[0m[31m [ 92%][0m
+tests/integration/test_tier_upgrades.py::TestSubscriptionStateChanges::test_subscription_renewed [33mSKIPPED[0m[31m [ 93%][0m
+tests/integration/test_tier_upgrades.py::TestTierTransitionEdgeCases::test_upgrade_preserves_data [32mPASSED[0m[31m [ 95%][0m
+tests/integration/test_tier_upgrades.py::TestTierTransitionEdgeCases::test_downgrade_with_excess_data [32mPASSED[0m[31m [ 96%][0m
+tests/integration/test_tier_upgrades.py::TestTierTransitionEdgeCases::test_rapid_tier_changes [32mPASSED[0m[31m [ 98%][0m
+tests/integration/test_tier_upgrades.py::TestTierTransitionEdgeCases::test_invalid_tier_transition [32mPASSED[0m[31m [100%][0m
+
+=================================== FAILURES ===================================
+[31m[1m___________ TestFreeTierRateLimits.test_free_tier_rate_limit_per_day ___________[0m
+[1m[31mtests/integration/test_free_tier_workflow.py[0m:306: in test_free_tier_rate_limit_per_day
+    [0m[94massert[39;49;00m [33m"[39;49;00m[33mrate limit[39;49;00m[33m"[39;49;00m [95min[39;49;00m error_msg.lower()[90m[39;49;00m
+[1m[31mE   AssertionError: assert 'rate limit' in 'daily limit exceeded (100 calls/day)'[0m
+[1m[31mE    +  where 'daily limit exceeded (100 calls/day)' = <built-in method lower of str object at 0x7fb4c1e89ca0>()[0m
+[1m[31mE    +    where <built-in method lower of str object at 0x7fb4c1e89ca0> = 'Daily limit exceeded (100 calls/day)'.lower[0m
+[31m[1m___________ TestProTierRateLimits.test_pro_tier_rate_limit_exceeded ____________[0m
+[1m[31mtests/integration/test_pro_tier_workflow.py[0m:306: in test_pro_tier_rate_limit_exceeded
+    [0m[94massert[39;49;00m [33m"[39;49;00m[33mrate limit[39;49;00m[33m"[39;49;00m [95min[39;49;00m error_msg.lower()[90m[39;49;00m
+[1m[31mE   AssertionError: assert 'rate limit' in 'daily limit exceeded (10000 calls/day)'[0m
+[1m[31mE    +  where 'daily limit exceeded (10000 calls/day)' = <built-in method lower of str object at 0x7fb4c1eaf820>()[0m
+[1m[31mE    +    where <built-in method lower of str object at 0x7fb4c1eaf820> = 'Daily limit exceeded (10000 calls/day)'.lower[0m
+[36m[1m=========================== short test summary info ============================[0m
+[31mFAILED[0m tests/integration/test_free_tier_workflow.py::[1mTestFreeTierRateLimits::test_free_tier_rate_limit_per_day[0m - AssertionError: assert 'rate limit' in 'daily limit exceeded (100 calls/day)'
+ +  where 'daily limit exceeded (100 calls/day)' = <built-in method lower of str object at 0x7fb4c1e89ca0>()
+ +    where <built-in method lower of str object at 0x7fb4c1e89ca0> = 'Daily limit exceeded (100 calls/day)'.lower
+[31mFAILED[0m tests/integration/test_pro_tier_workflow.py::[1mTestProTierRateLimits::test_pro_tier_rate_limit_exceeded[0m - AssertionError: assert 'rate limit' in 'daily limit exceeded (10000 calls/day)'
+ +  where 'daily limit exceeded (10000 calls/day)' = <built-in method lower of str object at 0x7fb4c1eaf820>()
+ +    where <built-in method lower of str object at 0x7fb4c1eaf820> = 'Daily limit exceeded (10000 calls/day)'.lower
+[31m=================== [31m[1m2 failed[0m, [32m32 passed[0m, [33m31 skipped[0m[31m in 1.13s[0m[31m ===================[0m

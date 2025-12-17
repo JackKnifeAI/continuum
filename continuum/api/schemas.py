@@ -96,6 +96,55 @@ class LearnRequest(BaseModel):
     )
 
 
+class CreateMemoryRequest(BaseModel):
+    """Request to create a new memory."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "entity": "Test Entity",
+                "content": "This is a test memory",
+                "metadata": {
+                    "source": "api",
+                    "importance": 0.8
+                }
+            }
+        }
+    )
+
+    entity: str = Field(
+        ...,
+        description="Entity or subject of the memory",
+        min_length=1
+    )
+    content: str = Field(
+        ...,
+        description="Memory content",
+        min_length=1
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional metadata"
+    )
+
+
+class CreateMemoryResponse(BaseModel):
+    """Response after creating a memory."""
+
+    id: int = Field(
+        ...,
+        description="Memory ID"
+    )
+    status: str = Field(
+        ...,
+        description="Status (e.g., 'stored')"
+    )
+    tenant_id: str = Field(
+        ...,
+        description="Tenant identifier"
+    )
+
+
 class LearnResponse(BaseModel):
     """Response after learning from an exchange."""
 

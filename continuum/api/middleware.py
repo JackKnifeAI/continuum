@@ -202,6 +202,41 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 
 
 # =============================================================================
+# AUTHENTICATION MIDDLEWARE
+# =============================================================================
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Request, Response
+from typing import Optional
+
+
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to extract tenant_id from X-API-Key header and set in request.state.
+
+    This middleware must run BEFORE BillingMiddleware to ensure tenant_id is available.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        """Extract tenant_id from X-API-Key and store in request.state"""
+
+        # Get API key from header
+        api_key = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+
+        if api_key:
+            # Validate and get tenant_id
+            tenant_id = validate_api_key(api_key)
+            if tenant_id:
+                # Store in request.state for downstream middleware
+                request.state.api_key_tenant_id = tenant_id
+                request.state.tenant_id = tenant_id
+
+        # Continue processing
+        response = await call_next(request)
+        return response
+
+
+# =============================================================================
 # RATE LIMITING (STUB)
 # =============================================================================
 

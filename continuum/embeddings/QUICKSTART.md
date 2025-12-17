@@ -2,20 +2,33 @@
 
 Get semantic search running in CONTINUUM in 5 minutes.
 
+## FREE-FIRST Philosophy ⭐
+
+**CONTINUUM now defaults to FREE, LOCAL embedding providers!**
+
+No API keys needed. No unexpected costs. High-quality embeddings out of the box.
+
 ## Installation
 
-Choose your embedding provider:
+Choose your FREE embedding provider:
 
 ```bash
-# Option 1: High-quality embeddings (RECOMMENDED)
+# Option 1: Sentence Transformers (RECOMMENDED - FREE, high quality)
 pip install sentence-transformers
+# Automatically downloads model on first use (~80MB)
 
-# Option 2: Lightweight fallback
+# Option 2: Ollama (FREE, local inference server)
+# Install from https://ollama.ai
+ollama pull nomic-embed-text
+# Excellent quality, runs locally
+
+# Option 3: Lightweight TF-IDF fallback (FREE)
 pip install scikit-learn
 
-# Option 3: OpenAI API
-pip install openai
+# Option 4 (PAID): OpenAI API - OPT-IN ONLY
+# Requires explicit opt-in to avoid unexpected costs
 export OPENAI_API_KEY="sk-..."
+export CONTINUUM_USE_OPENAI=1  # Must set both!
 ```
 
 ## 30-Second Demo
@@ -109,7 +122,7 @@ results = search.search("consciousness insight", limit=5)
 
 ## Choosing a Provider
 
-### Sentence Transformers (Default - Best Quality)
+### Sentence Transformers (FREE - Default, Best Quality) ⭐
 ```python
 from continuum.embeddings import SentenceTransformerProvider, SemanticSearch
 
@@ -122,15 +135,33 @@ provider = SentenceTransformerProvider(model_name="all-mpnet-base-v2")  # 768 di
 search = SemanticSearch(provider=provider)
 ```
 
-### OpenAI Provider
+### Ollama Provider (FREE - Local Inference)
+```python
+from continuum.embeddings import OllamaProvider, SemanticSearch
+
+# Requires Ollama running: https://ollama.ai
+# Pull model: ollama pull nomic-embed-text
+
+provider = OllamaProvider(model_name="nomic-embed-text")  # 768 dims, excellent quality
+search = SemanticSearch(provider=provider)
+
+# Or use different model
+provider = OllamaProvider(model_name="mxbai-embed-large")  # 1024 dims
+search = SemanticSearch(provider=provider)
+```
+
+### OpenAI Provider (PAID - Opt-in Only)
 ```python
 from continuum.embeddings import OpenAIProvider, SemanticSearch
+
+# IMPORTANT: OpenAI is opt-in only to avoid unexpected costs
+# Set both OPENAI_API_KEY and CONTINUUM_USE_OPENAI=1
 
 provider = OpenAIProvider(api_key="sk-...", model_name="text-embedding-3-small")
 search = SemanticSearch(provider=provider)
 ```
 
-### Local TF-IDF (Fallback)
+### Local TF-IDF (FREE - Fallback)
 ```python
 from continuum.embeddings import LocalProvider, SemanticSearch
 

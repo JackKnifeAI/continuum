@@ -1,9 +1,14 @@
 # CONTINUUM - Quick Test Guide
 
+**Christmas Launch Edition - Dec 25, 2025**
+
 ## Run All Tests
 
 ```bash
-# Integration tests only
+# NEW: Tier-based integration tests (LAUNCH BLOCKER)
+PYTHONPATH=. pytest tests/integration/test_*tier*.py -v
+
+# All integration tests
 ./scripts/run_integration_tests.sh
 
 # All tests (unit + integration)
@@ -13,7 +18,23 @@ pytest
 pytest --cov=continuum --cov-report=html
 ```
 
-## Run Specific Tests
+## Run NEW Tier Tests (v1.0.0 Launch)
+
+```bash
+# FREE tier tests (mandatory contribution)
+PYTHONPATH=. pytest tests/integration/test_free_tier_workflow.py -v
+
+# PRO tier tests (optional contribution)
+PYTHONPATH=. pytest tests/integration/test_pro_tier_workflow.py -v
+
+# ENTERPRISE tier tests (full bypass)
+PYTHONPATH=. pytest tests/integration/test_enterprise_tier_workflow.py -v
+
+# Tier upgrade/downgrade tests
+PYTHONPATH=. pytest tests/integration/test_tier_upgrades.py -v
+```
+
+## Run Existing Tests
 
 ```bash
 # Memory flow tests
@@ -90,8 +111,42 @@ pytest tests/integration/ -v -s
 ## Test Structure
 
 ```
-74+ Integration Tests:
+134+ Integration Tests (74 existing + 60 NEW tier tests):
 
+NEW TIER TESTS (60 tests - v1.0.0 Launch):
+test_free_tier_workflow.py (17 tests)
+├── Mandatory Contribution (3)
+├── Opt-Out Blocked (2)
+├── Rate Limits (3)
+├── Donation Banner (2)
+├── Storage Limits (1)
+├── Federation Failure (1)
+└── Edge Cases (5)
+
+test_pro_tier_workflow.py (14 tests)
+├── With Contribution (2)
+├── Opt-Out Allowed (3)
+├── Rate Limits (3)
+├── No Donation Banner (2)
+├── Features (2)
+└── Edge Cases (2)
+
+test_enterprise_tier_workflow.py (15 tests)
+├── Bypass Enforcement (3)
+├── High Limits (4)
+├── Private Federation (2)
+├── Features (3)
+├── Data Privacy (2)
+└── Edge Cases (1)
+
+test_tier_upgrades.py (14 tests)
+├── FREE → PRO Upgrade (5)
+├── PRO → FREE Downgrade (4)
+├── Tier Detection (2)
+├── Subscription Changes (2)
+└── Edge Cases (1)
+
+EXISTING TESTS:
 test_memory_flow.py (22 tests)
 ├── Learn and Recall (7)
 ├── Multi-Tenant Isolation (3)

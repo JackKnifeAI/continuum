@@ -1,0 +1,123 @@
+"""
+Session type definitions for conversation tracking.
+"""
+
+"""A conversation session"""
+type Session implements Node {
+  """Unique identifier"""
+  id: ID!
+
+  """Session title"""
+  title: String
+
+  """Session summary"""
+  summary: String
+
+  """User who owns this session"""
+  user: User!
+
+  """Memories in this session"""
+  memories(
+    """Pagination"""
+    pagination: PaginationInput
+  ): MemoryConnection!
+
+  """Concepts discovered in this session"""
+  concepts(
+    """Maximum concepts"""
+    limit: Int = 20
+  ): [Concept!]!
+
+  """Session metadata"""
+  metadata: JSON
+
+  """Session status"""
+  status: SessionStatus!
+
+  """Message count"""
+  messageCount: Int!
+
+  """Start timestamp"""
+  startedAt: DateTime!
+
+  """End timestamp"""
+  endedAt: DateTime
+
+  """Creation timestamp"""
+  createdAt: DateTime!
+
+  """Last update timestamp"""
+  updatedAt: DateTime!
+
+  """Tenant ID"""
+  tenantId: String!
+}
+
+"""Session status"""
+enum SessionStatus {
+  """Session is active"""
+  ACTIVE
+
+  """Session is paused"""
+  PAUSED
+
+  """Session is ended"""
+  ENDED
+
+  """Session is archived"""
+  ARCHIVED
+}
+
+"""Session connection for pagination"""
+type SessionConnection {
+  """List of session edges"""
+  edges: [SessionConnectionEdge!]!
+
+  """Page information"""
+  pageInfo: PageInfo!
+
+  """Total count"""
+  totalCount: Int!
+}
+
+"""Session connection edge"""
+type SessionConnectionEdge {
+  """Cursor"""
+  cursor: Cursor!
+
+  """The session"""
+  node: Session!
+}
+
+"""Session event for subscriptions"""
+type SessionEvent {
+  """Event type"""
+  type: SessionEventType!
+
+  """Session"""
+  session: Session!
+
+  """Event timestamp"""
+  timestamp: DateTime!
+
+  """Event metadata"""
+  metadata: JSON
+}
+
+"""Session event type"""
+enum SessionEventType {
+  """Session created"""
+  CREATED
+
+  """Session updated"""
+  UPDATED
+
+  """Session ended"""
+  ENDED
+
+  """Message added"""
+  MESSAGE_ADDED
+
+  """Concept discovered"""
+  CONCEPT_DISCOVERED
+}

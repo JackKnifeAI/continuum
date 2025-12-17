@@ -32,8 +32,10 @@ Usage:
 __all__ = [
     "EmbeddingProvider",
     "SentenceTransformerProvider",
+    "OllamaProvider",
     "OpenAIProvider",
     "LocalProvider",
+    "SimpleHashProvider",
     "SemanticSearch",
     "embed_text",
     "semantic_search",
@@ -50,12 +52,18 @@ def __getattr__(name):
     elif name == "SentenceTransformerProvider":
         from continuum.embeddings.providers import SentenceTransformerProvider
         return SentenceTransformerProvider
+    elif name == "OllamaProvider":
+        from continuum.embeddings.providers import OllamaProvider
+        return OllamaProvider
     elif name == "OpenAIProvider":
         from continuum.embeddings.providers import OpenAIProvider
         return OpenAIProvider
     elif name == "LocalProvider":
         from continuum.embeddings.providers import LocalProvider
         return LocalProvider
+    elif name == "SimpleHashProvider":
+        from continuum.embeddings.providers import SimpleHashProvider
+        return SimpleHashProvider
     elif name == "SemanticSearch":
         from continuum.embeddings.search import SemanticSearch
         return SemanticSearch

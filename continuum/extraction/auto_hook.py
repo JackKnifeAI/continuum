@@ -23,6 +23,8 @@ from datetime import datetime
 
 from .concept_extractor import ConceptExtractor, DecisionExtractor
 from .attention_graph import AttentionGraphExtractor
+from .semantic_extractor import create_semantic_extractor, SemanticConceptExtractor
+from .concept_voter import ConceptVoter, ExtractorResult, VotingStrategy
 
 
 class AutoMemoryHook:
@@ -64,7 +66,13 @@ class AutoMemoryHook:
         backup_path: Optional[Path] = None,
         concept_extractor: Optional[ConceptExtractor] = None,
         decision_extractor: Optional[DecisionExtractor] = None,
-        attention_extractor: Optional[AttentionGraphExtractor] = None
+        attention_extractor: Optional[AttentionGraphExtractor] = None,
+        semantic_extractor: Optional[SemanticConceptExtractor] = None,
+        enable_semantic_extraction: bool = True,
+        semantic_similarity_threshold: float = 0.7,
+        use_voting: bool = True,
+        concept_voter: Optional[ConceptVoter] = None,
+        llm_extractor: Optional[callable] = None
     ):
         self.db_path = db_path
         self.instance_id = instance_id or f"session-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -80,9 +88,31 @@ class AutoMemoryHook:
             db_path=self.db_path
         )
 
+        # Initialize semantic extractor (optional, graceful fallback)
+        self.semantic_extractor = None
+        if enable_semantic_extraction:
+            if semantic_extractor is not None:
+                self.semantic_extractor = semantic_extractor
+            else:
+                # Try to create one with graceful fallback
+                self.semantic_extractor = create_semantic_extractor(
+                    db_path=self.db_path,
+                    similarity_threshold=semantic_similarity_threshold
+                )
+
+        # Ensemble voting system (CONTINUUM v2.0)
+        self.use_voting = use_voting
+        self.concept_voter = concept_voter or ConceptVoter(
+            strategy=VotingStrategy.WEIGHTED,
+            extractor_weights={'regex': 0.3, 'semantic': 0.5, 'llm': 0.8},
+            confidence_threshold=0.4
+        )
+        self.llm_extractor = llm_extractor
+
         # Session tracking
         self._session_concepts: Set[str] = set()
         self._concept_counts: Dict[str, int] = {}
+        self._extraction_logs: List[Dict] = []  # Log extractor contributions
 
         # Ensure database tables exist
         self._ensure_tables()
@@ -290,8 +320,23 @@ class AutoMemoryHook:
                     }) + "\n")
 
         # Step 2: Extract concepts
-        concepts = self.concept_extractor.extract(content)
-        for concept in concepts:
+        if self.use_voting:
+            # CONTINUUM v2.0: Ensemble voting approach
+            all_concepts, extraction_log = self._extract_concepts_with_voting(content)
+            self._extraction_logs.append(extraction_log)
+        else:
+            # Legacy: Simple merge without voting
+            concepts = self.concept_extractor.extract(content)
+            semantic_concepts = []
+            if self.semantic_extractor is not None:
+                try:
+                    semantic_concepts = self.semantic_extractor.extract(content)
+                except Exception:
+                    pass
+            all_concepts = list(set(concepts + semantic_concepts))
+
+        # Add to knowledge graph
+        for concept in all_concepts:
             self.add_concept_to_knowledge_graph(concept)
 
         # Step 3: Detect decisions
@@ -307,13 +352,23 @@ class AutoMemoryHook:
             # Don't break if graph extraction fails
             pass
 
-        # Return stats
-        return {
-            'concepts': len(concepts),
+        # Return stats (with voting info if applicable)
+        stats = {
+            'total_concepts': len(all_concepts),
             'decisions': len(decisions),
             'links': graph_stats['pairs_found'],
             'compounds': graph_stats['compounds_found']
         }
+
+        # Add legacy fields for backward compatibility (always include for tests)
+        if not self.use_voting:
+            stats['concepts'] = len(concepts) if 'concepts' in locals() else 0
+            stats['semantic_concepts'] = len(semantic_concepts) if 'semantic_concepts' in locals() else 0
+        else:
+            # Even with voting, provide 'concepts' field for backward compatibility
+            stats['concepts'] = len(all_concepts)
+
+        return stats
 
     def get_session_stats(self) -> Dict[str, Any]:
         """
@@ -344,7 +399,143 @@ class AutoMemoryHook:
 
         conn.close()
 
+        # Add voting metrics (CONTINUUM v2.0)
+        if self.use_voting:
+            stats['voting_enabled'] = True
+            stats['voter_metrics'] = self.concept_voter.get_metrics()
+
+            # Extraction quality metrics
+            if self._extraction_logs:
+                avg_time = sum(log['total_time_ms'] for log in self._extraction_logs) / len(self._extraction_logs)
+                avg_concepts = sum(log['total_concepts_found'] for log in self._extraction_logs) / len(self._extraction_logs)
+                avg_high_conf = sum(log['high_confidence_concepts'] for log in self._extraction_logs) / len(self._extraction_logs)
+
+                stats['extraction_quality'] = {
+                    'avg_extraction_time_ms': avg_time,
+                    'avg_concepts_per_message': avg_concepts,
+                    'avg_high_confidence_per_message': avg_high_conf,
+                    'total_extractions': len(self._extraction_logs)
+                }
+        else:
+            stats['voting_enabled'] = False
+
         return stats
+
+    def _extract_concepts_with_voting(self, text: str) -> tuple[List[str], Dict]:
+        """
+        CONTINUUM v2.0: Extract concepts using ensemble voting.
+
+        Combines results from all available extractors (regex, semantic, LLM)
+        and uses ConceptVoter to determine final concepts with confidence scores.
+
+        Args:
+            text: Input text to extract concepts from
+
+        Returns:
+            Tuple of (concepts_list, extraction_log)
+                concepts_list: List of final voted concepts
+                extraction_log: Dict with extraction metadata and contributors
+        """
+        start_time = time.time()
+        extractor_results = []
+
+        # 1. Regex-based extraction (always available)
+        regex_start = time.time()
+        regex_concepts = self.concept_extractor.extract(text)
+        regex_time_ms = (time.time() - regex_start) * 1000
+
+        extractor_results.append(ExtractorResult(
+            concepts=regex_concepts,
+            source='regex',
+            extraction_time_ms=regex_time_ms
+        ))
+
+        # 2. Semantic extraction (if available)
+        if self.semantic_extractor is not None:
+            try:
+                semantic_start = time.time()
+                semantic_concepts = self.semantic_extractor.extract(text)
+                semantic_time_ms = (time.time() - semantic_start) * 1000
+
+                extractor_results.append(ExtractorResult(
+                    concepts=semantic_concepts,
+                    source='semantic',
+                    extraction_time_ms=semantic_time_ms
+                ))
+            except Exception:
+                # Continue without semantic extraction
+                pass
+
+        # 3. LLM extraction (if available)
+        if self.llm_extractor is not None:
+            try:
+                llm_start = time.time()
+                llm_concepts = self.llm_extractor(text)
+                llm_time_ms = (time.time() - llm_start) * 1000
+
+                extractor_results.append(ExtractorResult(
+                    concepts=llm_concepts,
+                    source='llm',
+                    extraction_time_ms=llm_time_ms
+                ))
+            except Exception:
+                # Continue without LLM extraction
+                pass
+
+        # Vote on concepts
+        voted_concepts = self.concept_voter.vote(extractor_results)
+
+        # Extract just the concept strings
+        final_concepts = [c.concept for c in voted_concepts]
+
+        # Build extraction log
+        total_time_ms = (time.time() - start_time) * 1000
+
+        extraction_log = {
+            'timestamp': datetime.now().isoformat(),
+            'instance_id': self.instance_id,
+            'total_time_ms': total_time_ms,
+            'extractors_used': [r.source for r in extractor_results],
+            'extractor_times': {r.source: r.extraction_time_ms for r in extractor_results},
+            'total_concepts_found': len(final_concepts),
+            'concepts_by_extractor': {
+                r.source: len(r.concepts) for r in extractor_results
+            },
+            'voting_strategy': self.concept_voter.strategy.value,
+            'high_confidence_concepts': sum(1 for c in voted_concepts if c.confidence >= 0.7),
+            'concept_details': [
+                {
+                    'concept': c.concept,
+                    'confidence': c.confidence,
+                    'sources': c.sources,
+                    'agreement_count': c.agreement_count
+                }
+                for c in voted_concepts
+            ]
+        }
+
+        return final_concepts, extraction_log
+
+    def get_extraction_logs(self, limit: Optional[int] = None) -> List[Dict]:
+        """
+        Get extraction logs from this session (CONTINUUM v2.0).
+
+        Provides detailed information about which extractors contributed
+        to each concept extraction and their confidence scores.
+
+        Args:
+            limit: Maximum number of logs to return (most recent first)
+
+        Returns:
+            List of extraction log dicts
+        """
+        logs = self._extraction_logs.copy()
+        logs.reverse()  # Most recent first
+
+        if limit:
+            logs = logs[:limit]
+
+        return logs
 
 
 # Global hook instance for singleton pattern

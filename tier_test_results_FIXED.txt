@@ -1,0 +1,37 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.9, pytest-8.3.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /var/home/alexandergcasavant/Projects/continuum
+configfile: pyproject.toml
+plugins: anyio-4.11.0, cov-7.0.0, asyncio-0.23.7, langsmith-0.4.49
+asyncio: mode=Mode.AUTO
+collecting ... collected 199 items / 1 error / 1 skipped
+
+==================================== ERRORS ====================================
+______ ERROR collecting tests/integration/test_federation_integration.py _______
+ImportError while importing test module '/var/home/alexandergcasavant/Projects/continuum/tests/integration/test_federation_integration.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../.local/lib/python3.13/site-packages/_pytest/python.py:493: in importtestmodule
+    mod = import_path(
+../../.local/lib/python3.13/site-packages/_pytest/pathlib.py:582: in import_path
+    importlib.import_module(module_name)
+/usr/lib64/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+../../.local/lib/python3.13/site-packages/_pytest/assertion/rewrite.py:174: in exec_module
+    exec(co, module.__dict__)
+tests/integration/test_federation_integration.py:24: in <module>
+    from continuum.federation.node import FederationNode
+E   ImportError: cannot import name 'FederationNode' from 'continuum.federation.node' (/var/home/alexandergcasavant/Projects/continuum/continuum/federation/node.py). Did you mean: 'federation'?
+=========================== short test summary info ============================
+ERROR tests/integration/test_federation_integration.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+========================= 1 skipped, 1 error in 1.69s ==========================

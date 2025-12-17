@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 271 81% 56%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 217 91% 60%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 271 81% 56%;
+
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-twilight-gradient text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .twilight-glow {
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+  }
+
+  .twilight-border {
+    border-image: linear-gradient(135deg, #7c3aed, #3b82f6) 1;
+  }
+
+  .metric-card {
+    @apply bg-gradient-to-br from-twilight-medium to-twilight-deep border border-twilight-purple/20 rounded-lg p-6 twilight-glow;
+  }
+
+  .status-online {
+    @apply text-green-400;
+  }
+
+  .status-degraded {
+    @apply text-yellow-400;
+  }
+
+  .status-offline {
+    @apply text-red-400;
+  }
+
+  .scrollbar-twilight::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-twilight::-webkit-scrollbar-track {
+    @apply bg-twilight-dark;
+  }
+
+  .scrollbar-twilight::-webkit-scrollbar-thumb {
+    @apply bg-twilight-purple rounded-full;
+  }
+
+  .scrollbar-twilight::-webkit-scrollbar-thumb:hover {
+    @apply bg-twilight-blue;
+  }
+}
+
+/* Custom animations */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(124, 58, 237, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(124, 58, 237, 0.6);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Loading skeleton */
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  @apply bg-gradient-to-r from-twilight-medium via-twilight-purple/20 to-twilight-medium;
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}

@@ -22,6 +22,10 @@ HEBBIAN_RATE = 0.1  # Learning rate for connection strengthening
 MIN_LINK_STRENGTH = 0.1  # Minimum threshold for graph connections
 WORKING_MEMORY_CAPACITY = 7  # Miller's number - optimal working memory size
 
+# Time decay parameters for Hebbian learning
+HEBBIAN_DECAY_FACTOR = 0.95  # Decay per day since last access (exponential)
+LINK_MIN_STRENGTH_BEFORE_PRUNE = 0.05  # Links weaker than this can be pruned
+
 # Quality thresholds
 MIN_CONCEPT_OCCURRENCES = 2  # Minimum times a concept must appear
 MAX_CONCEPTS_PER_MESSAGE = 20  # Maximum concepts to extract per message

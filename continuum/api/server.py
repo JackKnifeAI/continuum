@@ -27,7 +27,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .routes import router
 from .billing_routes import router as billing_router
-from .middleware import init_api_keys_db, REQUIRE_API_KEY
+from .middleware import init_api_keys_db, REQUIRE_API_KEY, AuthenticationMiddleware
 from continuum.billing.middleware import BillingMiddleware
 from continuum.billing.metering import UsageMetering, RateLimiter
 
@@ -38,6 +38,9 @@ from .system_routes import router as system_router
 from .logs_routes import router as logs_router
 from .admin_memories_routes import router as admin_memories_router
 from .dashboard_routes import router as dashboard_router
+
+# Public API routes (non-admin, for testing billing/tiers)
+from .public_memories_routes import router as public_memories_router, settings_router, user_router
 
 # GraphQL API (optional - requires strawberry-graphql package)
 try:
@@ -218,6 +221,10 @@ app.add_middleware(
     exclude_paths=["/health", "/docs", "/redoc", "/openapi.json", "/dashboard"]
 )
 
+# Authentication middleware (extract tenant_id from X-API-Key)
+# MUST be added AFTER BillingMiddleware (middleware runs in reverse order of add_middleware)
+app.add_middleware(AuthenticationMiddleware)
+
 
 # =============================================================================
 # ROUTES
@@ -234,6 +241,11 @@ app.include_router(users_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 app.include_router(logs_router, prefix="/api")
 app.include_router(admin_memories_router, prefix="/api")
+
+# Mount public memories route under /api (for billing integration tests)
+app.include_router(public_memories_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+app.include_router(user_router, prefix="/api")
 
 # Mount public dashboard routes (no auth required)
 app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])

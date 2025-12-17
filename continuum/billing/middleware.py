@@ -4,7 +4,7 @@ FastAPI Middleware for Billing and Rate Limiting
 Integrates billing checks into the request/response cycle.
 """
 
-from typing import Callable, Optional
+from typing import Callable, Optional, Dict, Any
 from fastapi import Request, Response, HTTPException, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -48,7 +48,7 @@ class BillingMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.metering = metering
         self.rate_limiter = rate_limiter
-        self.get_tenant_tier = get_tenant_tier or self._default_get_tenant_tier
+        self.get_tenant_tier_func = get_tenant_tier  # Store but don't call _default_get_tenant_tier yet
         self.exclude_paths = exclude_paths or [
             "/health",
             "/docs",
@@ -73,7 +73,15 @@ class BillingMiddleware(BaseHTTPMiddleware):
             )
 
         # Get tenant's pricing tier
-        tier = await self.get_tenant_tier(tenant_id)
+        # Check if custom get_tenant_tier function provided, otherwise use default method
+        if self.get_tenant_tier_func:
+            tier = await self.get_tenant_tier_func(tenant_id)
+        else:
+            # Call _default_get_tenant_tier method dynamically to allow test mocking
+            tier = await self._default_get_tenant_tier(tenant_id)
+
+        # Store tier in request state for downstream middleware (e.g., DonationNagMiddleware)
+        request.state.tier = tier.value
 
         # Check rate limits
         allowed, error_msg = await self.rate_limiter.check_rate_limit(tenant_id, tier)
@@ -106,7 +114,7 @@ class BillingMiddleware(BaseHTTPMiddleware):
                 )
 
             # Add billing headers to response
-            response.headers.update(self._get_rate_limit_headers(tenant_id, tier))
+            response.headers.update(await self._get_rate_limit_headers(tenant_id, tier))
             response.headers["X-Request-Duration-Ms"] = str(int(duration_ms))
 
             return response
@@ -356,6 +364,171 @@ class StorageLimitMiddleware(BaseHTTPMiddleware):
 
     def _is_write_operation(self, request: Request) -> bool:
         """Check if request is a write operation"""
+        if request.method not in ["POST", "PUT", "PATCH"]:
+            return False
+
+        for endpoint in self.write_endpoints:
+            if request.url.path.startswith(endpoint):
+                return True
+
+        return False
+
+    def _extract_tenant_id(self, request: Request) -> Optional[str]:
+        """Extract tenant ID from request"""
+        if hasattr(request.state, "tenant_id"):
+            return request.state.tenant_id
+        return request.headers.get("X-Tenant-ID")
+
+
+class FederationContributionMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to enforce tier-based federation contribution policies.
+
+    FREE tier: MANDATORY contribution with aggressive anonymization
+    PRO tier: OPTIONAL contribution with standard anonymization
+    ENTERPRISE tier: OPTIONAL contribution with no anonymization
+
+    This is the MOAT - prevents freeloading and builds network effects.
+    """
+
+    def __init__(
+        self,
+        app,
+        get_tenant_tier: Callable,
+        write_endpoints: Optional[list] = None
+    ):
+        """
+        Initialize federation contribution middleware.
+
+        Args:
+            app: FastAPI application
+            get_tenant_tier: Async function to get tenant's tier
+            write_endpoints: Memory write endpoints that trigger contribution
+        """
+        super().__init__(app)
+        self.get_tenant_tier = get_tenant_tier
+        self.write_endpoints = write_endpoints or [
+            "/api/memories",
+            "/api/concepts",
+            "/api/extraction"
+        ]
+
+        # Import here to avoid circular dependency
+        from ..federation.tier_enforcer import create_enforcer
+        from ..federation.shared import SharedKnowledge
+
+        self.enforcer = create_enforcer()
+        self.shared_knowledge = SharedKnowledge()
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        """Enforce contribution policy on memory write operations"""
+
+        # Only check memory write operations
+        if not self._is_memory_write(request):
+            return await call_next(request)
+
+        # Extract tenant ID
+        tenant_id = self._extract_tenant_id(request)
+        if not tenant_id:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"error": "Authentication required"}
+            )
+
+        # Get tenant's pricing tier
+        tier = await self.get_tenant_tier(tenant_id)
+
+        # Check if opt-out was requested
+        opt_out_requested = request.headers.get("X-Federation-Opt-Out", "false").lower() == "true"
+
+        # Enforce contribution policy
+        allowed, error_msg, metadata = self.enforcer.enforce_contribution(
+            tenant_id=tenant_id,
+            tier=tier,
+            memory_operation="write",
+            opt_out_requested=opt_out_requested
+        )
+
+        if not allowed:
+            logger.warning(
+                f"Federation contribution opt-out blocked for {tenant_id} "
+                f"on {tier.value} tier"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={
+                    "error": error_msg,
+                    "tier": tier.value,
+                    "policy": "mandatory",
+                    "message": (
+                        "FREE tier users must contribute to the federation network. "
+                        "Upgrade to PRO ($29/mo) or ENTERPRISE to control contribution preferences."
+                    ),
+                    "upgrade_url": "/billing/upgrade"
+                }
+            )
+
+        # Process the request
+        response = await call_next(request)
+
+        # If successful write and contribution is required, contribute to federation
+        if 200 <= response.status_code < 400 and metadata.get("contribution_required"):
+            # Store request body for post-processing
+            # In production, this would use background task to avoid blocking response
+            if hasattr(request.state, "memory_data"):
+                await self._contribute_to_federation(
+                    tenant_id=tenant_id,
+                    tier=tier,
+                    memory_data=request.state.memory_data
+                )
+
+        return response
+
+    async def _contribute_to_federation(
+        self,
+        tenant_id: str,
+        tier: PricingTier,
+        memory_data: Dict[str, Any]
+    ) -> None:
+        """
+        Contribute memory to federation pool (background task).
+
+        Args:
+            tenant_id: Tenant ID
+            tier: Pricing tier
+            memory_data: Memory data to contribute
+        """
+        try:
+            # Anonymize based on tier
+            anonymized = self.enforcer.anonymize_memory(
+                memory=memory_data,
+                tier=tier,
+                embedding=memory_data.get("embedding")
+            )
+
+            # Contribute to shared pool
+            result = self.shared_knowledge.contribute_concepts(
+                node_id=f"tenant:{tenant_id}",
+                concepts=[anonymized]
+            )
+
+            # Track contribution
+            self.enforcer.track_contribution(
+                tenant_id=tenant_id,
+                contributed=result.get("new_concepts", 0),
+                consumed=0
+            )
+
+            logger.info(
+                f"Federation contribution: tenant={tenant_id}, "
+                f"tier={tier.value}, contributed={result.get('new_concepts', 0)}"
+            )
+
+        except Exception as e:
+            logger.error(f"Federation contribution failed: {e}", exc_info=True)
+
+    def _is_memory_write(self, request: Request) -> bool:
+        """Check if request is a memory write operation"""
         if request.method not in ["POST", "PUT", "PATCH"]:
             return False
 

@@ -27,6 +27,7 @@ hash_key = _old_middleware.hash_key
 init_api_keys_db = _old_middleware.init_api_keys_db
 get_api_keys_db_path = _old_middleware.get_api_keys_db_path
 REQUIRE_API_KEY = _old_middleware.REQUIRE_API_KEY
+AuthenticationMiddleware = _old_middleware.AuthenticationMiddleware  # Fix for Agent ebab5553
 
 from .analytics_middleware import AnalyticsMiddleware
 
@@ -35,6 +36,7 @@ try:
     from .metrics import PrometheusMiddleware, metrics_endpoint
     __all__ = [
         "AnalyticsMiddleware",
+        "AuthenticationMiddleware",
         "PrometheusMiddleware",
         "metrics_endpoint",
         "get_tenant_from_key",
@@ -53,6 +55,7 @@ except ImportError:
     metrics_endpoint = None
     __all__ = [
         "AnalyticsMiddleware",
+        "AuthenticationMiddleware",
         "get_tenant_from_key",
         "optional_tenant_from_key",
         "validate_api_key",

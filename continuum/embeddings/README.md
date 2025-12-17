@@ -2,12 +2,22 @@
 
 Semantic search capabilities for memory recall using embedding vectors.
 
+## FREE-FIRST Philosophy ⭐
+
+**CONTINUUM prioritizes FREE, LOCAL embedding providers!**
+
+- **No API keys needed** - Works out of the box
+- **No unexpected costs** - OpenAI is opt-in only
+- **High quality** - Sentence transformers rival paid APIs
+- **Local inference** - Your data stays private
+
 ## Overview
 
 The embeddings module provides semantic search functionality for CONTINUUM, enabling AI instances to find conceptually similar memories even when exact keywords don't match.
 
 **Key Features:**
-- Multiple embedding provider support (sentence-transformers, OpenAI, local TF-IDF)
+- **FREE-FIRST**: Defaults to sentence-transformers (no cost, high quality)
+- Multiple embedding provider support (sentence-transformers, Ollama, OpenAI, TF-IDF)
 - Efficient vector storage in SQLite as BLOBs
 - Cosine similarity search
 - Batch indexing for performance
@@ -15,20 +25,30 @@ The embeddings module provides semantic search functionality for CONTINUUM, enab
 
 ## Installation
 
-### Basic (TF-IDF fallback)
+### Recommended (FREE - High-quality embeddings) ⭐
+```bash
+pip install sentence-transformers
+# Automatically downloads model on first use (~80MB)
+# THIS IS NOW THE DEFAULT!
+```
+
+### Alternative (FREE - Ollama local inference)
+```bash
+# Install from https://ollama.ai
+ollama pull nomic-embed-text
+# Excellent quality, runs locally
+```
+
+### Fallback (FREE - TF-IDF)
 ```bash
 pip install scikit-learn
 ```
 
-### Recommended (High-quality embeddings)
+### Optional (PAID - OpenAI API, opt-in only)
 ```bash
-pip install sentence-transformers
-```
-
-### Optional (OpenAI API)
-```bash
-pip install openai
+# Requires BOTH environment variables to avoid unexpected costs
 export OPENAI_API_KEY="sk-..."
+export CONTINUUM_USE_OPENAI=1
 ```
 
 ## Quick Start
@@ -75,7 +95,17 @@ stats = search.get_stats()
 
 ## Providers
 
-### Sentence Transformers (Recommended)
+### Default Priority (FREE-FIRST)
+
+CONTINUUM automatically selects the best available FREE provider:
+
+1. **SentenceTransformers** (if installed) - FREE, high quality ⭐
+2. **Ollama** (if running) - FREE, local inference
+3. **LocalProvider** (if sklearn installed) - FREE, TF-IDF fallback
+4. **SimpleHashProvider** - FREE, zero dependencies
+5. **OpenAI** (only if `CONTINUUM_USE_OPENAI=1`) - PAID, opt-in only
+
+### Sentence Transformers (FREE - Recommended) ⭐
 High-quality semantic embeddings using pre-trained transformer models.
 
 ```python
@@ -90,18 +120,47 @@ search = SemanticSearch(db_path="memory.db", provider=provider)
 - `all-mpnet-base-v2` - 768 dim, slower, best quality
 - `paraphrase-multilingual-MiniLM-L12-v2` - multilingual support
 
-### OpenAI Provider
-Uses OpenAI's text-embedding models (requires API key).
+**Cost:** FREE | **Quality:** Excellent | **Privacy:** Local
+
+### Ollama Provider (FREE - Local Inference)
+Uses Ollama's local inference server for embeddings.
+
+```python
+from continuum.embeddings import OllamaProvider, SemanticSearch
+
+# Requires: https://ollama.ai
+# Pull model: ollama pull nomic-embed-text
+
+provider = OllamaProvider(model_name="nomic-embed-text")
+search = SemanticSearch(db_path="memory.db", provider=provider)
+```
+
+**Available models:**
+- `nomic-embed-text` (default) - 768 dim, excellent quality
+- `mxbai-embed-large` - 1024 dim, best quality
+- `snowflake-arctic-embed` - 1024 dim, specialized
+- `all-minilm` - 384 dim, fast
+
+**Cost:** FREE | **Quality:** Excellent | **Privacy:** Local
+
+### OpenAI Provider (PAID - Opt-in Only)
+Uses OpenAI's text-embedding models (requires API key and explicit opt-in).
 
 ```python
 from continuum.embeddings import OpenAIProvider, SemanticSearch
+
+# IMPORTANT: Requires BOTH environment variables
+# export OPENAI_API_KEY="sk-..."
+# export CONTINUUM_USE_OPENAI=1
 
 provider = OpenAIProvider(api_key="sk-...", model_name="text-embedding-3-small")
 search = SemanticSearch(db_path="memory.db", provider=provider)
 ```
 
-### Local Provider (Fallback)
-Simple TF-IDF embeddings with no external dependencies.
+**Cost:** ~$0.02-0.13/1M tokens | **Quality:** Excellent | **Privacy:** Cloud
+
+### Local Provider (FREE - Fallback)
+Simple TF-IDF embeddings using scikit-learn.
 
 ```python
 from continuum.embeddings import LocalProvider, SemanticSearch
@@ -112,6 +171,8 @@ provider.fit(["text 1", "text 2", "text 3", ...])
 
 search = SemanticSearch(db_path="memory.db", provider=provider)
 ```
+
+**Cost:** FREE | **Quality:** Basic | **Privacy:** Local
 
 ## API Reference
 

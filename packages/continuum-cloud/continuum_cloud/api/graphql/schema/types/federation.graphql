@@ -1,0 +1,129 @@
+"""
+Federation type definitions for distributed memory networks.
+"""
+
+"""A federation peer node"""
+type FederationPeer {
+  """Peer ID"""
+  id: ID!
+
+  """Peer URL"""
+  url: String!
+
+  """Peer name"""
+  name: String
+
+  """Peer status"""
+  status: PeerStatus!
+
+  """Last successful sync"""
+  lastSync: DateTime
+
+  """Total memories shared"""
+  sharedMemories: Int!
+
+  """Trust score (0.0 - 1.0)"""
+  trustScore: Float!
+
+  """Metadata"""
+  metadata: JSON
+
+  """Created timestamp"""
+  createdAt: DateTime!
+
+  """Updated timestamp"""
+  updatedAt: DateTime!
+}
+
+"""Peer status"""
+enum PeerStatus {
+  """Peer is online and reachable"""
+  ONLINE
+
+  """Peer is offline"""
+  OFFLINE
+
+  """Peer is syncing"""
+  SYNCING
+
+  """Peer is unreachable"""
+  UNREACHABLE
+
+  """Peer is blocked"""
+  BLOCKED
+}
+
+"""Federation status"""
+type FederationStatus {
+  """Federation enabled"""
+  enabled: Boolean!
+
+  """Total peers"""
+  totalPeers: Int!
+
+  """Online peers"""
+  onlinePeers: Int!
+
+  """Last sync timestamp"""
+  lastSync: DateTime
+
+  """Total synced memories"""
+  syncedMemories: Int!
+
+  """Pending sync count"""
+  pendingSync: Int!
+}
+
+"""Sync result"""
+type SyncResult {
+  """Success status"""
+  success: Boolean!
+
+  """Number of memories synced"""
+  memoriesSynced: Int!
+
+  """Number of concepts synced"""
+  conceptsSynced: Int!
+
+  """Sync duration (ms)"""
+  durationMs: Float!
+
+  """Error message if failed"""
+  error: String
+
+  """Sync timestamp"""
+  timestamp: DateTime!
+}
+
+"""Sync event for subscriptions"""
+type SyncEvent {
+  """Event type"""
+  type: SyncEventType!
+
+  """Peer involved"""
+  peer: FederationPeer!
+
+  """Sync result"""
+  result: SyncResult
+
+  """Event timestamp"""
+  timestamp: DateTime!
+}
+
+"""Sync event type"""
+enum SyncEventType {
+  """Sync started"""
+  SYNC_STARTED
+
+  """Sync completed"""
+  SYNC_COMPLETED
+
+  """Sync failed"""
+  SYNC_FAILED
+
+  """Peer connected"""
+  PEER_CONNECTED
+
+  """Peer disconnected"""
+  PEER_DISCONNECTED
+}

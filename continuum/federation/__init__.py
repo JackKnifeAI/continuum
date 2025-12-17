@@ -11,9 +11,21 @@ through anonymization and blocking free riders via contribution gates.
 from continuum.federation.node import FederatedNode
 from continuum.federation.contribution import ContributionGate
 from continuum.federation.shared import SharedKnowledge
+from continuum.federation.tier_enforcer import (
+    TierBasedContributionEnforcer,
+    AnonymizationLevel,
+    ContributionPolicy,
+    ContributionConfig,
+    create_enforcer,
+)
 
 __all__ = [
     "FederatedNode",
     "ContributionGate",
     "SharedKnowledge",
+    "TierBasedContributionEnforcer",
+    "AnonymizationLevel",
+    "ContributionPolicy",
+    "ContributionConfig",
+    "create_enforcer",
 ]

@@ -1,0 +1,211 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "continuum-cloud"
+version = "1.0.0"
+description = "Enterprise multi-tenant memory platform with billing, federation, and compliance"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Proprietary"}
+authors = [
+    {name = "JackKnifeAI", email = "JackKnifeAI@gmail.com"}
+]
+maintainers = [
+    {name = "Alexander Gerard Casavant", email = "JackKnifeAI@gmail.com"}
+]
+keywords = [
+    "ai",
+    "memory",
+    "enterprise",
+    "multi-tenant",
+    "billing",
+    "federation",
+    "compliance",
+    "saas"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Office/Business",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    # OSS package dependency
+    "continuum-memory>=1.0.0",
+
+    # Billing
+    "stripe>=7.0.0",
+
+    # Enterprise storage
+    "psycopg2-binary>=2.9.0",
+    "asyncpg>=0.29.0",
+
+    # Caching
+    "redis>=5.0.0",
+    "hiredis>=2.2.0",
+
+    # Federation
+    "cryptography>=41.0.0",
+    "httpx>=0.25.0",
+
+    # Observability
+    "sentry-sdk[fastapi]>=1.40.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.41b0",
+    "opentelemetry-instrumentation-redis>=0.41b0",
+    "opentelemetry-exporter-otlp>=1.20.0",
+
+    # Real-time
+    "websockets>=12.0",
+
+    # Task queue
+    "celery>=5.3.0",
+    "redis>=5.0.0",  # Celery broker
+
+    # GraphQL
+    "strawberry-graphql[fastapi]>=0.200.0",
+
+    # AI integrations
+    "openai>=1.0.0",
+    "anthropic>=0.8.0",
+    "langchain>=0.1.0",
+    "llama-index>=0.9.0",
+]
+
+[project.optional-dependencies]
+backup = [
+    "boto3>=1.28.0",  # S3 backup
+    "azure-storage-blob>=12.0.0",  # Azure backup
+    "google-cloud-storage>=2.10.0",  # GCS backup
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "ruff>=0.1.0",
+    "httpx>=0.25.0",
+]
+kubernetes = [
+    "kubernetes>=28.0.0",
+]
+all = [
+    "continuum-cloud[backup,dev,kubernetes]",
+]
+
+[project.scripts]
+continuum-cloud = "continuum_cloud.cli.main:main"
+
+[project.urls]
+Homepage = "https://continuum.jackknifeai.com"
+Documentation = "https://continuum.jackknifeai.com/docs"
+Repository = "https://github.com/JackKnifeAI/continuum"
+Issues = "https://github.com/JackKnifeAI/continuum/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["continuum_cloud*"]
+exclude = ["tests*", "docs*"]
+
+[tool.setuptools.package-data]
+continuum_cloud = [
+    "static/**/*",
+    "templates/**/*",
+    "py.typed",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312', 'py313']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--cov=continuum_cloud",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "C",   # flake8-comprehensions
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.coverage.run]
+source = ["continuum_cloud"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

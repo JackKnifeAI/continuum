@@ -187,6 +187,37 @@ class UsageMetering:
         cache_key = f"{tenant_id}:storage"
         return dict(self._usage_cache.get(cache_key, {}))
 
+    async def set_usage(
+        self,
+        tenant_id: str,
+        metric: str,
+        value: int,
+        period: str = "day"
+    ) -> None:
+        """
+        Set usage value for a tenant (useful for testing).
+
+        Args:
+            tenant_id: Tenant identifier
+            metric: Metric name (e.g., 'api_calls', 'memories')
+            value: Value to set
+            period: Time period ('day', 'minute', 'month')
+        """
+        now = datetime.now(timezone.utc)
+
+        if period == "day":
+            key = now.strftime("%Y-%m-%d")
+        elif period == "minute":
+            key = now.strftime("%Y-%m-%d-%H-%M")
+        elif period == "month":
+            key = now.strftime("%Y-%m")
+        else:
+            raise ValueError(f"Invalid period: {period}")
+
+        cache_key = f"{tenant_id}:{key}"
+        self._usage_cache[cache_key][metric] = value
+        logger.debug(f"Set usage for {tenant_id}: {metric}={value} ({period})")
+
     async def _flush_if_needed(self) -> None:
         """Flush cache to storage if needed (every 60 seconds)"""
         now = datetime.now(timezone.utc)
@@ -259,7 +290,7 @@ class RateLimiter:
         # Check per-day limit
         calls_per_day = await self.metering.get_usage(tenant_id, 'api_calls', period='day')
         if calls_per_day >= limits.api_calls_per_day:
-            return False, f"Daily limit exceeded ({limits.api_calls_per_day} calls/day)"
+            return False, f"Rate limit exceeded: Daily limit ({limits.api_calls_per_day} calls/day)"
 
         return True, None
 

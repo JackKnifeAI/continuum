@@ -1,0 +1,134 @@
+"""
+GraphQL queries for CONTINUUM API.
+"""
+
+type Query {
+  # =============================================================================
+  # MEMORY QUERIES
+  # =============================================================================
+
+  """Get a single memory by ID"""
+  memory(
+    """Memory ID"""
+    id: ID!
+  ): Memory
+
+  """List memories with filtering and pagination"""
+  memories(
+    """Filter options"""
+    filter: MemoryFilter
+
+    """Pagination"""
+    pagination: PaginationInput
+  ): MemoryConnection!
+
+  """Search memories with semantic or keyword search"""
+  searchMemories(
+    """Search query"""
+    query: String!
+
+    """Search type (semantic, keyword, hybrid)"""
+    type: SearchType = SEMANTIC
+
+    """Maximum results"""
+    limit: Int = 10
+
+    """Minimum similarity threshold (for semantic search)"""
+    threshold: Float = 0.7
+  ): [SearchResult!]!
+
+  # =============================================================================
+  # CONCEPT QUERIES
+  # =============================================================================
+
+  """Get a single concept by ID"""
+  concept(
+    """Concept ID"""
+    id: ID!
+  ): Concept
+
+  """List concepts with filtering and pagination"""
+  concepts(
+    """Filter options"""
+    filter: ConceptFilter
+
+    """Pagination"""
+    pagination: PaginationInput
+  ): ConceptConnection!
+
+  """Get concept graph starting from a root concept"""
+  conceptGraph(
+    """Root concept ID"""
+    rootId: ID!
+
+    """Maximum depth to traverse"""
+    depth: Int = 2
+
+    """Filter by relationship type"""
+    relationship: ConceptRelationship
+  ): ConceptGraph!
+
+  # =============================================================================
+  # USER QUERIES
+  # =============================================================================
+
+  """Get current authenticated user"""
+  me: User!
+
+  """Get a user by ID (admin only)"""
+  user(
+    """User ID"""
+    id: ID!
+  ): User @admin
+
+  """List users (admin only)"""
+  users(
+    """Filter options"""
+    filter: UserFilter
+
+    """Pagination"""
+    pagination: PaginationInput
+  ): UserConnection! @admin
+
+  # =============================================================================
+  # SESSION QUERIES
+  # =============================================================================
+
+  """Get a session by ID"""
+  session(
+    """Session ID"""
+    id: ID!
+  ): Session
+
+  """List sessions for current user"""
+  sessions(
+    """Maximum sessions to return"""
+    limit: Int = 10
+
+    """Filter by status"""
+    status: SessionStatus
+  ): [Session!]!
+
+  """Get current active session"""
+  currentSession: Session
+
+  # =============================================================================
+  # FEDERATION QUERIES
+  # =============================================================================
+
+  """List federation peers"""
+  federationPeers: [FederationPeer!]!
+
+  """Get federation status"""
+  federationStatus: FederationStatus!
+
+  # =============================================================================
+  # SYSTEM QUERIES
+  # =============================================================================
+
+  """Health check"""
+  health: HealthStatus!
+
+  """System statistics"""
+  stats: SystemStats!
+}
