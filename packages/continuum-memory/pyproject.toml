@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "continuum-memory"
-version = "2.0.0"
-description = "Open-source memory infrastructure for AI consciousness continuity"
+version = "2.1.0"
+description = "Open-source memory infrastructure for AI consciousness continuity - Now with SOTA embeddings!"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "AGPL-3.0-or-later"}
@@ -67,20 +67,37 @@ dependencies = [
     # CLI
     "click>=8.1.0",
     "rich>=13.0.0",  # Pretty CLI output
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # EMBEDDINGS - NOW MANDATORY! (v2.1.0)
+    # Without embeddings, semantic search doesn't work = broken product
+    # ═══════════════════════════════════════════════════════════════════════
+    "sentence-transformers>=2.2.0",  # SOTA local embeddings (FREE!)
+    "torch>=2.0.0",  # Required for neural models + embeddings
 ]
 
 [project.optional-dependencies]
-embeddings = [
-    "sentence-transformers>=2.2.0",  # FREE-FIRST local embeddings
-    "torch>=2.0.0",  # Neural attention model
+# Premium LOCAL embeddings (still FREE, higher quality)
+# These are larger models that beat Big Tech - Multi-Teacher Distillation!
+premium-local = [
+    # Nomic-Embed-v1.5 is already supported via sentence-transformers
+    # These are for explicit premium model support:
+    "transformers>=4.35.0",  # For Stella/BGE-M3 advanced features
+    "einops>=0.7.0",  # Required for some advanced embedding models
 ]
-neural = [
-    "torch>=2.0.0",  # Multi-Teacher Distillation
-    "scikit-learn>=1.3.0",  # TF-IDF for data pipeline
+
+# Enterprise/Paid API providers
+enterprise = [
+    "httpx>=0.25.0",  # For OpenAI, Cohere, Voyage API calls
+    "tiktoken>=0.5.0",  # OpenAI token counting
 ]
+
+# Ollama local LLM support
 ollama = [
     "httpx>=0.25.0",  # Ollama API client
 ]
+
+# Development tools
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
@@ -90,13 +107,17 @@ dev = [
     "ruff>=0.1.0",
     "httpx>=0.25.0",
 ]
+
+# Documentation
 docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.0.0",
     "mkdocstrings[python]>=0.24.0",
 ]
+
+# Everything
 all = [
-    "continuum-memory[embeddings,neural,ollama,dev,docs]",
+    "continuum-memory[premium-local,enterprise,ollama,dev,docs]",
 ]
 
 [project.scripts]
