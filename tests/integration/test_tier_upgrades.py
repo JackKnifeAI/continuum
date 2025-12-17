@@ -202,7 +202,7 @@ class TestFreeTierToPro:
         client, api_key = api_client_with_auth
 
         # Mock PRO tier lookup
-        async def mock_get_tier(tenant_id):
+        async def mock_get_tier(self, tenant_id):
             return PricingTier.PRO
 
         with patch('continuum.billing.middleware.BillingMiddleware._default_get_tenant_tier', mock_get_tier):

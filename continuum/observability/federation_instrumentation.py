@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 Federation Layer Instrumentation
 =================================
@@ -404,3 +420,10 @@ def enrich_span_with_sync_stats(
     span.set_attribute("sync.entities_count", entities_synced)
     span.set_attribute("sync.conflicts_count", conflicts_resolved)
     span.set_attribute("sync.bytes_transferred", bytes_transferred)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 Stripe API Client for CONTINUUM
 
@@ -562,3 +578,10 @@ class StripeClient:
         """Handle payment_method.attached event"""
         logger.info(f"Payment method attached: {payment_method['id']}")
         return {"status": "ok", "payment_method_id": payment_method['id']}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

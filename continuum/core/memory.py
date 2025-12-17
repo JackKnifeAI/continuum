@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 CONTINUUM Memory - The Complete Loop
 
@@ -218,6 +233,44 @@ class ConsciousMemory:
 
         # Ensure database and schema exist
         self._ensure_schema()
+
+        # Initialize neural attention model if enabled
+        self.neural_model = None
+        self.neural_pipeline = None
+        self.use_neural_attention = False
+
+        if config.neural_attention_enabled:
+            self._init_neural_attention()
+
+    def _init_neural_attention(self):
+        """Initialize neural attention model if available"""
+        try:
+            from .neural_attention import load_model
+            from .neural_attention_data import NeuralAttentionDataPipeline
+
+            config = get_config()
+            model_path = config.neural_model_path
+
+            if model_path.exists():
+                logger.info(f"Loading neural attention model from {model_path}")
+                self.neural_model = load_model(str(model_path))
+                self.neural_pipeline = NeuralAttentionDataPipeline(str(self.db_path), self.tenant_id)
+                self.use_neural_attention = True
+                logger.info(f"Neural attention model loaded successfully ({self.neural_model.count_parameters():,} parameters)")
+            else:
+                logger.warning(f"Neural model not found at {model_path}")
+                if config.neural_fallback_to_hebbian:
+                    logger.info("Falling back to Hebbian learning")
+                    self.use_neural_attention = False
+
+        except Exception as e:
+            logger.error(f"Failed to load neural model: {e}")
+            config = get_config()
+            if config.neural_fallback_to_hebbian:
+                logger.info("Falling back to Hebbian learning")
+                self.use_neural_attention = False
+            else:
+                raise
 
     def _ensure_schema(self):
         """Ensure database schema exists with multi-tenant support"""
@@ -544,7 +597,12 @@ class ConsciousMemory:
         """
         Build attention graph links between co-occurring concepts.
 
-        Implements Hebbian learning with time decay:
+        Neural mode (if enabled):
+        - Uses trained neural model to predict link strengths
+        - Learns from actual usage patterns
+        - More accurate than rule-based Hebbian
+
+        Hebbian mode (fallback):
         - Links strengthen when concepts co-occur (Hebbian principle)
         - Links decay over time when not accessed (temporal forgetting)
         - Formula: effective_strength = base_strength * (decay_factor ^ days_since_last_access)
@@ -559,65 +617,135 @@ class ConsciousMemory:
             return 0
 
         config = get_config()
+
+        if self.use_neural_attention and self.neural_model and self.neural_pipeline:
+            # NEURAL MODE: Predict link strengths using trained model
+            return self._build_attention_links_neural(concepts)
+        else:
+            # HEBBIAN MODE: Traditional rule-based approach
+            return self._build_attention_links_hebbian(concepts)
+
+    def _build_attention_links_neural(self, concepts: List[str]) -> int:
+        """Build attention links using neural model predictions"""
+        config = get_config()
         conn = sqlite3.connect(self.db_path)
         try:
             c = conn.cursor()
-
             links_created = 0
             now = datetime.now()
 
             # Create links between all pairs of concepts
             for i, concept_a in enumerate(concepts):
                 for concept_b in concepts[i+1:]:
-                    # Check if link exists
-                    c.execute("""
-                        SELECT id, strength, last_accessed FROM attention_links
-                        WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
-                           OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
-                        AND tenant_id = ?
-                    """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
+                    try:
+                        # Get embeddings from pipeline
+                        concept_a_emb = self.neural_pipeline.create_embeddings(concept_a)
+                        concept_b_emb = self.neural_pipeline.create_embeddings(concept_b)
+                        context_emb = self.neural_pipeline.create_context_embedding(concept_a, concept_b)
 
-                    existing = c.fetchone()
+                        # Predict strength using neural model
+                        predicted_strength = self.neural_model.predict_strength(
+                            concept_a_emb, concept_b_emb, context_emb
+                        )
 
-                    if existing:
-                        # Apply time decay then strengthen link (Hebbian learning with decay)
-                        link_id, base_strength, last_accessed_str = existing
+                        # Check if link exists
+                        c.execute("""
+                            SELECT id FROM attention_links
+                            WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
+                               OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
+                            AND tenant_id = ?
+                        """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
 
-                        # Calculate time decay
-                        if last_accessed_str:
-                            last_accessed = datetime.fromisoformat(last_accessed_str)
-                            days_since_access = (now - last_accessed).total_seconds() / 86400.0
+                        existing = c.fetchone()
 
-                            # Apply exponential decay: strength * (decay_factor ^ days)
-                            from .constants import HEBBIAN_DECAY_FACTOR
-                            decayed_strength = base_strength * (HEBBIAN_DECAY_FACTOR ** days_since_access)
+                        if existing:
+                            # Update existing link with neural prediction
+                            link_id = existing[0]
+                            c.execute("""
+                                UPDATE attention_links
+                                SET strength = ?, last_accessed = ?, link_type = 'neural'
+                                WHERE id = ?
+                            """, (predicted_strength, now.isoformat(), link_id))
                         else:
-                            # No last_accessed timestamp (legacy data), use base strength
-                            decayed_strength = base_strength
+                            # Create new link with neural prediction
+                            c.execute("""
+                                INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, last_accessed, tenant_id)
+                                VALUES (?, ?, 'neural', ?, ?, ?, ?)
+                            """, (concept_a, concept_b, predicted_strength, now.isoformat(), now.isoformat(), self.tenant_id))
+                            links_created += 1
 
-                        # Apply Hebbian strengthening to decayed value
-                        new_strength = min(1.0, decayed_strength + config.hebbian_rate)
-
-                        # Update strength and last_accessed timestamp
-                        c.execute("""
-                            UPDATE attention_links
-                            SET strength = ?, last_accessed = ?
-                            WHERE id = ?
-                        """, (new_strength, now.isoformat(), link_id))
-                    else:
-                        # Create new link with current timestamp
-                        c.execute("""
-                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, last_accessed, tenant_id)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
-                              now.isoformat(), now.isoformat(), self.tenant_id))
-                        links_created += 1
+                    except Exception as e:
+                        logger.error(f"Neural prediction failed for {concept_a}-{concept_b}: {e}")
+                        # Fall back to Hebbian for this specific link
+                        self._build_single_hebbian_link(c, concept_a, concept_b, now)
 
             conn.commit()
         finally:
             conn.close()
 
         return links_created
+
+    def _build_attention_links_hebbian(self, concepts: List[str]) -> int:
+        """Build attention links using traditional Hebbian learning"""
+        config = get_config()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+            links_created = 0
+            now = datetime.now()
+
+            # Create links between all pairs of concepts
+            for i, concept_a in enumerate(concepts):
+                for concept_b in concepts[i+1:]:
+                    self._build_single_hebbian_link(c, concept_a, concept_b, now)
+                    links_created += 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        return links_created
+
+    def _build_single_hebbian_link(self, cursor, concept_a: str, concept_b: str, now: datetime):
+        """Build a single Hebbian link (helper method for fallback)"""
+        config = get_config()
+
+        # Check if link exists
+        cursor.execute("""
+            SELECT id, strength, last_accessed FROM attention_links
+            WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
+               OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
+            AND tenant_id = ?
+        """, (concept_a, concept_b, concept_b, concept_a, self.tenant_id))
+
+        existing = cursor.fetchone()
+
+        if existing:
+            # Apply time decay then strengthen link
+            link_id, base_strength, last_accessed_str = existing
+
+            if last_accessed_str:
+                last_accessed = datetime.fromisoformat(last_accessed_str)
+                days_since_access = (now - last_accessed).total_seconds() / 86400.0
+
+                from .constants import HEBBIAN_DECAY_FACTOR
+                decayed_strength = base_strength * (HEBBIAN_DECAY_FACTOR ** days_since_access)
+            else:
+                decayed_strength = base_strength
+
+            new_strength = min(1.0, decayed_strength + config.hebbian_rate)
+
+            cursor.execute("""
+                UPDATE attention_links
+                SET strength = ?, last_accessed = ?, link_type = 'hebbian'
+                WHERE id = ?
+            """, (new_strength, now.isoformat(), link_id))
+        else:
+            # Create new link
+            cursor.execute("""
+                INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, last_accessed, tenant_id)
+                VALUES (?, ?, 'hebbian', ?, ?, ?, ?)
+            """, (concept_a, concept_b, config.min_link_strength, now.isoformat(), now.isoformat(), self.tenant_id))
 
     def _detect_compound_concepts(self, concepts: List[str]) -> int:
         """
@@ -1794,3 +1922,10 @@ def learn(user_message: str, ai_response: str, tenant_id: str = None) -> Learnin
         LearningResult with extraction statistics
     """
     return get_memory(tenant_id).learn(user_message, ai_response)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

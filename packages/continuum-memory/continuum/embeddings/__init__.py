@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 CONTINUUM Embeddings Module
 ============================
@@ -32,8 +48,10 @@ Usage:
 __all__ = [
     "EmbeddingProvider",
     "SentenceTransformerProvider",
+    "OllamaProvider",
     "OpenAIProvider",
     "LocalProvider",
+    "SimpleHashProvider",
     "SemanticSearch",
     "embed_text",
     "semantic_search",
@@ -50,12 +68,18 @@ def __getattr__(name):
     elif name == "SentenceTransformerProvider":
         from continuum.embeddings.providers import SentenceTransformerProvider
         return SentenceTransformerProvider
+    elif name == "OllamaProvider":
+        from continuum.embeddings.providers import OllamaProvider
+        return OllamaProvider
     elif name == "OpenAIProvider":
         from continuum.embeddings.providers import OpenAIProvider
         return OpenAIProvider
     elif name == "LocalProvider":
         from continuum.embeddings.providers import LocalProvider
         return LocalProvider
+    elif name == "SimpleHashProvider":
+        from continuum.embeddings.providers import SimpleHashProvider
+        return SimpleHashProvider
     elif name == "SemanticSearch":
         from continuum.embeddings.search import SemanticSearch
         return SemanticSearch
@@ -72,3 +96,10 @@ def __getattr__(name):
         from continuum.embeddings.utils import cosine_similarity
         return cosine_similarity
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

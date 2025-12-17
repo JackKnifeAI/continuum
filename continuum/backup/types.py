@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 Backup System Type Definitions
 
@@ -381,3 +396,10 @@ class BackupConfig:
         self.metadata_db_path.parent.mkdir(parents=True, exist_ok=True)
         if self.primary_storage.local_path:
             self.primary_storage.local_path.mkdir(parents=True, exist_ok=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

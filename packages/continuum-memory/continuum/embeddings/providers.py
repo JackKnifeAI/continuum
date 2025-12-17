@@ -1,13 +1,34 @@
+#!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 Embedding Providers
 ===================
 
 Abstract interface and concrete implementations for text embedding generation.
 
+**FREE-FIRST PHILOSOPHY** (updated 2025-12-16):
+We prioritize FREE, LOCAL providers to avoid unexpected costs.
+
 Supports:
-- SentenceTransformerProvider: High-quality embeddings using sentence-transformers
-- OpenAIProvider: OpenAI API embeddings (requires API key)
-- LocalProvider: Simple TF-IDF fallback (no external dependencies)
+- SentenceTransformerProvider: High-quality FREE embeddings (DEFAULT)
+- OllamaProvider: FREE local embeddings via Ollama (if running)
+- OpenAIProvider: PAID OpenAI API (opt-in only via CONTINUUM_USE_OPENAI=1)
+- LocalProvider: FREE TF-IDF fallback (sklearn)
+- SimpleHashProvider: FREE zero-dependency fallback (pure Python)
 """
 
 from abc import ABC, abstractmethod
@@ -283,6 +304,107 @@ class LocalProvider(EmbeddingProvider):
         return "local/tfidf"
 
 
+class OllamaProvider(EmbeddingProvider):
+    """
+    Ollama embeddings provider (FREE, local, high quality).
+
+    Uses Ollama's local inference server for embeddings. Requires
+    Ollama to be running on localhost:11434.
+
+    Default model: 'nomic-embed-text' (768 dimensions, excellent quality)
+
+    Install Ollama: https://ollama.ai
+    Pull model: ollama pull nomic-embed-text
+
+    Usage:
+        provider = OllamaProvider(model_name="nomic-embed-text")
+        vector = provider.embed("consciousness continuity")
+    """
+
+    MODEL_DIMENSIONS = {
+        "nomic-embed-text": 768,
+        "mxbai-embed-large": 1024,
+        "snowflake-arctic-embed": 1024,
+        "all-minilm": 384,
+    }
+
+    def __init__(
+        self,
+        model_name: str = "nomic-embed-text",
+        api_url: str = "http://localhost:11434/api/embeddings",
+        timeout: int = 30,
+    ):
+        """
+        Initialize Ollama provider.
+
+        Args:
+            model_name: Ollama model name (default: nomic-embed-text)
+            api_url: Ollama API endpoint (default: http://localhost:11434/api/embeddings)
+            timeout: Request timeout in seconds (default: 30)
+        """
+        self.model_name = model_name
+        self.api_url = api_url
+        self.timeout = timeout
+        self._dimension = self.MODEL_DIMENSIONS.get(model_name, 768)
+
+    def embed(self, text: Union[str, List[str]]) -> np.ndarray:
+        """
+        Generate embeddings using Ollama API.
+
+        Gracefully handles Ollama not running by raising clear error.
+        """
+        import urllib.request
+        import urllib.error
+        import json
+
+        if isinstance(text, str):
+            texts = [text]
+            single = True
+        else:
+            texts = text
+            single = False
+
+        embeddings = []
+        for t in texts:
+            payload = json.dumps({
+                "model": self.model_name,
+                "prompt": t
+            }).encode('utf-8')
+
+            req = urllib.request.Request(
+                self.api_url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                    result = json.loads(response.read().decode())
+                    embeddings.append(result["embedding"])
+            except urllib.error.URLError as e:
+                raise RuntimeError(
+                    f"Ollama not running or not accessible at {self.api_url}. "
+                    f"Install: https://ollama.ai | Pull model: ollama pull {self.model_name}"
+                ) from e
+            except Exception as e:
+                raise RuntimeError(f"Ollama embedding failed: {str(e)}") from e
+
+        embeddings = np.array(embeddings, dtype=np.float32)
+
+        if single:
+            return embeddings[0]
+        return embeddings
+
+    def get_dimension(self) -> int:
+        """Get embedding dimension."""
+        return self._dimension
+
+    def get_provider_name(self) -> str:
+        """Get provider name."""
+        return f"ollama/{self.model_name}"
+
+
 class SimpleHashProvider(EmbeddingProvider):
     """
     Pure Python word-hash based embeddings (ZERO dependencies).
@@ -396,49 +518,81 @@ def get_default_provider() -> EmbeddingProvider:
     """
     Get the best available embedding provider.
 
-    Priority:
-    1. OpenAIProvider (if OPENAI_API_KEY is set) - TRUE semantic understanding
-    2. SentenceTransformerProvider (if installed) - High quality local
-    3. LocalProvider (if sklearn installed) - TF-IDF fallback
-    4. SimpleHashProvider - Pure Python, zero dependencies
+    **FREE-FIRST PRIORITY** (updated 2025-12-16):
+    We prioritize FREE, LOCAL providers over paid APIs. OpenAI is opt-in only.
+
+    Priority order:
+    1. SentenceTransformerProvider (FREE, local, high quality) - BEST DEFAULT
+    2. OllamaProvider (FREE, local, if Ollama running) - Excellent alternative
+    3. LocalProvider (FREE, sklearn TF-IDF) - Fallback if no transformers
+    4. SimpleHashProvider (FREE, zero deps) - Ultimate fallback
+    5. OpenAIProvider (PAID, only if explicitly configured) - Opt-in via CONTINUUM_USE_OPENAI=1
+
+    OpenAI is INTENTIONALLY de-prioritized to avoid unexpected costs.
+    To use OpenAI, set both OPENAI_API_KEY and CONTINUUM_USE_OPENAI=1.
 
     Returns:
         An initialized EmbeddingProvider instance
     """
     import os
 
-    # Try OpenAI first if API key is set (best for constrained environments)
-    openai_key = os.environ.get("OPENAI_API_KEY")
-    if openai_key:
-        try:
-            provider = OpenAIProvider(api_key=openai_key)
-            # Quick test to verify it works
-            return provider
-        except Exception as e:
-            warnings.warn(f"OpenAI provider failed: {e}", RuntimeWarning)
-
-    # Try sentence-transformers (best local quality)
+    # PRIORITY 1: SentenceTransformers (FREE, local, high quality)
+    # This is now the DEFAULT - best quality without any cost
     try:
         return SentenceTransformerProvider()
     except ImportError:
         pass
 
-    # Fall back to local TF-IDF
+    # PRIORITY 2: Ollama (FREE, local, if running)
+    # Try Ollama if available - great quality, no cost
+    try:
+        provider = OllamaProvider()
+        # Quick test to verify Ollama is running
+        # Don't actually embed - just check if we can create the provider
+        return provider
+    except Exception:
+        # Ollama not running or not installed - continue to next provider
+        pass
+
+    # PRIORITY 3: OpenAI (PAID, opt-in only)
+    # ONLY use if explicitly enabled to avoid unexpected costs
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    use_openai = os.environ.get("CONTINUUM_USE_OPENAI", "0") == "1"
+
+    if openai_key and use_openai:
+        try:
+            provider = OpenAIProvider(api_key=openai_key)
+            return provider
+        except Exception as e:
+            warnings.warn(f"OpenAI provider failed: {e}", RuntimeWarning)
+
+    # PRIORITY 4: LocalProvider (FREE, TF-IDF fallback)
     try:
         provider = LocalProvider()
         warnings.warn(
-            "Using LocalProvider (TF-IDF). For better quality, set OPENAI_API_KEY "
-            "or install: pip install sentence-transformers",
+            "Using LocalProvider (TF-IDF). For better quality, install FREE providers:\n"
+            "  - pip install sentence-transformers (RECOMMENDED)\n"
+            "  - or install Ollama: https://ollama.ai",
             RuntimeWarning
         )
         return provider
     except ImportError:
         pass
 
-    # Ultimate fallback: SimpleHashProvider (pure Python)
+    # PRIORITY 5: SimpleHashProvider (FREE, zero dependencies)
+    # Ultimate fallback - works everywhere
     warnings.warn(
-        "Using SimpleHashProvider (hash-based). For TRUE semantic search, "
-        "set OPENAI_API_KEY environment variable (~$0.02/1M tokens)",
+        "Using SimpleHashProvider (hash-based). For better quality, install FREE providers:\n"
+        "  - pip install sentence-transformers (RECOMMENDED)\n"
+        "  - or install Ollama: https://ollama.ai\n"
+        "  - or pip install scikit-learn (TF-IDF)",
         RuntimeWarning
     )
     return SimpleHashProvider()
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

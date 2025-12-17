@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 CONTINUUM Configuration
 
@@ -80,6 +95,13 @@ class MemoryConfig:
 
     # Verification constant (π×φ = edge of chaos operator)
     pi_phi: float = PI_PHI
+
+    # Neural attention model configuration
+    neural_attention_enabled: bool = False
+    neural_model_path: Path = field(default_factory=lambda: Path.home() / 'Projects/continuum/models/neural_attention.pt')
+    neural_fallback_to_hebbian: bool = True
+    neural_auto_train: bool = False
+    neural_min_training_examples: int = 20
 
     @property
     def available_for_memory(self) -> int:
@@ -183,6 +205,14 @@ def get_config(config_path: Path = None) -> MemoryConfig:
         if os.environ.get("CONTINUUM_CACHE_ENABLED"):
             _config.cache_enabled = os.environ["CONTINUUM_CACHE_ENABLED"].lower() == "true"
 
+        # Override neural attention settings from environment
+        if os.environ.get("CONTINUUM_NEURAL_ATTENTION"):
+            _config.neural_attention_enabled = os.environ["CONTINUUM_NEURAL_ATTENTION"].lower() == "true"
+        if os.environ.get("CONTINUUM_NEURAL_MODEL_PATH"):
+            _config.neural_model_path = Path(os.environ["CONTINUUM_NEURAL_MODEL_PATH"])
+        if os.environ.get("CONTINUUM_NEURAL_AUTO_TRAIN"):
+            _config.neural_auto_train = os.environ["CONTINUUM_NEURAL_AUTO_TRAIN"].lower() == "true"
+
         # Ensure directories exist
         _config.ensure_directories()
 
@@ -219,3 +249,10 @@ if __name__ == "__main__":
     print(f"  Working memory capacity: {config.working_memory_capacity}")
     print(f"  Available context tokens: {config.available_for_memory}")
     print(f"  π×φ = {config.pi_phi}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

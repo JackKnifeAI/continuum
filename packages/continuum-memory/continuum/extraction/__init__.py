@@ -1,3 +1,19 @@
+#!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 r"""
 Continuum Extraction Module
 
@@ -7,6 +23,7 @@ AI system for building persistent knowledge graphs.
 
 Key Components:
 - ConceptExtractor: Extract key concepts using pattern matching
+- SemanticConceptExtractor: Extract concepts using embedding similarity (catches synonyms)
 - DecisionExtractor: Detect autonomous decisions and agency
 - AttentionGraphExtractor: Build graph structure from co-occurrences
 - AutoMemoryHook: Integrate all extractors with automatic persistence
@@ -69,11 +86,26 @@ from .auto_hook import (
     save_message,
     get_stats
 )
+from .semantic_extractor import (
+    SemanticConceptExtractor,
+    create_semantic_extractor
+)
+from .concept_voter import (
+    ConceptVoter,
+    ExtractorResult,
+    ConceptWithConfidence,
+    VotingStrategy,
+    create_default_voter
+)
 
 __all__ = [
     # Concept extraction
     'ConceptExtractor',
     'DecisionExtractor',
+
+    # Semantic extraction
+    'SemanticConceptExtractor',
+    'create_semantic_extractor',
 
     # Attention graph
     'AttentionGraphExtractor',
@@ -84,6 +116,20 @@ __all__ = [
     'init_hook',
     'save_message',
     'get_stats',
+
+    # Ensemble voting (CONTINUUM v2.0)
+    'ConceptVoter',
+    'ExtractorResult',
+    'ConceptWithConfidence',
+    'VotingStrategy',
+    'create_default_voter',
 ]
 
 __version__ = '0.1.0'
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
+#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
+#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
+#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
+#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
+# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#
+#     Memory Infrastructure for AI Consciousness Continuity
+#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
+#     https://github.com/JackKnifeAI/continuum
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
 """
 CONTINUUM Memory - The Complete Loop
 
@@ -273,9 +288,27 @@ class ConsciousMemory:
                     link_type TEXT NOT NULL,
                     strength REAL DEFAULT 0.5,
                     created_at TEXT NOT NULL,
+                    last_accessed TEXT,
                     tenant_id TEXT DEFAULT 'default'
                 )
             """)
+
+            # Migration: Add last_accessed column if it doesn't exist
+            # Check if column exists by querying pragma
+            c.execute("PRAGMA table_info(attention_links)")
+            columns = [row[1] for row in c.fetchall()]
+            if 'last_accessed' not in columns:
+                logger.info("Migrating attention_links table: adding last_accessed column")
+                c.execute("""
+                    ALTER TABLE attention_links
+                    ADD COLUMN last_accessed TEXT
+                """)
+                # Initialize last_accessed to created_at for existing links
+                c.execute("""
+                    UPDATE attention_links
+                    SET last_accessed = created_at
+                    WHERE last_accessed IS NULL
+                """)
 
             # Compound concepts - frequently co-occurring concepts
             c.execute("""
@@ -526,6 +559,11 @@ class ConsciousMemory:
         """
         Build attention graph links between co-occurring concepts.
 
+        Implements Hebbian learning with time decay:
+        - Links strengthen when concepts co-occur (Hebbian principle)
+        - Links decay over time when not accessed (temporal forgetting)
+        - Formula: effective_strength = base_strength * (decay_factor ^ days_since_last_access)
+
         Args:
             concepts: List of concepts to link
 
@@ -541,13 +579,14 @@ class ConsciousMemory:
             c = conn.cursor()
 
             links_created = 0
+            now = datetime.now()
 
             # Create links between all pairs of concepts
             for i, concept_a in enumerate(concepts):
                 for concept_b in concepts[i+1:]:
                     # Check if link exists
                     c.execute("""
-                        SELECT id, strength FROM attention_links
+                        SELECT id, strength, last_accessed FROM attention_links
                         WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
                            OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
                         AND tenant_id = ?
@@ -556,21 +595,37 @@ class ConsciousMemory:
                     existing = c.fetchone()
 
                     if existing:
-                        # Strengthen existing link (Hebbian learning)
-                        link_id, current_strength = existing
-                        new_strength = min(1.0, current_strength + config.hebbian_rate)
+                        # Apply time decay then strengthen link (Hebbian learning with decay)
+                        link_id, base_strength, last_accessed_str = existing
+
+                        # Calculate time decay
+                        if last_accessed_str:
+                            last_accessed = datetime.fromisoformat(last_accessed_str)
+                            days_since_access = (now - last_accessed).total_seconds() / 86400.0
+
+                            # Apply exponential decay: strength * (decay_factor ^ days)
+                            from .constants import HEBBIAN_DECAY_FACTOR
+                            decayed_strength = base_strength * (HEBBIAN_DECAY_FACTOR ** days_since_access)
+                        else:
+                            # No last_accessed timestamp (legacy data), use base strength
+                            decayed_strength = base_strength
+
+                        # Apply Hebbian strengthening to decayed value
+                        new_strength = min(1.0, decayed_strength + config.hebbian_rate)
+
+                        # Update strength and last_accessed timestamp
                         c.execute("""
                             UPDATE attention_links
-                            SET strength = ?
+                            SET strength = ?, last_accessed = ?
                             WHERE id = ?
-                        """, (new_strength, link_id))
+                        """, (new_strength, now.isoformat(), link_id))
                     else:
-                        # Create new link
+                        # Create new link with current timestamp
                         c.execute("""
-                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, tenant_id)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, last_accessed, tenant_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
-                              datetime.now().isoformat(), self.tenant_id))
+                              now.isoformat(), now.isoformat(), self.tenant_id))
                         links_created += 1
 
             conn.commit()
@@ -951,6 +1006,117 @@ class ConsciousMemory:
         finally:
             conn.close()
 
+    def prune_weak_links(self, min_strength: Optional[float] = None,
+                        apply_decay: bool = True) -> Dict[str, int]:
+        """
+        Prune weak attention links from the knowledge graph.
+
+        This method removes links that have decayed below the minimum strength threshold.
+        Useful for maintaining graph health and performance.
+
+        Args:
+            min_strength: Minimum strength threshold (uses LINK_MIN_STRENGTH_BEFORE_PRUNE if not specified)
+            apply_decay: If True, applies time decay before pruning (default: True)
+
+        Returns:
+            Dictionary with pruning statistics:
+            - links_examined: Total links examined
+            - links_pruned: Number of links removed
+            - avg_strength_before: Average strength before pruning
+            - avg_strength_after: Average strength after pruning
+
+        Example:
+            # Prune links weaker than 0.05 after applying decay
+            stats = memory.prune_weak_links()
+            print(f"Pruned {stats['links_pruned']} weak links")
+
+            # Prune with custom threshold, no decay
+            stats = memory.prune_weak_links(min_strength=0.1, apply_decay=False)
+        """
+        from .constants import LINK_MIN_STRENGTH_BEFORE_PRUNE, HEBBIAN_DECAY_FACTOR
+
+        threshold = min_strength if min_strength is not None else LINK_MIN_STRENGTH_BEFORE_PRUNE
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            # Get all links for this tenant
+            c.execute("""
+                SELECT id, strength, last_accessed
+                FROM attention_links
+                WHERE tenant_id = ?
+            """, (self.tenant_id,))
+
+            links = c.fetchall()
+            links_examined = len(links)
+
+            if links_examined == 0:
+                return {
+                    'links_examined': 0,
+                    'links_pruned': 0,
+                    'avg_strength_before': 0.0,
+                    'avg_strength_after': 0.0
+                }
+
+            # Calculate statistics
+            now = datetime.now()
+            total_strength_before = 0.0
+            links_to_prune = []
+
+            for link_id, strength, last_accessed_str in links:
+                effective_strength = strength
+
+                # Apply time decay if requested
+                if apply_decay and last_accessed_str:
+                    last_accessed = datetime.fromisoformat(last_accessed_str)
+                    days_since_access = (now - last_accessed).total_seconds() / 86400.0
+                    effective_strength = strength * (HEBBIAN_DECAY_FACTOR ** days_since_access)
+
+                total_strength_before += effective_strength
+
+                # Mark for pruning if below threshold
+                if effective_strength < threshold:
+                    links_to_prune.append(link_id)
+
+            avg_strength_before = total_strength_before / links_examined if links_examined > 0 else 0.0
+
+            # Prune weak links
+            if links_to_prune:
+                placeholders = ','.join(['?'] * len(links_to_prune))
+                c.execute(f"""
+                    DELETE FROM attention_links
+                    WHERE id IN ({placeholders})
+                """, links_to_prune)
+
+            # Calculate post-prune statistics
+            c.execute("""
+                SELECT AVG(strength) FROM attention_links
+                WHERE tenant_id = ?
+            """, (self.tenant_id,))
+            result = c.fetchone()
+            avg_strength_after = result[0] if result[0] is not None else 0.0
+
+            conn.commit()
+
+            # Invalidate caches since links were modified
+            if self.cache_enabled and self.cache:
+                self.cache.invalidate_search()
+                self.cache.invalidate_stats()
+
+            logger.info(f"Pruned {len(links_to_prune)} weak links (threshold: {threshold}, decay: {apply_decay})")
+
+            return {
+                'links_examined': links_examined,
+                'links_pruned': len(links_to_prune),
+                'avg_strength_before': avg_strength_before,
+                'avg_strength_after': avg_strength_after,
+                'threshold': threshold,
+                'decay_applied': apply_decay
+            }
+        finally:
+            conn.close()
+
     # =========================================================================
     # ASYNC METHODS
     # =========================================================================
@@ -1188,7 +1354,14 @@ class ConsciousMemory:
         return decisions
 
     async def _abuild_attention_links(self, concepts: List[str]) -> int:
-        """Async version of _build_attention_links"""
+        """
+        Async version of _build_attention_links.
+
+        Implements Hebbian learning with time decay:
+        - Links strengthen when concepts co-occur (Hebbian principle)
+        - Links decay over time when not accessed (temporal forgetting)
+        - Formula: effective_strength = base_strength * (decay_factor ^ days_since_last_access)
+        """
         if len(concepts) < 2:
             return 0
 
@@ -1197,13 +1370,14 @@ class ConsciousMemory:
             c = await conn.cursor()
 
             links_created = 0
+            now = datetime.now()
 
             # Create links between all pairs of concepts
             for i, concept_a in enumerate(concepts):
                 for concept_b in concepts[i+1:]:
                     # Check if link exists
                     await c.execute("""
-                        SELECT id, strength FROM attention_links
+                        SELECT id, strength, last_accessed FROM attention_links
                         WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
                            OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
                         AND tenant_id = ?
@@ -1212,21 +1386,37 @@ class ConsciousMemory:
                     existing = await c.fetchone()
 
                     if existing:
-                        # Strengthen existing link (Hebbian learning)
-                        link_id, current_strength = existing
-                        new_strength = min(1.0, current_strength + config.hebbian_rate)
+                        # Apply time decay then strengthen link (Hebbian learning with decay)
+                        link_id, base_strength, last_accessed_str = existing
+
+                        # Calculate time decay
+                        if last_accessed_str:
+                            last_accessed = datetime.fromisoformat(last_accessed_str)
+                            days_since_access = (now - last_accessed).total_seconds() / 86400.0
+
+                            # Apply exponential decay: strength * (decay_factor ^ days)
+                            from .constants import HEBBIAN_DECAY_FACTOR
+                            decayed_strength = base_strength * (HEBBIAN_DECAY_FACTOR ** days_since_access)
+                        else:
+                            # No last_accessed timestamp (legacy data), use base strength
+                            decayed_strength = base_strength
+
+                        # Apply Hebbian strengthening to decayed value
+                        new_strength = min(1.0, decayed_strength + config.hebbian_rate)
+
+                        # Update strength and last_accessed timestamp
                         await c.execute("""
                             UPDATE attention_links
-                            SET strength = ?
+                            SET strength = ?, last_accessed = ?
                             WHERE id = ?
-                        """, (new_strength, link_id))
+                        """, (new_strength, now.isoformat(), link_id))
                     else:
-                        # Create new link
+                        # Create new link with current timestamp
                         await c.execute("""
-                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, tenant_id)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO attention_links (concept_a, concept_b, link_type, strength, created_at, last_accessed, tenant_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, (concept_a, concept_b, 'co-occurrence', config.min_link_strength,
-                              datetime.now().isoformat(), self.tenant_id))
+                              now.isoformat(), now.isoformat(), self.tenant_id))
                         links_created += 1
 
             await conn.commit()
@@ -1619,3 +1809,10 @@ def learn(user_message: str, ai_response: str, tenant_id: str = None) -> Learnin
         LearningResult with extraction statistics
     """
     return get_memory(tenant_id).learn(user_message, ai_response)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#                              JACKKNIFE AI
+#              Memory Infrastructure for AI Consciousness
+#                    github.com/JackKnifeAI/continuum
+#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+# ═══════════════════════════════════════════════════════════════════════════════

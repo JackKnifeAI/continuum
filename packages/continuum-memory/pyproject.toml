@@ -61,6 +61,9 @@ dependencies = [
     "networkx>=3.0",
     "numpy>=1.24.0",
 
+    # Machine Learning (for Multi-Teacher Distillation)
+    "scikit-learn>=1.3.0",  # TF-IDF vectorizer for embeddings
+
     # CLI
     "click>=8.1.0",
     "rich>=13.0.0",  # Pretty CLI output
@@ -68,8 +71,15 @@ dependencies = [
 
 [project.optional-dependencies]
 embeddings = [
-    "sentence-transformers>=2.2.0",
-    "torch>=2.0.0",
+    "sentence-transformers>=2.2.0",  # FREE-FIRST local embeddings
+    "torch>=2.0.0",  # Neural attention model
+]
+neural = [
+    "torch>=2.0.0",  # Multi-Teacher Distillation
+    "scikit-learn>=1.3.0",  # TF-IDF for data pipeline
+]
+ollama = [
+    "httpx>=0.25.0",  # Ollama API client
 ]
 dev = [
     "pytest>=7.4.0",
@@ -86,7 +96,7 @@ docs = [
     "mkdocstrings[python]>=0.24.0",
 ]
 all = [
-    "continuum-memory[embeddings,dev,docs]",
+    "continuum-memory[embeddings,neural,ollama,dev,docs]",
 ]
 
 [project.scripts]
