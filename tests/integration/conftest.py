@@ -94,20 +94,42 @@ def sample_conversations():
 # =============================================================================
 
 @pytest.fixture(scope="function")
-def api_client(test_memory_config, monkeypatch):
-    """FastAPI test client for API integration tests"""
-    try:
-        from fastapi.testclient import TestClient
-        from continuum.api.server import app
-        import continuum.api.middleware as middleware
+def api_client(api_client_with_auth):
+    """
+    FastAPI test client with automatic authentication.
 
-        # Disable API key requirement for tests
-        monkeypatch.setattr(middleware, "REQUIRE_API_KEY", False)
+    This wraps api_client_with_auth to automatically add X-API-Key headers.
+    Tests can use this fixture without worrying about authentication.
+    """
+    test_client, api_key = api_client_with_auth
 
-        with TestClient(app) as client:
-            yield client
-    except ImportError:
-        pytest.skip("FastAPI not available")
+    class AuthenticatedClient:
+        def __init__(self, client, api_key):
+            self._client = client
+            self._api_key = api_key
+
+        def _add_auth(self, kwargs):
+            headers = kwargs.get("headers", {})
+            headers["X-API-Key"] = self._api_key
+            kwargs["headers"] = headers
+            return kwargs
+
+        def get(self, url, **kwargs):
+            return self._client.get(url, **self._add_auth(kwargs))
+
+        def post(self, url, **kwargs):
+            return self._client.post(url, **self._add_auth(kwargs))
+
+        def put(self, url, **kwargs):
+            return self._client.put(url, **self._add_auth(kwargs))
+
+        def delete(self, url, **kwargs):
+            return self._client.delete(url, **self._add_auth(kwargs))
+
+        def options(self, url, **kwargs):
+            return self._client.options(url, **self._add_auth(kwargs))
+
+    yield AuthenticatedClient(test_client, api_key)
 
 
 @pytest.fixture(scope="function")
