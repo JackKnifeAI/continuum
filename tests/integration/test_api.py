@@ -300,7 +300,8 @@ class TestFullWorkflow:
         stats_response = client.get("/v1/stats")
         assert stats_response.status_code == 200
         stats = stats_response.json()
-        assert stats["messages"] >= 4  # 2 user + 2 assistant messages
+        # learn() creates 1 message row per call (turn), not 2 separate rows
+        assert stats["messages"] >= 2  # 2 learn() calls = 2 message turns
 
     def test_decision_tracking(self, client):
         """Test that decisions are tracked"""
