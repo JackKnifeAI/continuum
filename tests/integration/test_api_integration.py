@@ -452,7 +452,7 @@ class TestAPIBilling:
             })
 
         # Check if usage endpoint exists
-        response = client.get(f"/billing/usage?tenant_id={test_tenant}")
+        response = client.get(f"/v1/billing/usage?tenant_id={test_tenant}")
 
         # May or may not be implemented
         if response.status_code == 200:

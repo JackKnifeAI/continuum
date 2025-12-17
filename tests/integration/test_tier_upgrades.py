@@ -121,7 +121,7 @@ class TestFreeTierToPro:
 
             # Process webhook
             response = client.post(
-                "/billing/webhook",
+                "/v1/billing/webhook",
                 json=stripe_webhook_payload,
                 headers={"Stripe-Signature": "mock_signature"}
             )
@@ -294,7 +294,7 @@ class TestProTierToFree:
 
             # Process webhook
             response = client.post(
-                "/billing/webhook",
+                "/v1/billing/webhook",
                 json=stripe_webhook_payload,
                 headers={"Stripe-Signature": "mock_signature"}
             )
@@ -490,7 +490,7 @@ class TestSubscriptionStateChanges:
             mock_verify.return_value = stripe_webhook_payload
 
             response = client.post(
-                "/billing/webhook",
+                "/v1/billing/webhook",
                 json=stripe_webhook_payload,
                 headers={"Stripe-Signature": "mock_signature"}
             )
@@ -531,7 +531,7 @@ class TestSubscriptionStateChanges:
             mock_verify.return_value = stripe_webhook_payload
 
             response = client.post(
-                "/billing/webhook",
+                "/v1/billing/webhook",
                 json=stripe_webhook_payload,
                 headers={"Stripe-Signature": "mock_signature"}
             )
