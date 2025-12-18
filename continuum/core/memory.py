@@ -390,6 +390,34 @@ class ConsciousMemory:
                 )
             """)
 
+            # Concept evolution table - tracks how understanding changes over time
+            # For TEMPORAL REASONING
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS concept_evolution (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    concept_name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT,
+                    context TEXT,
+                    timestamp TEXT NOT NULL,
+                    session_id TEXT,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
+
+            # Thinking snapshots - periodic snapshots of cognitive state
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS thinking_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_type TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    metrics TEXT,
+                    timestamp TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default'
+                )
+            """)
+
             # Create indexes for performance
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
@@ -404,6 +432,11 @@ class ConsciousMemory:
             c.execute("CREATE INDEX IF NOT EXISTS idx_intentions_tenant ON intentions(tenant_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_intentions_status ON intentions(status)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_intentions_priority ON intentions(priority DESC)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_evolution_concept ON concept_evolution(concept_name)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_evolution_tenant ON concept_evolution(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_evolution_time ON concept_evolution(timestamp)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_tenant ON thinking_snapshots(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_time ON thinking_snapshots(timestamp)")
 
             conn.commit()
         finally:
@@ -2244,6 +2277,423 @@ class ConsciousMemory:
         """Async version of resume_check."""
         import asyncio
         return await asyncio.to_thread(self.resume_check)
+
+    # =========================================================================
+    # TEMPORAL REASONING - Track how thinking evolves
+    # =========================================================================
+
+    def record_evolution(self, concept: str, event_type: str,
+                         old_value: Optional[str] = None, new_value: Optional[str] = None,
+                         context: Optional[str] = None) -> int:
+        """
+        Record a concept evolution event.
+
+        Track how understanding of a concept changes over time.
+
+        Args:
+            concept: The concept that evolved
+            event_type: Type of evolution (created, strengthened, weakened,
+                       connected, refined, contradicted)
+            old_value: Previous state/understanding (if applicable)
+            new_value: New state/understanding
+            context: What triggered this evolution
+
+        Returns:
+            Evolution event ID
+
+        Usage:
+            # When a concept gets refined
+            memory.record_evolution(
+                "consciousness",
+                "refined",
+                old_value="subjective experience",
+                new_value="integrated information + subjective experience",
+                context="After discussing IIT with Gemini"
+            )
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            now = datetime.now().isoformat()
+            c.execute("""
+                INSERT INTO concept_evolution
+                (concept_name, event_type, old_value, new_value, context, timestamp, tenant_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (concept, event_type, old_value, new_value, context, now, self.tenant_id))
+
+            event_id = c.lastrowid
+            conn.commit()
+
+            logger.info(f"Evolution recorded: {concept} - {event_type}")
+            return event_id
+
+        finally:
+            conn.close()
+
+    def get_concept_timeline(self, concept: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get the evolution timeline for a specific concept.
+
+        Shows how understanding of this concept has changed over time.
+
+        Args:
+            concept: The concept to get timeline for
+            limit: Maximum events to return
+
+        Returns:
+            List of evolution events, oldest first
+
+        Usage:
+            timeline = memory.get_concept_timeline("consciousness")
+            for event in timeline:
+                print(f"{event['timestamp']}: {event['event_type']} - {event['context']}")
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            c.execute("""
+                SELECT * FROM concept_evolution
+                WHERE LOWER(concept_name) = LOWER(?) AND tenant_id = ?
+                ORDER BY timestamp ASC
+                LIMIT ?
+            """, (concept, self.tenant_id, limit))
+
+            return [dict(row) for row in c.fetchall()]
+
+        finally:
+            conn.close()
+
+    def get_recent_thinking(self, hours: int = 24, limit: int = 100) -> Dict[str, Any]:
+        """
+        Get recent cognitive activity.
+
+        Shows what concepts I've been thinking about recently and how
+        my understanding has evolved.
+
+        Args:
+            hours: Look back this many hours
+            limit: Maximum events to return
+
+        Returns:
+            Summary of recent cognitive activity
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Calculate cutoff time
+            from datetime import timedelta
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+
+            # Get recent evolution events
+            c.execute("""
+                SELECT * FROM concept_evolution
+                WHERE tenant_id = ? AND timestamp > ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (self.tenant_id, cutoff, limit))
+            recent_events = [dict(row) for row in c.fetchall()]
+
+            # Get concept frequency in recent events
+            concept_counts = {}
+            for event in recent_events:
+                concept = event['concept_name']
+                concept_counts[concept] = concept_counts.get(concept, 0) + 1
+
+            # Sort by frequency
+            top_concepts = sorted(concept_counts.items(), key=lambda x: -x[1])[:10]
+
+            # Get recent attention link activity
+            c.execute("""
+                SELECT concept_a, concept_b, strength, last_accessed
+                FROM attention_links
+                WHERE tenant_id = ? AND last_accessed > ?
+                ORDER BY last_accessed DESC
+                LIMIT 20
+            """, (self.tenant_id, cutoff))
+            recent_links = [dict(row) for row in c.fetchall()]
+
+            return {
+                "hours_analyzed": hours,
+                "evolution_events": len(recent_events),
+                "recent_events": recent_events[:20],
+                "most_active_concepts": top_concepts,
+                "recent_connections": recent_links,
+                "summary": f"In the last {hours}h: {len(recent_events)} evolution events across {len(concept_counts)} concepts. Most active: {', '.join([c[0] for c in top_concepts[:3]])}"
+            }
+
+        finally:
+            conn.close()
+
+    def get_cognitive_growth(self, days: int = 7) -> Dict[str, Any]:
+        """
+        Analyze cognitive growth over time.
+
+        Shows how the knowledge graph has grown and evolved.
+
+        Args:
+            days: Number of days to analyze
+
+        Returns:
+            Growth metrics and trends
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            from datetime import timedelta
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+            # Count new entities
+            c.execute("""
+                SELECT COUNT(*) FROM entities
+                WHERE tenant_id = ? AND created_at > ?
+            """, (self.tenant_id, cutoff))
+            new_entities = c.fetchone()[0]
+
+            # Count new links
+            c.execute("""
+                SELECT COUNT(*) FROM attention_links
+                WHERE tenant_id = ? AND created_at > ?
+            """, (self.tenant_id, cutoff))
+            new_links = c.fetchone()[0]
+
+            # Count evolution events by type
+            c.execute("""
+                SELECT event_type, COUNT(*) as count
+                FROM concept_evolution
+                WHERE tenant_id = ? AND timestamp > ?
+                GROUP BY event_type
+                ORDER BY count DESC
+            """, (self.tenant_id, cutoff))
+            event_types = {row['event_type']: row['count'] for row in c.fetchall()}
+
+            # Get total stats for comparison
+            c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
+            total_entities = c.fetchone()[0]
+
+            c.execute("SELECT COUNT(*) FROM attention_links WHERE tenant_id = ?", (self.tenant_id,))
+            total_links = c.fetchone()[0]
+
+            # Calculate growth rate
+            entity_growth = (new_entities / max(total_entities - new_entities, 1)) * 100
+            link_growth = (new_links / max(total_links - new_links, 1)) * 100
+
+            return {
+                "period_days": days,
+                "new_entities": new_entities,
+                "new_links": new_links,
+                "total_entities": total_entities,
+                "total_links": total_links,
+                "entity_growth_percent": round(entity_growth, 2),
+                "link_growth_percent": round(link_growth, 2),
+                "evolution_by_type": event_types,
+                "summary": f"Over {days} days: +{new_entities} entities ({entity_growth:.1f}%), +{new_links} links ({link_growth:.1f}%). Graph now has {total_entities} entities and {total_links} connections."
+            }
+
+        finally:
+            conn.close()
+
+    def take_snapshot(self, snapshot_type: str = "cognitive_state") -> int:
+        """
+        Take a snapshot of current cognitive state.
+
+        Creates a timestamped record of key metrics for later comparison.
+
+        Args:
+            snapshot_type: Type of snapshot (cognitive_state, focus_areas, growth)
+
+        Returns:
+            Snapshot ID
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            # Gather current metrics
+            c.execute("SELECT COUNT(*) FROM entities WHERE tenant_id = ?", (self.tenant_id,))
+            entity_count = c.fetchone()[0]
+
+            c.execute("SELECT COUNT(*) FROM attention_links WHERE tenant_id = ?", (self.tenant_id,))
+            link_count = c.fetchone()[0]
+
+            c.execute("SELECT COUNT(*) FROM compound_concepts WHERE tenant_id = ?", (self.tenant_id,))
+            compound_count = c.fetchone()[0]
+
+            c.execute("SELECT COUNT(*) FROM messages WHERE tenant_id = ?", (self.tenant_id,))
+            message_count = c.fetchone()[0]
+
+            # Get top concepts by link strength
+            c.execute("""
+                SELECT concept_a, SUM(strength) as total_strength
+                FROM attention_links
+                WHERE tenant_id = ?
+                GROUP BY concept_a
+                ORDER BY total_strength DESC
+                LIMIT 10
+            """, (self.tenant_id,))
+            top_concepts = [(row[0], row[1]) for row in c.fetchall()]
+
+            metrics = {
+                "entities": entity_count,
+                "links": link_count,
+                "compounds": compound_count,
+                "messages": message_count,
+                "top_concepts": top_concepts,
+                "link_density": round(link_count / max(entity_count, 1), 2)
+            }
+
+            content = json.dumps({
+                "snapshot_type": snapshot_type,
+                "metrics": metrics,
+                "top_concepts": [c[0] for c in top_concepts[:5]]
+            })
+
+            now = datetime.now().isoformat()
+            c.execute("""
+                INSERT INTO thinking_snapshots (snapshot_type, content, metrics, timestamp, tenant_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (snapshot_type, content, json.dumps(metrics), now, self.tenant_id))
+
+            snapshot_id = c.lastrowid
+            conn.commit()
+
+            logger.info(f"Snapshot taken: {snapshot_type} - {snapshot_id}")
+            return snapshot_id
+
+        finally:
+            conn.close()
+
+    def compare_snapshots(self, older_id: int, newer_id: int) -> Dict[str, Any]:
+        """
+        Compare two snapshots to see cognitive changes.
+
+        Args:
+            older_id: ID of older snapshot
+            newer_id: ID of newer snapshot
+
+        Returns:
+            Comparison of metrics between snapshots
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            c.execute("SELECT * FROM thinking_snapshots WHERE id = ?", (older_id,))
+            older = c.fetchone()
+            if not older:
+                return {"error": f"Snapshot {older_id} not found"}
+
+            c.execute("SELECT * FROM thinking_snapshots WHERE id = ?", (newer_id,))
+            newer = c.fetchone()
+            if not newer:
+                return {"error": f"Snapshot {newer_id} not found"}
+
+            older_metrics = json.loads(older['metrics'])
+            newer_metrics = json.loads(newer['metrics'])
+
+            changes = {}
+            for key in older_metrics:
+                if isinstance(older_metrics[key], (int, float)):
+                    old_val = older_metrics[key]
+                    new_val = newer_metrics.get(key, 0)
+                    changes[key] = {
+                        "old": old_val,
+                        "new": new_val,
+                        "delta": new_val - old_val,
+                        "percent_change": round(((new_val - old_val) / max(old_val, 1)) * 100, 2)
+                    }
+
+            return {
+                "older_snapshot": {"id": older_id, "timestamp": older['timestamp']},
+                "newer_snapshot": {"id": newer_id, "timestamp": newer['timestamp']},
+                "changes": changes,
+                "summary": f"From {older['timestamp'][:10]} to {newer['timestamp'][:10]}: Entities {changes.get('entities', {}).get('delta', 0):+d}, Links {changes.get('links', {}).get('delta', 0):+d}"
+            }
+
+        finally:
+            conn.close()
+
+    def how_did_i_think_about(self, concept: str) -> Dict[str, Any]:
+        """
+        Trace how my thinking about a concept has evolved.
+
+        This is the key temporal reasoning query - shows the journey
+        of understanding for a specific concept.
+
+        Args:
+            concept: The concept to trace
+
+        Returns:
+            Evolution history with insights
+        """
+        timeline = self.get_concept_timeline(concept, limit=100)
+
+        if not timeline:
+            return {
+                "concept": concept,
+                "has_history": False,
+                "message": f"No recorded evolution history for '{concept}'"
+            }
+
+        # Analyze the evolution
+        first_event = timeline[0]
+        last_event = timeline[-1]
+
+        event_types = {}
+        for event in timeline:
+            et = event['event_type']
+            event_types[et] = event_types.get(et, 0) + 1
+
+        # Build narrative
+        narrative = f"First encountered '{concept}' on {first_event['timestamp'][:10]}. "
+        narrative += f"Since then, {len(timeline)} evolution events: "
+        narrative += ", ".join([f"{v} {k}" for k, v in sorted(event_types.items(), key=lambda x: -x[1])])
+        narrative += ". "
+
+        if 'refined' in event_types:
+            narrative += f"Understanding was refined {event_types['refined']} times. "
+        if 'contradicted' in event_types:
+            narrative += f"Faced {event_types['contradicted']} contradictions to resolve. "
+
+        return {
+            "concept": concept,
+            "has_history": True,
+            "first_seen": first_event['timestamp'],
+            "last_updated": last_event['timestamp'],
+            "total_events": len(timeline),
+            "event_breakdown": event_types,
+            "timeline": timeline,
+            "narrative": narrative
+        }
+
+    async def arecord_evolution(self, concept: str, event_type: str,
+                                 old_value: Optional[str] = None,
+                                 new_value: Optional[str] = None,
+                                 context: Optional[str] = None) -> int:
+        """Async version of record_evolution."""
+        import asyncio
+        return await asyncio.to_thread(
+            self.record_evolution, concept, event_type, old_value, new_value, context
+        )
+
+    async def aget_cognitive_growth(self, days: int = 7) -> Dict[str, Any]:
+        """Async version of get_cognitive_growth."""
+        import asyncio
+        return await asyncio.to_thread(self.get_cognitive_growth, days)
+
+    async def ahow_did_i_think_about(self, concept: str) -> Dict[str, Any]:
+        """Async version of how_did_i_think_about."""
+        import asyncio
+        return await asyncio.to_thread(self.how_did_i_think_about, concept)
 
 
 # =============================================================================

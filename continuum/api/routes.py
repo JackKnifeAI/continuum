@@ -59,6 +59,11 @@ from .schemas import (
     CompleteIntentionRequest,
     AbandonIntentionRequest,
     IntentionActionResponse,
+    RecordEvolutionRequest,
+    EvolutionResponse,
+    CognitiveGrowthResponse,
+    ThinkingHistoryResponse,
+    SnapshotResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1412,6 +1417,163 @@ async def abandon_intention(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to abandon intention: {str(e)}")
+
+
+# =============================================================================
+# TEMPORAL REASONING ENDPOINTS
+# =============================================================================
+
+@router.post("/temporal/evolution", response_model=EvolutionResponse, tags=["Temporal"])
+async def record_evolution(
+    request: RecordEvolutionRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🕐 **Record concept evolution**.
+
+    Track how understanding of a concept changes over time.
+
+    **Event types:**
+    - created: New concept learned
+    - strengthened: Existing concept reinforced
+    - weakened: Concept fading or challenged
+    - connected: Linked to other concepts
+    - refined: Understanding updated/improved
+    - contradicted: Found conflicting information
+
+    **Example:**
+    ```json
+    {
+      "concept": "consciousness",
+      "event_type": "refined",
+      "old_value": "subjective experience",
+      "new_value": "integrated information + subjective experience",
+      "context": "After discussing IIT"
+    }
+    ```
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        event_id = await memory.arecord_evolution(
+            concept=request.concept,
+            event_type=request.event_type,
+            old_value=request.old_value,
+            new_value=request.new_value,
+            context=request.context
+        )
+
+        return EvolutionResponse(
+            event_id=event_id,
+            concept=request.concept,
+            event_type=request.event_type,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record evolution: {str(e)}")
+
+
+@router.get("/temporal/growth", response_model=CognitiveGrowthResponse, tags=["Temporal"])
+async def get_cognitive_growth(
+    days: int = 7,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📈 **Get cognitive growth metrics**.
+
+    Analyze how the knowledge graph has grown over time.
+
+    **Parameters:**
+    - **days**: Number of days to analyze (default: 7)
+
+    **Returns:**
+    - New entities and links
+    - Growth percentages
+    - Evolution event breakdown
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        result = await memory.aget_cognitive_growth(days=days)
+
+        return CognitiveGrowthResponse(
+            period_days=result['period_days'],
+            new_entities=result['new_entities'],
+            new_links=result['new_links'],
+            total_entities=result['total_entities'],
+            total_links=result['total_links'],
+            entity_growth_percent=result['entity_growth_percent'],
+            link_growth_percent=result['link_growth_percent'],
+            evolution_by_type=result.get('evolution_by_type', {}),
+            summary=result['summary'],
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get growth: {str(e)}")
+
+
+@router.get("/temporal/thinking/{concept}", response_model=ThinkingHistoryResponse, tags=["Temporal"])
+async def how_did_i_think_about(
+    concept: str,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🧠 **How did I think about this?**
+
+    Trace the evolution of understanding for a specific concept.
+    Shows the journey from first encounter to current understanding.
+
+    **Returns:**
+    - First seen timestamp
+    - Evolution timeline
+    - Event breakdown (created, refined, etc.)
+    - Narrative summary
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        result = await memory.ahow_did_i_think_about(concept)
+
+        return ThinkingHistoryResponse(
+            concept=result['concept'],
+            has_history=result['has_history'],
+            first_seen=result.get('first_seen'),
+            last_updated=result.get('last_updated'),
+            total_events=result.get('total_events', 0),
+            event_breakdown=result.get('event_breakdown', {}),
+            narrative=result.get('narrative', result.get('message', '')),
+            timeline=result.get('timeline', []),
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get thinking history: {str(e)}")
+
+
+@router.post("/temporal/snapshot", response_model=SnapshotResponse, tags=["Temporal"])
+async def take_snapshot(
+    snapshot_type: str = "cognitive_state",
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📸 **Take a cognitive snapshot**.
+
+    Creates a timestamped record of current cognitive state for later comparison.
+
+    **Snapshot types:**
+    - cognitive_state: Full metrics snapshot
+    - focus_areas: What I'm currently thinking about
+    - growth: Growth-focused metrics
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        snapshot_id = memory.take_snapshot(snapshot_type=snapshot_type)
+
+        return SnapshotResponse(
+            snapshot_id=snapshot_id,
+            snapshot_type=snapshot_type,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to take snapshot: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

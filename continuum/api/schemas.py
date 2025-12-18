@@ -873,6 +873,69 @@ class IntentionActionResponse(BaseModel):
     tenant_id: str = Field(..., description="Tenant identifier")
 
 
+# =============================================================================
+# TEMPORAL REASONING SCHEMAS
+# =============================================================================
+
+class RecordEvolutionRequest(BaseModel):
+    """Request to record a concept evolution event."""
+
+    concept: str = Field(..., description="The concept that evolved")
+    event_type: str = Field(
+        ...,
+        description="Type: created, strengthened, weakened, connected, refined, contradicted"
+    )
+    old_value: Optional[str] = Field(None, description="Previous state")
+    new_value: Optional[str] = Field(None, description="New state")
+    context: Optional[str] = Field(None, description="What triggered this evolution")
+
+
+class EvolutionResponse(BaseModel):
+    """Response after recording evolution."""
+
+    event_id: int
+    concept: str
+    event_type: str
+    tenant_id: str
+
+
+class CognitiveGrowthResponse(BaseModel):
+    """Response with cognitive growth metrics."""
+
+    period_days: int
+    new_entities: int
+    new_links: int
+    total_entities: int
+    total_links: int
+    entity_growth_percent: float
+    link_growth_percent: float
+    evolution_by_type: Dict[str, int]
+    summary: str
+    tenant_id: str
+
+
+class ThinkingHistoryResponse(BaseModel):
+    """Response with concept evolution history."""
+
+    concept: str
+    has_history: bool
+    first_seen: Optional[str] = None
+    last_updated: Optional[str] = None
+    total_events: int = 0
+    event_breakdown: Dict[str, int] = {}
+    narrative: str
+    timeline: List[Dict[str, Any]] = []
+    tenant_id: str
+
+
+class SnapshotResponse(BaseModel):
+    """Response after taking a snapshot."""
+
+    snapshot_id: int
+    snapshot_type: str
+    tenant_id: str
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness

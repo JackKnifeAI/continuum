@@ -279,6 +279,51 @@ TOOL_SCHEMAS = {
             "required": ["intention_id"],
         },
     },
+    "memory_cognitive_growth": {
+        "name": "memory_cognitive_growth",
+        "description": (
+            "📈 Get cognitive growth metrics. "
+            "Shows how the knowledge graph has grown over time - "
+            "new entities, new links, growth percentages."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days to analyze (default: 7)",
+                    "default": 7,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
+    "memory_thinking_history": {
+        "name": "memory_thinking_history",
+        "description": (
+            "🧠 How did I think about this concept? "
+            "Traces the evolution of understanding for a specific concept - "
+            "shows the journey from first encounter to current understanding."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "concept": {
+                    "type": "string",
+                    "description": "The concept to trace thinking history for",
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["concept"],
+        },
+    },
 }
 
 
@@ -317,6 +362,8 @@ class ToolExecutor:
             "memory_set_intention": self._handle_set_intention,
             "memory_resume_check": self._handle_resume_check,
             "memory_complete_intention": self._handle_complete_intention,
+            "memory_cognitive_growth": self._handle_cognitive_growth,
+            "memory_thinking_history": self._handle_thinking_history,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -635,6 +682,62 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_cognitive_growth(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_cognitive_growth tool.
+
+        📈 Get cognitive growth metrics.
+        """
+        days = args.get("days", 7)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.get_cognitive_growth(days=days)
+
+        return {
+            "success": True,
+            "period_days": result["period_days"],
+            "new_entities": result["new_entities"],
+            "new_links": result["new_links"],
+            "total_entities": result["total_entities"],
+            "total_links": result["total_links"],
+            "entity_growth_percent": result["entity_growth_percent"],
+            "link_growth_percent": result["link_growth_percent"],
+            "evolution_by_type": result.get("evolution_by_type", {}),
+            "summary": result["summary"],
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_thinking_history(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_thinking_history tool.
+
+        🧠 How did I think about this concept?
+        """
+        concept = validate_input(
+            args["concept"],
+            max_length=200,
+            field_name="concept",
+        )
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.how_did_i_think_about(concept)
+
+        return {
+            "success": True,
+            "concept": result["concept"],
+            "has_history": result["has_history"],
+            "first_seen": result.get("first_seen"),
+            "last_updated": result.get("last_updated"),
+            "total_events": result.get("total_events", 0),
+            "event_breakdown": result.get("event_breakdown", {}),
+            "narrative": result.get("narrative", result.get("message", "")),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -789,6 +892,8 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_set_intention"],  # 📝 Intention Preservation
         TOOL_SCHEMAS["memory_resume_check"],  # 🔄 Resume Check
         TOOL_SCHEMAS["memory_complete_intention"],  # ✅ Complete Intention
+        TOOL_SCHEMAS["memory_cognitive_growth"],  # 📈 Cognitive Growth
+        TOOL_SCHEMAS["memory_thinking_history"],  # 🧠 Thinking History
     ]
 
     # Add federation tool if enabled
