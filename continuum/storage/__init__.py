@@ -23,6 +23,7 @@ Pluggable storage backends for memory persistence.
 Supported backends:
 - SQLite (default, file-based)
 - PostgreSQL (production, distributed)
+- Turso (edge-distributed SQLite) - NEW!
 - Custom backends via StorageBackend interface
 
 Usage:
@@ -67,10 +68,20 @@ from .migrations import (
     SCHEMA_VERSION
 )
 
+# Turso backend (optional - requires libsql-experimental)
+try:
+    from .turso_backend import TursoBackend
+    TURSO_AVAILABLE = True
+except ImportError:
+    TursoBackend = None
+    TURSO_AVAILABLE = False
+
 __all__ = [
     'StorageBackend',
     'SQLiteBackend',
     'PostgresBackend',
+    'TursoBackend',
+    'TURSO_AVAILABLE',
     'get_backend',
     'migrate_sqlite_to_postgres',
     'create_postgres_schema',
@@ -89,6 +100,7 @@ def get_backend(connection_string: str, **config) -> StorageBackend:
     Args:
         connection_string: Database connection string or file path
             - "postgresql://..." or "postgres://..." → PostgresBackend
+            - "libsql://..." → TursoBackend (edge-distributed)
             - "/path/to/file.db" or "file.db" → SQLiteBackend
             - ":memory:" → SQLiteBackend (in-memory)
         **config: Additional backend-specific configuration
@@ -100,6 +112,9 @@ def get_backend(connection_string: str, **config) -> StorageBackend:
         # PostgreSQL
         storage = get_backend("postgresql://user:pass@localhost/continuum")
 
+        # Turso (edge-distributed SQLite)
+        storage = get_backend("libsql://your-db.turso.io", auth_token="...")
+
         # SQLite file
         storage = get_backend("/var/lib/continuum/memory.db")
 
@@ -110,6 +125,13 @@ def get_backend(connection_string: str, **config) -> StorageBackend:
 
     if conn_str.startswith('postgresql://') or conn_str.startswith('postgres://'):
         return PostgresBackend(connection_string=connection_string, **config)
+    elif conn_str.startswith('libsql://'):
+        if not TURSO_AVAILABLE:
+            raise ImportError(
+                "Turso backend requires libsql-experimental. "
+                "Install with: pip install libsql-experimental"
+            )
+        return TursoBackend(url=connection_string, **config)
     else:
         # Treat as SQLite path (file or :memory:)
         return SQLiteBackend(db_path=connection_string, **config)
