@@ -660,6 +660,143 @@ class IndexMemoryResponse(BaseModel):
         description="Tenant identifier"
     )
 
+
+# =============================================================================
+# DREAM MODE SCHEMAS
+# =============================================================================
+
+class DreamRequest(BaseModel):
+    """Request for Dream Mode - associative memory exploration.
+
+    Dream Mode wanders through the attention graph following random
+    weighted connections to discover unexpected associations.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "seed": "consciousness",
+                "steps": 15,
+                "temperature": 0.7
+            }
+        }
+    )
+
+    seed: Optional[str] = Field(
+        None,
+        description="Starting concept (random if not specified)"
+    )
+    steps: int = Field(
+        10,
+        description="Number of steps to wander",
+        ge=1,
+        le=100
+    )
+    temperature: float = Field(
+        0.7,
+        description="Randomness factor 0.0-1.0 (higher = more random)",
+        ge=0.0,
+        le=1.0
+    )
+
+
+class DreamJourneyStep(BaseModel):
+    """A single step in the dream journey."""
+
+    concept: str
+    step: int
+    via: str
+    from_concept: Optional[str] = Field(None, alias="from")
+    strength: Optional[float] = None
+
+
+class DreamDiscovery(BaseModel):
+    """An unexpected discovery during the dream."""
+
+    type: str
+    concept: Optional[str] = None
+    from_concept: Optional[str] = Field(None, alias="from")
+    to: Optional[str] = None
+    strength: Optional[float] = None
+    note: str
+
+
+class DreamResponse(BaseModel):
+    """Response from Dream Mode exploration."""
+
+    success: bool = Field(
+        ...,
+        description="Whether the dream was successful"
+    )
+    seed: Optional[str] = Field(
+        None,
+        description="The starting concept"
+    )
+    steps_taken: int = Field(
+        ...,
+        description="Number of steps actually taken"
+    )
+    concepts_visited: List[str] = Field(
+        ...,
+        description="List of concepts visited in order"
+    )
+    journey: List[Dict[str, Any]] = Field(
+        ...,
+        description="Detailed journey with each step"
+    )
+    discoveries: List[Dict[str, Any]] = Field(
+        ...,
+        description="Unexpected discoveries (weak links, cycles, dead ends)"
+    )
+    insight: str = Field(
+        ...,
+        description="Summary insight from the dream"
+    )
+    temperature: float = Field(
+        ...,
+        description="Temperature used for exploration"
+    )
+    tenant_id: Optional[str] = Field(
+        None,
+        description="Tenant identifier"
+    )
+    error: Optional[str] = Field(
+        None,
+        description="Error message if dream failed"
+    )
+
+
+# =============================================================================
+# INTENTION PRESERVATION SCHEMAS (Coming Soon)
+# =============================================================================
+
+class IntentionRequest(BaseModel):
+    """Request to store an intention for later resumption."""
+
+    intention: str = Field(
+        ...,
+        description="What I intended to do next"
+    )
+    context: Optional[str] = Field(
+        None,
+        description="Context about the intention"
+    )
+    priority: int = Field(
+        5,
+        description="Priority 1-10 (10 highest)",
+        ge=1,
+        le=10
+    )
+
+
+class IntentionResponse(BaseModel):
+    """Response after storing an intention."""
+
+    intention_id: int
+    stored: bool
+    tenant_id: str
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness

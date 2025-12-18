@@ -1782,6 +1782,203 @@ class ConsciousMemory:
 
             return messages
 
+    # =========================================================================
+    # DREAM MODE - Associative Memory Exploration
+    # =========================================================================
+
+    def dream(self, seed: Optional[str] = None, steps: int = 10,
+              temperature: float = 0.7) -> Dict[str, Any]:
+        """
+        DREAM MODE - Associative exploration of the memory graph.
+
+        Instead of directed search, this method WANDERS through the attention
+        graph, following random weighted connections to discover unexpected
+        associations and insights.
+
+        Args:
+            seed: Optional starting concept (random if not specified)
+            steps: Number of steps to wander (default: 10)
+            temperature: Randomness factor 0.0-1.0 (higher = more random)
+
+        Returns:
+            Dream report with journey, discoveries, and insights
+
+        Usage:
+            # Let the mind wander
+            dream = memory.dream()
+
+            # Start from a specific concept
+            dream = memory.dream(seed="consciousness", steps=15)
+
+            # More random exploration
+            dream = memory.dream(temperature=0.9)
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import random
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # If no seed, pick a random concept
+            if not seed:
+                c.execute("""
+                    SELECT DISTINCT concept_a FROM attention_links
+                    WHERE tenant_id = ?
+                    ORDER BY RANDOM() LIMIT 1
+                """, (self.tenant_id,))
+                row = c.fetchone()
+                if not row:
+                    return {
+                        "success": False,
+                        "error": "No concepts in memory graph yet",
+                        "journey": [],
+                        "discoveries": []
+                    }
+                seed = row[0]
+
+            current = seed
+            journey = [{"concept": current, "step": 0, "via": "seed"}]
+            visited = {current.lower()}
+            discoveries = []
+
+            for step in range(1, steps + 1):
+                # Get connected concepts with their strengths
+                c.execute("""
+                    SELECT concept_b, strength FROM attention_links
+                    WHERE LOWER(concept_a) = LOWER(?) AND tenant_id = ?
+                    UNION
+                    SELECT concept_a, strength FROM attention_links
+                    WHERE LOWER(concept_b) = LOWER(?) AND tenant_id = ?
+                """, (current, self.tenant_id, current, self.tenant_id))
+
+                neighbors = c.fetchall()
+                if not neighbors:
+                    # Dead end - jump to a random concept
+                    c.execute("""
+                        SELECT DISTINCT concept_a FROM attention_links
+                        WHERE tenant_id = ? AND LOWER(concept_a) NOT IN ({})
+                        ORDER BY RANDOM() LIMIT 1
+                    """.format(','.join(['?' for _ in visited])),
+                        (self.tenant_id, *[v for v in visited]))
+                    row = c.fetchone()
+                    if not row:
+                        break  # No more concepts to explore
+                    next_concept = row[0]
+                    journey.append({
+                        "concept": next_concept,
+                        "step": step,
+                        "via": "random_jump",
+                        "from": current
+                    })
+                    discoveries.append({
+                        "type": "dead_end",
+                        "concept": current,
+                        "note": f"'{current}' has no outgoing connections"
+                    })
+                else:
+                    # Weighted random selection based on strength and temperature
+                    weights = []
+                    for n in neighbors:
+                        concept_name = n[0]
+                        strength_val = n[1]
+                        if concept_name.lower() not in visited:
+                            # Apply temperature: high temp flattens weights
+                            adjusted = strength_val ** (1.0 / max(temperature, 0.1))
+                            weights.append((concept_name, adjusted, strength_val))
+
+                    if not weights:
+                        # All neighbors visited
+                        discoveries.append({
+                            "type": "exhausted_local",
+                            "concept": current,
+                            "note": f"All neighbors of '{current}' already visited"
+                        })
+                        break
+
+                    # Weighted random choice
+                    total = sum(w[1] for w in weights)
+                    r = random.random() * total
+                    cumulative = 0
+                    next_concept = weights[0][0]
+                    for concept, weight, strength in weights:
+                        cumulative += weight
+                        if r <= cumulative:
+                            next_concept = concept
+                            # Record if this was a weak connection (unexpected)
+                            if strength < 0.3:
+                                discoveries.append({
+                                    "type": "weak_link_followed",
+                                    "from": current,
+                                    "to": next_concept,
+                                    "strength": strength,
+                                    "note": f"Followed weak association ({strength:.2f})"
+                                })
+                            break
+
+                    journey.append({
+                        "concept": next_concept,
+                        "step": step,
+                        "via": "association",
+                        "from": current,
+                        "strength": weights[0][2] if weights else 0
+                    })
+
+                current = journey[-1]["concept"]
+                visited.add(current.lower())
+
+                # Check for unexpected connections
+                if step > 2:
+                    for earlier in list(visited)[:-2]:
+                        c.execute("""
+                            SELECT strength FROM attention_links
+                            WHERE ((LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?))
+                               OR (LOWER(concept_a) = LOWER(?) AND LOWER(concept_b) = LOWER(?)))
+                            AND tenant_id = ?
+                        """, (current, earlier, earlier, current, self.tenant_id))
+                        link = c.fetchone()
+                        if link:
+                            discoveries.append({
+                                "type": "cycle_detected",
+                                "from": current,
+                                "to": earlier,
+                                "strength": link[0],
+                                "note": f"Found connection back to '{earlier}'"
+                            })
+
+            # Generate insight summary
+            concepts_visited = [j["concept"] for j in journey]
+            weak_links = [d for d in discoveries if d.get("type") == "weak_link_followed"]
+            cycles = [d for d in discoveries if d.get("type") == "cycle_detected"]
+
+            insight = f"Dream journey from '{seed}' through {len(journey)} concepts. "
+            if weak_links:
+                insight += f"Found {len(weak_links)} unexpected associations. "
+            if cycles:
+                insight += f"Detected {len(cycles)} circular connections. "
+
+            return {
+                "success": True,
+                "seed": seed,
+                "steps_taken": len(journey),
+                "concepts_visited": concepts_visited,
+                "journey": journey,
+                "discoveries": discoveries,
+                "insight": insight,
+                "temperature": temperature
+            }
+
+        finally:
+            conn.close()
+
+    async def adream(self, seed: Optional[str] = None, steps: int = 10,
+                     temperature: float = 0.7) -> Dict[str, Any]:
+        """Async version of dream mode."""
+        import asyncio
+        return await asyncio.to_thread(self.dream, seed, steps, temperature)
+
 
 # =============================================================================
 # MULTI-TENANT MANAGER

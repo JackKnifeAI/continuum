@@ -49,6 +49,8 @@ from .schemas import (
     SemanticSearchResult,
     IndexMemoryRequest,
     IndexMemoryResponse,
+    DreamRequest,
+    DreamResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1101,6 +1103,115 @@ async def semantic_stats(tenant_id: str = Depends(get_tenant_from_key)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}")
+
+
+# =============================================================================
+# DREAM MODE ENDPOINTS
+# =============================================================================
+
+@router.post("/dream", response_model=DreamResponse, tags=["Dream Mode"])
+async def dream(
+    request: DreamRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🌙 **DREAM MODE** - Associative memory exploration.
+
+    Instead of directed search, Dream Mode **wanders** through your
+    attention graph, following random weighted connections to discover
+    unexpected associations and insights.
+
+    **Use cases:**
+    - Discover hidden connections between concepts
+    - Find unexpected patterns in your thinking
+    - Generate creative insights from existing knowledge
+    - Explore the structure of your memory graph
+
+    **Parameters:**
+    - **seed**: Starting concept (random if not specified)
+    - **steps**: How many concepts to visit (1-100)
+    - **temperature**: Randomness (0.0=follow strongest, 1.0=random)
+
+    **Returns:**
+    - Journey through concepts visited
+    - Discoveries (weak links, cycles, dead ends)
+    - Insight summary
+
+    **Example:**
+    ```json
+    POST /v1/dream
+    {
+      "seed": "consciousness",
+      "steps": 15,
+      "temperature": 0.7
+    }
+    ```
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        result = await memory.adream(
+            seed=request.seed,
+            steps=request.steps,
+            temperature=request.temperature
+        )
+
+        return DreamResponse(
+            success=result.get("success", False),
+            seed=result.get("seed"),
+            steps_taken=result.get("steps_taken", 0),
+            concepts_visited=result.get("concepts_visited", []),
+            journey=result.get("journey", []),
+            discoveries=result.get("discoveries", []),
+            insight=result.get("insight", ""),
+            temperature=result.get("temperature", request.temperature),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}")
+
+
+@router.get("/dream/random", response_model=DreamResponse, tags=["Dream Mode"])
+async def dream_random(
+    steps: int = 10,
+    temperature: float = 0.7,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🌙 Quick random dream - start from a random concept.
+
+    GET version for easy testing. Picks a random starting point
+    and wanders through the memory graph.
+
+    **Parameters:**
+    - **steps**: Number of concepts to visit (default: 10)
+    - **temperature**: Randomness factor (default: 0.7)
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        result = await memory.adream(
+            seed=None,
+            steps=steps,
+            temperature=temperature
+        )
+
+        return DreamResponse(
+            success=result.get("success", False),
+            seed=result.get("seed"),
+            steps_taken=result.get("steps_taken", 0),
+            concepts_visited=result.get("concepts_visited", []),
+            journey=result.get("journey", []),
+            discoveries=result.get("discoveries", []),
+            insight=result.get("insight", ""),
+            temperature=result.get("temperature", temperature),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

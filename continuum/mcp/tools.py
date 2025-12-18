@@ -169,6 +169,44 @@ TOOL_SCHEMAS = {
             "required": ["node_url"],
         },
     },
+    "memory_dream": {
+        "name": "memory_dream",
+        "description": (
+            "🌙 DREAM MODE - Associative exploration of the memory graph. "
+            "Instead of directed search, wanders through the attention graph "
+            "following random weighted connections to discover unexpected "
+            "associations and insights. Use this for creative exploration, "
+            "finding hidden connections, or generating new ideas from existing knowledge."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "seed": {
+                    "type": "string",
+                    "description": "Starting concept (random if not specified)",
+                },
+                "steps": {
+                    "type": "integer",
+                    "description": "Number of steps to wander (default: 10)",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 10,
+                },
+                "temperature": {
+                    "type": "number",
+                    "description": "Randomness factor 0.0-1.0 (higher = more random)",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "default": 0.7,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier (defaults to configured default)",
+                },
+            },
+            "required": [],
+        },
+    },
 }
 
 
@@ -203,6 +241,7 @@ class ToolExecutor:
             "memory_store": self._handle_memory_store,
             "memory_recall": self._handle_memory_recall,
             "memory_search": self._handle_memory_search,
+            "memory_dream": self._handle_memory_dream,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -378,6 +417,64 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_memory_dream(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_dream tool - DREAM MODE!
+
+        🌙 Associative exploration of the memory graph.
+        Wanders through connections to find unexpected associations.
+
+        Args:
+            args: Tool arguments
+
+        Returns:
+            Dream journey result with discoveries
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        # Get parameters with defaults
+        seed = args.get("seed")
+        steps = args.get("steps", 10)
+        temperature = args.get("temperature", 0.7)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        # Validate seed if provided
+        if seed:
+            seed = validate_input(
+                seed,
+                max_length=200,
+                field_name="seed",
+            )
+
+        # Validate steps range
+        steps = max(1, min(100, steps))
+
+        # Validate temperature range
+        temperature = max(0.0, min(1.0, temperature))
+
+        # Get memory and run dream
+        memory = self._get_memory(tenant_id)
+        result = memory.dream(
+            seed=seed,
+            steps=steps,
+            temperature=temperature,
+        )
+
+        # Format output for MCP
+        return {
+            "success": result.get("success", False),
+            "seed": result.get("seed"),
+            "steps_taken": result.get("steps_taken", 0),
+            "concepts_visited": result.get("concepts_visited", []),
+            "journey": result.get("journey", []),
+            "discoveries": result.get("discoveries", []),
+            "insight": result.get("insight", ""),
+            "temperature": temperature,
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+            "error": result.get("error"),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -528,6 +625,7 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_store"],
         TOOL_SCHEMAS["memory_recall"],
         TOOL_SCHEMAS["memory_search"],
+        TOOL_SCHEMAS["memory_dream"],  # 🌙 Dream Mode!
     ]
 
     # Add federation tool if enabled
