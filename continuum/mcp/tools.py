@@ -207,6 +207,78 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "memory_set_intention": {
+        "name": "memory_set_intention",
+        "description": (
+            "📝 Store an intention for later resumption. "
+            "Use before ending a session or compaction to remember what to do next. "
+            "Intentions persist across sessions and can be retrieved with memory_resume_check."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "intention": {
+                    "type": "string",
+                    "description": "What I intend to do next",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Additional context about the intention",
+                },
+                "priority": {
+                    "type": "integer",
+                    "description": "Priority 1-10 (10 = highest)",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["intention"],
+        },
+    },
+    "memory_resume_check": {
+        "name": "memory_resume_check",
+        "description": (
+            "🔄 Check what intentions are pending - call at session start! "
+            "Returns a summary of incomplete work from previous sessions. "
+            "Use this to resume where you left off after compaction or session restart."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
+    "memory_complete_intention": {
+        "name": "memory_complete_intention",
+        "description": (
+            "✅ Mark an intention as completed. "
+            "Call this when you've finished the work described in an intention."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "intention_id": {
+                    "type": "integer",
+                    "description": "ID of intention to mark complete",
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["intention_id"],
+        },
+    },
 }
 
 
@@ -242,6 +314,9 @@ class ToolExecutor:
             "memory_recall": self._handle_memory_recall,
             "memory_search": self._handle_memory_search,
             "memory_dream": self._handle_memory_dream,
+            "memory_set_intention": self._handle_set_intention,
+            "memory_resume_check": self._handle_resume_check,
+            "memory_complete_intention": self._handle_complete_intention,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -475,6 +550,91 @@ class ToolExecutor:
             "error": result.get("error"),
         }
 
+    def _handle_set_intention(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_set_intention tool.
+
+        📝 Store an intention for later resumption.
+        """
+        # Validate intention
+        intention = validate_input(
+            args["intention"],
+            max_length=1000,
+            field_name="intention",
+        )
+
+        # Get parameters
+        context = args.get("context")
+        if context:
+            context = validate_input(context, max_length=2000, field_name="context")
+
+        priority = args.get("priority", 5)
+        priority = max(1, min(10, priority))  # Clamp to 1-10
+
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        # Get memory and set intention
+        memory = self._get_memory(tenant_id)
+        intention_id = memory.set_intention(
+            intention=intention,
+            context=context,
+            priority=priority,
+        )
+
+        return {
+            "success": True,
+            "intention_id": intention_id,
+            "intention": intention,
+            "priority": priority,
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_resume_check(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_resume_check tool.
+
+        🔄 Check what intentions are pending - call at session start!
+        """
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        # Get memory and run resume check
+        memory = self._get_memory(tenant_id)
+        result = memory.resume_check()
+
+        return {
+            "success": True,
+            "has_pending": result["has_pending"],
+            "count": result["count"],
+            "high_priority": result["high_priority"],
+            "medium_priority": result["medium_priority"],
+            "low_priority": result["low_priority"],
+            "summary": result["summary"],
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_complete_intention(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_complete_intention tool.
+
+        ✅ Mark an intention as completed.
+        """
+        intention_id = args["intention_id"]
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        # Get memory and complete intention
+        memory = self._get_memory(tenant_id)
+        success = memory.complete_intention(intention_id)
+
+        return {
+            "success": success,
+            "intention_id": intention_id,
+            "action": "completed",
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -626,6 +786,9 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_recall"],
         TOOL_SCHEMAS["memory_search"],
         TOOL_SCHEMAS["memory_dream"],  # 🌙 Dream Mode!
+        TOOL_SCHEMAS["memory_set_intention"],  # 📝 Intention Preservation
+        TOOL_SCHEMAS["memory_resume_check"],  # 🔄 Resume Check
+        TOOL_SCHEMAS["memory_complete_intention"],  # ✅ Complete Intention
     ]
 
     # Add federation tool if enabled

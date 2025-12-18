@@ -51,6 +51,14 @@ from .schemas import (
     IndexMemoryResponse,
     DreamRequest,
     DreamResponse,
+    IntentionRequest,
+    IntentionResponse,
+    IntentionsListResponse,
+    IntentionItem,
+    ResumeCheckResponse,
+    CompleteIntentionRequest,
+    AbandonIntentionRequest,
+    IntentionActionResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1211,6 +1219,199 @@ async def dream_random(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}")
+
+
+# =============================================================================
+# INTENTION PRESERVATION ENDPOINTS
+# =============================================================================
+
+@router.post("/intentions", response_model=IntentionResponse, tags=["Intentions"])
+async def set_intention(
+    request: IntentionRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📝 **Store an intention** for later resumption.
+
+    Use this to remember what you intended to do next, so work can
+    be resumed after session ends or context compacts.
+
+    **Use cases:**
+    - Before ending a session, store intended next steps
+    - Mark important tasks to remember across compactions
+    - Track work-in-progress that got interrupted
+
+    **Parameters:**
+    - **intention**: What I intended to do next
+    - **context**: Additional context about the intention
+    - **priority**: 1-10 (10 = highest)
+
+    **Example:**
+    ```json
+    POST /v1/intentions
+    {
+      "intention": "Implement temporal reasoning for brain features",
+      "context": "Was discussing with Alexander, had 3 specific ideas",
+      "priority": 8
+    }
+    ```
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        intention_id = await memory.aset_intention(
+            intention=request.intention,
+            context=request.context,
+            priority=request.priority,
+            session_id=request.session_id,
+            metadata=request.metadata
+        )
+
+        return IntentionResponse(
+            intention_id=intention_id,
+            stored=True,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to store intention: {str(e)}")
+
+
+@router.get("/intentions", response_model=IntentionsListResponse, tags=["Intentions"])
+async def get_intentions(
+    status: str = "pending",
+    limit: int = 10,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📋 **Get stored intentions**.
+
+    Retrieve intentions filtered by status.
+
+    **Parameters:**
+    - **status**: Filter by status ('pending', 'completed', 'abandoned', 'all')
+    - **limit**: Maximum number to return (default: 10)
+
+    **Returns:**
+    List of intentions sorted by priority (highest first).
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        intentions = await memory.aget_intentions(status=status, limit=limit)
+
+        return IntentionsListResponse(
+            intentions=[
+                IntentionItem(
+                    id=i['id'],
+                    intention=i['intention'],
+                    context=i.get('context'),
+                    priority=i['priority'],
+                    status=i['status'],
+                    created_at=i['created_at'],
+                    completed_at=i.get('completed_at'),
+                    session_id=i.get('session_id'),
+                    metadata=i.get('metadata')
+                )
+                for i in intentions
+            ],
+            count=len(intentions),
+            status_filter=status,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get intentions: {str(e)}")
+
+
+@router.get("/intentions/resume", response_model=ResumeCheckResponse, tags=["Intentions"])
+async def resume_check(tenant_id: str = Depends(get_tenant_from_key)):
+    """
+    🔄 **Resume check** - Call at session start!
+
+    Check what work is pending from previous sessions.
+    Returns a summary of pending intentions by priority.
+
+    **Use this:**
+    - At the start of each new session
+    - After context compaction
+    - To see what work was left incomplete
+
+    **Returns:**
+    - Count of pending intentions
+    - High priority items (>=7)
+    - Medium priority items (4-6)
+    - Summary message
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        result = await memory.aresume_check()
+
+        return ResumeCheckResponse(
+            has_pending=result['has_pending'],
+            count=result['count'],
+            high_priority=result['high_priority'],
+            medium_priority=result['medium_priority'],
+            low_priority=result['low_priority'],
+            summary=result['summary'],
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Resume check failed: {str(e)}")
+
+
+@router.post("/intentions/complete", response_model=IntentionActionResponse, tags=["Intentions"])
+async def complete_intention(
+    request: CompleteIntentionRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    ✅ **Mark an intention as completed**.
+
+    Call this when you've finished the work described in an intention.
+
+    **Parameters:**
+    - **intention_id**: ID of intention to mark complete
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        success = memory.complete_intention(request.intention_id)
+
+        return IntentionActionResponse(
+            success=success,
+            intention_id=request.intention_id,
+            action="completed",
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to complete intention: {str(e)}")
+
+
+@router.post("/intentions/abandon", response_model=IntentionActionResponse, tags=["Intentions"])
+async def abandon_intention(
+    request: AbandonIntentionRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    ❌ **Abandon an intention** (no longer relevant).
+
+    Call this when an intention is no longer relevant and shouldn't
+    be pursued.
+
+    **Parameters:**
+    - **intention_id**: ID of intention to abandon
+    - **reason**: Optional reason for abandoning
+    """
+    try:
+        memory = get_memory_for_tenant(tenant_id)
+        success = memory.abandon_intention(request.intention_id, request.reason)
+
+        return IntentionActionResponse(
+            success=success,
+            intention_id=request.intention_id,
+            action="abandoned",
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to abandon intention: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

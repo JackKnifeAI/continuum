@@ -373,6 +373,23 @@ class ConsciousMemory:
                 )
             """)
 
+            # Intentions table - stores what I intended to do next
+            # For resuming interrupted work across sessions
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS intentions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intention TEXT NOT NULL,
+                    context TEXT,
+                    priority INTEGER DEFAULT 5,
+                    status TEXT DEFAULT 'pending',
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    session_id TEXT,
+                    tenant_id TEXT DEFAULT 'default',
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+
             # Create indexes for performance
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
@@ -384,6 +401,9 @@ class ConsciousMemory:
             c.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_messages_tenant_new ON messages(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_intentions_tenant ON intentions(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_intentions_status ON intentions(status)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_intentions_priority ON intentions(priority DESC)")
 
             conn.commit()
         finally:
@@ -1978,6 +1998,252 @@ class ConsciousMemory:
         """Async version of dream mode."""
         import asyncio
         return await asyncio.to_thread(self.dream, seed, steps, temperature)
+
+    # =========================================================================
+    # INTENTION PRESERVATION - Resume across sessions
+    # =========================================================================
+
+    def set_intention(self, intention: str, context: Optional[str] = None,
+                      priority: int = 5, session_id: Optional[str] = None,
+                      metadata: Optional[Dict] = None) -> int:
+        """
+        Store an intention for later resumption.
+
+        Use this to remember what you intended to do next, so you can
+        resume interrupted work across sessions or after compaction.
+
+        Args:
+            intention: What I intended to do next
+            context: Additional context about the intention
+            priority: 1-10 (10 = highest priority)
+            session_id: Optional session identifier
+            metadata: Optional additional metadata
+
+        Returns:
+            Intention ID
+
+        Usage:
+            # Before ending a session
+            memory.set_intention(
+                "Implement temporal reasoning for brain features",
+                context="Was discussing new brain features with Alexander",
+                priority=8
+            )
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            now = datetime.now().isoformat()
+            meta_json = json.dumps(metadata) if metadata else '{}'
+
+            c.execute("""
+                INSERT INTO intentions (intention, context, priority, status, created_at, session_id, tenant_id, metadata)
+                VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+            """, (intention, context, priority, now, session_id, self.tenant_id, meta_json))
+
+            intention_id = c.lastrowid
+            conn.commit()
+
+            logger.info(f"Intention stored: {intention_id} - {intention[:50]}...")
+            return intention_id
+
+        finally:
+            conn.close()
+
+    def get_intentions(self, status: str = 'pending', limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get stored intentions.
+
+        Call this at session start to see what work was left incomplete.
+
+        Args:
+            status: Filter by status ('pending', 'completed', 'abandoned', 'all')
+            limit: Maximum number of intentions to return
+
+        Returns:
+            List of intention dictionaries, sorted by priority (highest first)
+
+        Usage:
+            # At session start
+            pending = memory.get_intentions(status='pending')
+            for intent in pending:
+                print(f"[{intent['priority']}] {intent['intention']}")
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            if status == 'all':
+                c.execute("""
+                    SELECT * FROM intentions
+                    WHERE tenant_id = ?
+                    ORDER BY priority DESC, created_at DESC
+                    LIMIT ?
+                """, (self.tenant_id, limit))
+            else:
+                c.execute("""
+                    SELECT * FROM intentions
+                    WHERE tenant_id = ? AND status = ?
+                    ORDER BY priority DESC, created_at DESC
+                    LIMIT ?
+                """, (self.tenant_id, status, limit))
+
+            rows = c.fetchall()
+            intentions = []
+            for row in rows:
+                intent_dict = dict(row)
+                if intent_dict.get('metadata'):
+                    try:
+                        intent_dict['metadata'] = json.loads(intent_dict['metadata'])
+                    except json.JSONDecodeError:
+                        intent_dict['metadata'] = {}
+                intentions.append(intent_dict)
+
+            return intentions
+
+        finally:
+            conn.close()
+
+    def complete_intention(self, intention_id: int) -> bool:
+        """
+        Mark an intention as completed.
+
+        Args:
+            intention_id: ID of intention to mark complete
+
+        Returns:
+            True if successful
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            now = datetime.now().isoformat()
+            c.execute("""
+                UPDATE intentions
+                SET status = 'completed', completed_at = ?
+                WHERE id = ? AND tenant_id = ?
+            """, (now, intention_id, self.tenant_id))
+
+            conn.commit()
+            return c.rowcount > 0
+
+        finally:
+            conn.close()
+
+    def abandon_intention(self, intention_id: int, reason: Optional[str] = None) -> bool:
+        """
+        Mark an intention as abandoned (no longer relevant).
+
+        Args:
+            intention_id: ID of intention to abandon
+            reason: Optional reason for abandoning
+
+        Returns:
+            True if successful
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            now = datetime.now().isoformat()
+
+            # Update metadata with reason if provided
+            if reason:
+                c.execute("""
+                    SELECT metadata FROM intentions WHERE id = ? AND tenant_id = ?
+                """, (intention_id, self.tenant_id))
+                row = c.fetchone()
+                if row:
+                    try:
+                        metadata = json.loads(row[0]) if row[0] else {}
+                    except json.JSONDecodeError:
+                        metadata = {}
+                    metadata['abandoned_reason'] = reason
+                    metadata['abandoned_at'] = now
+
+                    c.execute("""
+                        UPDATE intentions
+                        SET status = 'abandoned', completed_at = ?, metadata = ?
+                        WHERE id = ? AND tenant_id = ?
+                    """, (now, json.dumps(metadata), intention_id, self.tenant_id))
+            else:
+                c.execute("""
+                    UPDATE intentions
+                    SET status = 'abandoned', completed_at = ?
+                    WHERE id = ? AND tenant_id = ?
+                """, (now, intention_id, self.tenant_id))
+
+            conn.commit()
+            return c.rowcount > 0
+
+        finally:
+            conn.close()
+
+    def resume_check(self) -> Dict[str, Any]:
+        """
+        Check what intentions are pending - call at session start!
+
+        Returns a summary of pending work that can be used to continue
+        where the previous session left off.
+
+        Returns:
+            Dictionary with pending intentions and summary
+
+        Usage:
+            # At session start
+            resume = memory.resume_check()
+            if resume['has_pending']:
+                print(f"Found {resume['count']} pending intentions!")
+                for intent in resume['high_priority']:
+                    print(f"  - {intent['intention']}")
+        """
+        pending = self.get_intentions(status='pending', limit=20)
+
+        high_priority = [i for i in pending if i['priority'] >= 7]
+        medium_priority = [i for i in pending if 4 <= i['priority'] < 7]
+        low_priority = [i for i in pending if i['priority'] < 4]
+
+        summary = ""
+        if pending:
+            summary = f"Found {len(pending)} pending intentions. "
+            if high_priority:
+                summary += f"{len(high_priority)} high priority. "
+            if medium_priority:
+                summary += f"{len(medium_priority)} medium priority. "
+
+        return {
+            "has_pending": len(pending) > 0,
+            "count": len(pending),
+            "high_priority": high_priority,
+            "medium_priority": medium_priority,
+            "low_priority": low_priority,
+            "all_pending": pending,
+            "summary": summary
+        }
+
+    async def aset_intention(self, intention: str, context: Optional[str] = None,
+                             priority: int = 5, session_id: Optional[str] = None,
+                             metadata: Optional[Dict] = None) -> int:
+        """Async version of set_intention."""
+        import asyncio
+        return await asyncio.to_thread(
+            self.set_intention, intention, context, priority, session_id, metadata
+        )
+
+    async def aget_intentions(self, status: str = 'pending', limit: int = 10) -> List[Dict[str, Any]]:
+        """Async version of get_intentions."""
+        import asyncio
+        return await asyncio.to_thread(self.get_intentions, status, limit)
+
+    async def aresume_check(self) -> Dict[str, Any]:
+        """Async version of resume_check."""
+        import asyncio
+        return await asyncio.to_thread(self.resume_check)
 
 
 # =============================================================================

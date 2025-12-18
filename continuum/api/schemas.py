@@ -767,15 +767,26 @@ class DreamResponse(BaseModel):
 
 
 # =============================================================================
-# INTENTION PRESERVATION SCHEMAS (Coming Soon)
+# INTENTION PRESERVATION SCHEMAS
 # =============================================================================
 
 class IntentionRequest(BaseModel):
     """Request to store an intention for later resumption."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "intention": "Implement temporal reasoning for brain features",
+                "context": "Was discussing new brain features with Alexander",
+                "priority": 8
+            }
+        }
+    )
+
     intention: str = Field(
         ...,
-        description="What I intended to do next"
+        description="What I intended to do next",
+        min_length=1
     )
     context: Optional[str] = Field(
         None,
@@ -787,14 +798,79 @@ class IntentionRequest(BaseModel):
         ge=1,
         le=10
     )
+    session_id: Optional[str] = Field(
+        None,
+        description="Optional session identifier"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional additional metadata"
+    )
 
 
 class IntentionResponse(BaseModel):
     """Response after storing an intention."""
 
-    intention_id: int
-    stored: bool
-    tenant_id: str
+    intention_id: int = Field(..., description="ID of the stored intention")
+    stored: bool = Field(..., description="Whether storage was successful")
+    tenant_id: str = Field(..., description="Tenant identifier")
+
+
+class IntentionItem(BaseModel):
+    """A single intention item."""
+
+    id: int
+    intention: str
+    context: Optional[str] = None
+    priority: int
+    status: str
+    created_at: str
+    completed_at: Optional[str] = None
+    session_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class IntentionsListResponse(BaseModel):
+    """Response containing list of intentions."""
+
+    intentions: List[IntentionItem] = Field(..., description="List of intentions")
+    count: int = Field(..., description="Number of intentions returned")
+    status_filter: str = Field(..., description="Status filter used")
+    tenant_id: str = Field(..., description="Tenant identifier")
+
+
+class ResumeCheckResponse(BaseModel):
+    """Response from resume check - what work is pending?"""
+
+    has_pending: bool = Field(..., description="Whether there are pending intentions")
+    count: int = Field(..., description="Total pending intentions")
+    high_priority: List[Dict[str, Any]] = Field(..., description="Priority >= 7")
+    medium_priority: List[Dict[str, Any]] = Field(..., description="Priority 4-6")
+    low_priority: List[Dict[str, Any]] = Field(..., description="Priority < 4")
+    summary: str = Field(..., description="Human-readable summary")
+    tenant_id: str = Field(..., description="Tenant identifier")
+
+
+class CompleteIntentionRequest(BaseModel):
+    """Request to mark an intention as completed."""
+
+    intention_id: int = Field(..., description="ID of intention to complete")
+
+
+class AbandonIntentionRequest(BaseModel):
+    """Request to abandon an intention."""
+
+    intention_id: int = Field(..., description="ID of intention to abandon")
+    reason: Optional[str] = Field(None, description="Reason for abandoning")
+
+
+class IntentionActionResponse(BaseModel):
+    """Response after completing/abandoning an intention."""
+
+    success: bool = Field(..., description="Whether the action succeeded")
+    intention_id: int = Field(..., description="ID of the intention")
+    action: str = Field(..., description="Action performed")
+    tenant_id: str = Field(..., description="Tenant identifier")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
