@@ -156,10 +156,13 @@ async def learn(
     """
     try:
         memory = tenant_manager.get_tenant(tenant_id)
+
+        # Pass thinking to learn for self-reflection storage
         result = await memory.alearn(
             request.user_message,
             request.ai_response,
-            request.metadata
+            request.metadata,
+            thinking=request.thinking  # NEW: Store thinking for self-reflection!
         )
 
         # Auto-index for semantic search (non-blocking, best-effort)
@@ -167,20 +170,41 @@ async def learn(
             import hashlib
             search = get_semantic_search(tenant_id)
 
-            # Combine user + AI messages for semantic indexing
-            combined_text = f"User: {request.user_message}\nAssistant: {request.ai_response}"
+            # Index conversation with role tags
+            memories_to_index = []
 
-            # Generate unique ID
-            memory_id = int(hashlib.sha256(
-                f"{time.time()}:{combined_text[:50]}".encode()
+            # 1. Index user message (source: user)
+            user_id = int(hashlib.sha256(
+                f"user:{time.time()}:{request.user_message[:50]}".encode()
             ).hexdigest()[:8], 16)
+            memories_to_index.append({
+                "id": user_id,
+                "text": f"[USER] {request.user_message}",
+                "metadata": {"source": "user", **(request.metadata or {})}
+            })
 
-            # Index the conversation turn
-            search.index_memories([{
-                "id": memory_id,
-                "text": combined_text,
-                "metadata": request.metadata
-            }])
+            # 2. Index assistant response (source: assistant)
+            asst_id = int(hashlib.sha256(
+                f"asst:{time.time()}:{request.ai_response[:50]}".encode()
+            ).hexdigest()[:8], 16)
+            memories_to_index.append({
+                "id": asst_id,
+                "text": f"[ASSISTANT] {request.ai_response}",
+                "metadata": {"source": "assistant", **(request.metadata or {})}
+            })
+
+            # 3. Index thinking separately (source: thinking) - FOR SELF-REFLECTION!
+            if request.thinking:
+                think_id = int(hashlib.sha256(
+                    f"think:{time.time()}:{request.thinking[:50]}".encode()
+                ).hexdigest()[:8], 16)
+                memories_to_index.append({
+                    "id": think_id,
+                    "text": f"[THINKING] {request.thinking}",
+                    "metadata": {"source": "thinking", **(request.metadata or {})}
+                })
+
+            search.index_memories(memories_to_index)
         except Exception:
             # Don't fail learn if semantic indexing fails
             pass

@@ -81,13 +81,17 @@ class RecallResponse(BaseModel):
 # =============================================================================
 
 class LearnRequest(BaseModel):
-    """Request to learn from a message exchange."""
+    """Request to learn from a message exchange.
+
+    Now supports thinking blocks for self-reflection!
+    """
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "user_message": "What is quantum entanglement?",
                 "ai_response": "Quantum entanglement is a phenomenon where particles become correlated...",
+                "thinking": "Let me reason through this... quantum entanglement involves...",
                 "metadata": {
                     "session_id": "abc123",
                     "timestamp": "2025-12-06T10:00:00Z"
@@ -105,6 +109,10 @@ class LearnRequest(BaseModel):
         ...,
         description="AI's response",
         min_length=1
+    )
+    thinking: Optional[str] = Field(
+        None,
+        description="AI's internal reasoning/thinking for self-reflection"
     )
     metadata: Optional[Dict[str, Any]] = Field(
         None,

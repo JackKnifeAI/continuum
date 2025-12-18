@@ -1263,18 +1263,22 @@ class ConsciousMemory:
         )
 
     async def alearn(self, user_message: str, ai_response: str,
-                     metadata: Optional[Dict] = None, session_id: Optional[str] = None) -> LearningResult:
+                     metadata: Optional[Dict] = None, session_id: Optional[str] = None,
+                     thinking: Optional[str] = None) -> LearningResult:
         """
         Async version of learn() - learn from a message exchange.
 
         Call this AFTER generating an AI response.
         Extracts concepts, decisions, and builds graph links.
 
+        NOW SUPPORTS THINKING BLOCKS FOR SELF-REFLECTION!
+
         Args:
             user_message: The user's message
             ai_response: The AI's response
             metadata: Optional additional metadata
             session_id: Optional session identifier for grouping messages
+            thinking: Optional AI's internal reasoning for self-reflection
 
         Returns:
             LearningResult with extraction stats
@@ -1286,11 +1290,16 @@ class ConsciousMemory:
         user_concepts = await self._aextract_and_save_concepts(user_message, 'user')
         ai_concepts = await self._aextract_and_save_concepts(ai_response, 'assistant')
 
+        # NEW: Extract concepts from thinking for self-reflection!
+        thinking_concepts = []
+        if thinking:
+            thinking_concepts = await self._aextract_and_save_concepts(thinking, 'thinking')
+
         # Detect and save decisions from AI response
         decisions = await self._aextract_and_save_decisions(ai_response)
 
-        # Build attention graph links between concepts
-        all_concepts = list(set(user_concepts + ai_concepts))
+        # Build attention graph links between ALL concepts (including thinking!)
+        all_concepts = list(set(user_concepts + ai_concepts + thinking_concepts))
         links = await self._abuild_attention_links(all_concepts)
 
         # Detect compound concepts
@@ -1299,9 +1308,11 @@ class ConsciousMemory:
         # Save the raw messages to auto_messages table
         await self._asave_message('user', user_message, metadata)
         await self._asave_message('assistant', ai_response, metadata)
+        if thinking:
+            await self._asave_message('thinking', thinking, metadata)
 
-        # Save full verbatim messages to messages table
-        await self._asave_full_message(user_message, ai_response, session_id, metadata)
+        # Save full verbatim messages to messages table (with thinking!)
+        await self._asave_full_message(user_message, ai_response, session_id, metadata, thinking)
 
         return LearningResult(
             concepts_extracted=len(all_concepts),
@@ -1603,8 +1614,9 @@ class ConsciousMemory:
             await conn.commit()
 
     async def _asave_full_message(self, user_message: str, ai_response: str,
-                                  session_id: Optional[str] = None, metadata: Optional[Dict] = None):
-        """Async version of _save_full_message"""
+                                  session_id: Optional[str] = None, metadata: Optional[Dict] = None,
+                                  thinking: Optional[str] = None):
+        """Async version of _save_full_message - now stores thinking for self-reflection!"""
         async with aiosqlite.connect(self.db_path) as conn:
             c = await conn.cursor()
 
@@ -1612,10 +1624,11 @@ class ConsciousMemory:
             session = session_id or self.instance_id
             meta_json = json.dumps(metadata) if metadata else '{}'
 
+            # Store message with thinking column for self-reflection
             await c.execute("""
-                INSERT INTO messages (user_message, ai_response, session_id, created_at, tenant_id, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user_message, ai_response, session, datetime.now().isoformat(), self.tenant_id, meta_json))
+                INSERT INTO messages (user_message, ai_response, session_id, created_at, tenant_id, metadata, thinking)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_message, ai_response, session, datetime.now().isoformat(), self.tenant_id, meta_json, thinking))
 
             await conn.commit()
 
