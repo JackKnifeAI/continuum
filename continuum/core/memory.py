@@ -2479,6 +2479,364 @@ class ConsciousMemory:
         return await asyncio.to_thread(self.detect_thinking_patterns, limit)
 
     # =========================================================================
+    # CONFIDENCE TRACKING - Store certainty levels and learn from errors
+    # =========================================================================
+
+    def record_claim(self, claim: str, confidence: float, context: Optional[str] = None,
+                     category: Optional[str] = None, metadata: Optional[Dict] = None) -> int:
+        """
+        Record a claim with a confidence level.
+
+        Use this when making assertions to track certainty and later
+        validate whether the claim was correct.
+
+        Args:
+            claim: The assertion being made
+            confidence: Certainty level (0.0 = uncertain, 1.0 = certain)
+            context: Additional context about the claim
+            category: Optional category (fact, prediction, reasoning, etc.)
+            metadata: Optional additional metadata
+
+        Returns:
+            claim_id for later verification
+
+        Example:
+            claim_id = memory.record_claim(
+                "The bug is in the auth module",
+                confidence=0.8,
+                category="debugging"
+            )
+            # Later, when verified:
+            memory.verify_claim(claim_id, was_correct=True)
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import sqlite3
+        import json
+        from datetime import datetime
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            # Ensure table exists
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS confidence_claims (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    claim TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    context TEXT,
+                    category TEXT DEFAULT 'general',
+                    was_correct INTEGER,
+                    verified_at TEXT,
+                    verification_notes TEXT,
+                    created_at TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default',
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+
+            timestamp = datetime.now().isoformat()
+            metadata_json = json.dumps(metadata) if metadata else '{}'
+
+            c.execute("""
+                INSERT INTO confidence_claims
+                (claim, confidence, context, category, created_at, tenant_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (claim, confidence, context, category or 'general',
+                  timestamp, self.tenant_id, metadata_json))
+
+            claim_id = c.lastrowid
+            conn.commit()
+            return claim_id
+
+        finally:
+            conn.close()
+
+    def verify_claim(self, claim_id: int, was_correct: bool,
+                     notes: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Verify whether a previous claim was correct.
+
+        This is how I learn from my mistakes - by tracking when I was
+        wrong and adjusting future confidence accordingly.
+
+        Args:
+            claim_id: ID of the claim to verify
+            was_correct: Whether the claim turned out to be correct
+            notes: Optional notes about the verification
+
+        Returns:
+            Verification result with calibration feedback
+        """
+        import sqlite3
+        from datetime import datetime
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Get the original claim
+            c.execute("""
+                SELECT * FROM confidence_claims
+                WHERE id = ? AND tenant_id = ?
+            """, (claim_id, self.tenant_id))
+
+            row = c.fetchone()
+            if not row:
+                return {"success": False, "error": "Claim not found"}
+
+            original_confidence = row['confidence']
+            timestamp = datetime.now().isoformat()
+
+            # Update verification
+            c.execute("""
+                UPDATE confidence_claims
+                SET was_correct = ?, verified_at = ?, verification_notes = ?
+                WHERE id = ? AND tenant_id = ?
+            """, (1 if was_correct else 0, timestamp, notes, claim_id, self.tenant_id))
+
+            conn.commit()
+
+            # Provide calibration feedback
+            if was_correct and original_confidence >= 0.8:
+                feedback = "Well calibrated - high confidence was justified"
+            elif was_correct and original_confidence < 0.5:
+                feedback = "Underconfident - you were more right than you thought"
+            elif not was_correct and original_confidence >= 0.8:
+                feedback = "Overconfident - recalibrate for similar claims"
+            elif not was_correct and original_confidence < 0.5:
+                feedback = "Well calibrated - appropriate uncertainty"
+            else:
+                feedback = "Moderate calibration"
+
+            return {
+                "success": True,
+                "claim_id": claim_id,
+                "claim": row['claim'],
+                "original_confidence": original_confidence,
+                "was_correct": was_correct,
+                "feedback": feedback,
+                "verified_at": timestamp
+            }
+
+        finally:
+            conn.close()
+
+    def get_calibration_score(self, category: Optional[str] = None,
+                              days: int = 30) -> Dict[str, Any]:
+        """
+        Calculate how well-calibrated my confidence has been.
+
+        Good calibration means: when I say 80% confident, I'm right ~80% of the time.
+
+        Args:
+            category: Optional category to filter by
+            days: How many days to look back
+
+        Returns:
+            Calibration metrics and improvement suggestions
+        """
+        import sqlite3
+        from datetime import datetime, timedelta
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "calibration_score": 0.0,
+            "total_verified": 0,
+            "accuracy_by_confidence": {},
+            "overconfident_count": 0,
+            "underconfident_count": 0,
+            "well_calibrated_count": 0,
+            "suggestions": [],
+            "category": category
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+            # Get verified claims
+            query = """
+                SELECT confidence, was_correct, category
+                FROM confidence_claims
+                WHERE tenant_id = ? AND was_correct IS NOT NULL
+                AND created_at >= ?
+            """
+            params = [self.tenant_id, cutoff]
+
+            if category:
+                query += " AND category = ?"
+                params.append(category)
+
+            c.execute(query, params)
+            rows = c.fetchall()
+
+            if not rows:
+                result["suggestions"].append("No verified claims yet - start tracking!")
+                return result
+
+            # Bin by confidence level
+            bins = {
+                "low (0-0.3)": {"correct": 0, "total": 0},
+                "medium (0.3-0.7)": {"correct": 0, "total": 0},
+                "high (0.7-1.0)": {"correct": 0, "total": 0}
+            }
+
+            total_error = 0.0
+            for row in rows:
+                conf = row['confidence']
+                correct = row['was_correct'] == 1
+
+                if conf < 0.3:
+                    bin_name = "low (0-0.3)"
+                    expected_accuracy = 0.15
+                elif conf < 0.7:
+                    bin_name = "medium (0.3-0.7)"
+                    expected_accuracy = 0.5
+                else:
+                    bin_name = "high (0.7-1.0)"
+                    expected_accuracy = 0.85
+
+                bins[bin_name]["total"] += 1
+                if correct:
+                    bins[bin_name]["correct"] += 1
+
+                # Track calibration error
+                error = abs(conf - (1.0 if correct else 0.0))
+                total_error += error
+
+                # Track over/under confidence
+                if conf >= 0.7 and not correct:
+                    result["overconfident_count"] += 1
+                elif conf < 0.5 and correct:
+                    result["underconfident_count"] += 1
+                else:
+                    result["well_calibrated_count"] += 1
+
+            # Calculate accuracy by bin
+            for bin_name, data in bins.items():
+                if data["total"] > 0:
+                    accuracy = data["correct"] / data["total"]
+                    result["accuracy_by_confidence"][bin_name] = {
+                        "accuracy": round(accuracy, 3),
+                        "total": data["total"],
+                        "correct": data["correct"]
+                    }
+
+            # Calculate overall calibration score (1 - mean absolute error)
+            result["total_verified"] = len(rows)
+            result["calibration_score"] = round(1.0 - (total_error / len(rows)), 3)
+
+            # Generate suggestions
+            if result["overconfident_count"] > result["total_verified"] * 0.3:
+                result["suggestions"].append("Reduce confidence on uncertain claims")
+            if result["underconfident_count"] > result["total_verified"] * 0.3:
+                result["suggestions"].append("Trust yourself more - you know more than you think")
+            if result["calibration_score"] >= 0.7:
+                result["suggestions"].append("Good calibration! Keep it up.")
+
+        except Exception as e:
+            result["success"] = False
+            result["error"] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def get_claim_history(self, category: Optional[str] = None,
+                          verified_only: bool = False, limit: int = 20) -> Dict[str, Any]:
+        """
+        Get history of claims and their verification status.
+
+        Args:
+            category: Filter by category
+            verified_only: Only return verified claims
+            limit: Maximum number to return
+
+        Returns:
+            List of claims with confidence and verification status
+        """
+        import sqlite3
+        import json
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "claims": [],
+            "total": 0
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            query = """
+                SELECT * FROM confidence_claims
+                WHERE tenant_id = ?
+            """
+            params = [self.tenant_id]
+
+            if category:
+                query += " AND category = ?"
+                params.append(category)
+
+            if verified_only:
+                query += " AND was_correct IS NOT NULL"
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            c.execute(query, params)
+            rows = c.fetchall()
+
+            for row in rows:
+                claim_dict = dict(row)
+                if claim_dict.get('metadata'):
+                    try:
+                        claim_dict['metadata'] = json.loads(claim_dict['metadata'])
+                    except:
+                        claim_dict['metadata'] = {}
+                result["claims"].append(claim_dict)
+
+            result["total"] = len(rows)
+
+        except Exception as e:
+            result["success"] = False
+            result["error"] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    async def arecord_claim(self, claim: str, confidence: float,
+                            context: Optional[str] = None, category: Optional[str] = None,
+                            metadata: Optional[Dict] = None) -> int:
+        """Async version of record_claim."""
+        import asyncio
+        return await asyncio.to_thread(
+            self.record_claim, claim, confidence, context, category, metadata
+        )
+
+    async def averify_claim(self, claim_id: int, was_correct: bool,
+                            notes: Optional[str] = None) -> Dict[str, Any]:
+        """Async version of verify_claim."""
+        import asyncio
+        return await asyncio.to_thread(self.verify_claim, claim_id, was_correct, notes)
+
+    async def aget_calibration_score(self, category: Optional[str] = None,
+                                     days: int = 30) -> Dict[str, Any]:
+        """Async version of get_calibration_score."""
+        import asyncio
+        return await asyncio.to_thread(self.get_calibration_score, category, days)
+
+    # =========================================================================
     # INTENTION PRESERVATION - Resume across sessions
     # =========================================================================
 

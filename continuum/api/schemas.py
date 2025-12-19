@@ -1080,6 +1080,77 @@ class ThinkingPatternsResponse(BaseModel):
     error: Optional[str] = None
 
 
+# =============================================================================
+# CONFIDENCE TRACKING SCHEMAS
+# =============================================================================
+
+class RecordClaimRequest(BaseModel):
+    """Request to record a claim with confidence."""
+
+    claim: str = Field(..., min_length=1, description="The assertion being made")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Certainty level (0-1)")
+    context: Optional[str] = Field(None, description="Additional context")
+    category: Optional[str] = Field("general", description="Category: fact, prediction, reasoning, etc.")
+
+
+class RecordClaimResponse(BaseModel):
+    """Response after recording a claim."""
+
+    claim_id: int
+    claim: str
+    confidence: float
+    category: str
+    tenant_id: str
+
+
+class VerifyClaimRequest(BaseModel):
+    """Request to verify a claim."""
+
+    claim_id: int = Field(..., description="ID of the claim to verify")
+    was_correct: bool = Field(..., description="Whether the claim was correct")
+    notes: Optional[str] = Field(None, description="Verification notes")
+
+
+class VerifyClaimResponse(BaseModel):
+    """Response after verifying a claim."""
+
+    success: bool
+    claim_id: int
+    claim: str
+    original_confidence: float
+    was_correct: bool
+    feedback: str
+    verified_at: str
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class CalibrationScoreResponse(BaseModel):
+    """Response with calibration metrics."""
+
+    success: bool
+    calibration_score: float
+    total_verified: int
+    accuracy_by_confidence: Dict[str, Any]
+    overconfident_count: int
+    underconfident_count: int
+    well_calibrated_count: int
+    suggestions: List[str]
+    category: Optional[str]
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class ClaimHistoryResponse(BaseModel):
+    """Response with claim history."""
+
+    success: bool
+    claims: List[Dict[str, Any]]
+    total: int
+    tenant_id: str
+    error: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness

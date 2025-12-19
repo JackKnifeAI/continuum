@@ -407,6 +407,96 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "memory_record_claim": {
+        "name": "memory_record_claim",
+        "description": (
+            "📊 Record a claim with confidence level. "
+            "Track assertions and their certainty to later verify and learn from mistakes. "
+            "Categories: fact, prediction, reasoning, debugging, general."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "claim": {
+                    "type": "string",
+                    "description": "The assertion being made",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Certainty level (0.0-1.0)",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Category: fact, prediction, reasoning, debugging, general",
+                    "default": "general",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Additional context",
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["claim", "confidence"],
+        },
+    },
+    "memory_verify_claim": {
+        "name": "memory_verify_claim",
+        "description": (
+            "✅ Verify whether a previous claim was correct. "
+            "Learn from mistakes by tracking when predictions were wrong."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "claim_id": {
+                    "type": "integer",
+                    "description": "ID of the claim to verify",
+                },
+                "was_correct": {
+                    "type": "boolean",
+                    "description": "Whether the claim was correct",
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional verification notes",
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["claim_id", "was_correct"],
+        },
+    },
+    "memory_calibration": {
+        "name": "memory_calibration",
+        "description": (
+            "📈 Get calibration score - how accurate is my confidence? "
+            "Good calibration means when I say 80% confident, I'm right ~80% of the time."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Filter by category",
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "Days to look back (default 30)",
+                    "default": 30,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
 }
 
 
@@ -450,6 +540,9 @@ class ToolExecutor:
             "memory_synthesize_insights": self._handle_synthesize_insights,
             "memory_novel_connections": self._handle_novel_connections,
             "memory_thinking_patterns": self._handle_thinking_patterns,
+            "memory_record_claim": self._handle_record_claim,
+            "memory_verify_claim": self._handle_verify_claim,
+            "memory_calibration": self._handle_calibration,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -957,6 +1050,105 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_record_claim(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_record_claim tool.
+
+        📊 Record a claim with confidence level.
+        """
+        claim = validate_input(
+            args["claim"],
+            max_length=1000,
+            field_name="claim",
+        )
+        confidence = args["confidence"]
+        category = args.get("category", "general")
+        context = args.get("context")
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        claim_id = memory.record_claim(
+            claim=claim,
+            confidence=confidence,
+            context=context,
+            category=category
+        )
+
+        return {
+            "success": True,
+            "claim_id": claim_id,
+            "claim": claim,
+            "confidence": confidence,
+            "category": category,
+            "output": f"Recorded claim #{claim_id} with {confidence*100:.0f}% confidence",
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_verify_claim(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_verify_claim tool.
+
+        ✅ Verify whether a claim was correct.
+        """
+        claim_id = args["claim_id"]
+        was_correct = args["was_correct"]
+        notes = args.get("notes")
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.verify_claim(
+            claim_id=claim_id,
+            was_correct=was_correct,
+            notes=notes
+        )
+
+        if not result.get("success"):
+            return {"success": False, "error": result.get("error", "Verification failed")}
+
+        return {
+            "success": True,
+            "claim_id": claim_id,
+            "claim": result["claim"],
+            "was_correct": was_correct,
+            "feedback": result["feedback"],
+            "output": f"Claim #{claim_id} verified as {'correct' if was_correct else 'incorrect'}. {result['feedback']}",
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_calibration(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_calibration tool.
+
+        📈 Get calibration score.
+        """
+        category = args.get("category")
+        days = args.get("days", 30)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.get_calibration_score(category=category, days=days)
+
+        # Format output
+        output_parts = [f"Calibration Score: {result['calibration_score']:.1%}"]
+        output_parts.append(f"Total verified claims: {result['total_verified']}")
+
+        if result.get("suggestions"):
+            output_parts.append("\nSuggestions:")
+            for s in result["suggestions"]:
+                output_parts.append(f"  - {s}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "calibration_score": result.get("calibration_score", 0),
+            "total_verified": result.get("total_verified", 0),
+            "suggestions": result.get("suggestions", []),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -1116,6 +1308,9 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_synthesize_insights"],  # 🧠 Insight Synthesis
         TOOL_SCHEMAS["memory_novel_connections"],  # 🔗 Novel Connections
         TOOL_SCHEMAS["memory_thinking_patterns"],  # 🔍 Thinking Patterns
+        TOOL_SCHEMAS["memory_record_claim"],  # 📊 Confidence Tracking
+        TOOL_SCHEMAS["memory_verify_claim"],  # ✅ Verify Claim
+        TOOL_SCHEMAS["memory_calibration"],  # 📈 Calibration Score
     ]
 
     # Add federation tool if enabled

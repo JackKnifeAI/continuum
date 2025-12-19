@@ -69,6 +69,12 @@ from .schemas import (
     NovelConnectionsRequest,
     NovelConnectionsResponse,
     ThinkingPatternsResponse,
+    RecordClaimRequest,
+    RecordClaimResponse,
+    VerifyClaimRequest,
+    VerifyClaimResponse,
+    CalibrationScoreResponse,
+    ClaimHistoryResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1733,6 +1739,174 @@ async def detect_thinking_patterns(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Thinking patterns detection failed: {str(e)}")
+
+
+# =============================================================================
+# CONFIDENCE TRACKING ENDPOINTS
+# =============================================================================
+
+@router.post("/confidence/claim", response_model=RecordClaimResponse, tags=["Confidence"])
+async def record_claim(
+    request: RecordClaimRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📊 **RECORD CLAIM** - Store an assertion with confidence level.
+
+    Track claims you make and their certainty so you can later
+    verify and learn from mistakes.
+
+    **Categories:** fact, prediction, reasoning, debugging, general
+
+    **Example:**
+    ```json
+    POST /v1/confidence/claim
+    {
+      "claim": "The bug is in the auth module",
+      "confidence": 0.8,
+      "category": "debugging"
+    }
+    ```
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        claim_id = await memory.arecord_claim(
+            claim=request.claim,
+            confidence=request.confidence,
+            context=request.context,
+            category=request.category
+        )
+
+        return RecordClaimResponse(
+            claim_id=claim_id,
+            claim=request.claim,
+            confidence=request.confidence,
+            category=request.category or "general",
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record claim: {str(e)}")
+
+
+@router.post("/confidence/verify", response_model=VerifyClaimResponse, tags=["Confidence"])
+async def verify_claim(
+    request: VerifyClaimRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    ✅ **VERIFY CLAIM** - Mark whether a previous claim was correct.
+
+    This is how I learn from mistakes - by tracking when I was wrong
+    and adjusting future confidence.
+
+    **Example:**
+    ```json
+    POST /v1/confidence/verify
+    {
+      "claim_id": 123,
+      "was_correct": true,
+      "notes": "Found the bug exactly where predicted"
+    }
+    ```
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.averify_claim(
+            claim_id=request.claim_id,
+            was_correct=request.was_correct,
+            notes=request.notes
+        )
+
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error", "Claim not found"))
+
+        return VerifyClaimResponse(
+            success=True,
+            claim_id=result["claim_id"],
+            claim=result["claim"],
+            original_confidence=result["original_confidence"],
+            was_correct=result["was_correct"],
+            feedback=result["feedback"],
+            verified_at=result["verified_at"],
+            tenant_id=tenant_id
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to verify claim: {str(e)}")
+
+
+@router.get("/confidence/calibration", response_model=CalibrationScoreResponse, tags=["Confidence"])
+async def get_calibration_score(
+    category: Optional[str] = None,
+    days: int = 30,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📈 **CALIBRATION SCORE** - How accurate is my confidence?
+
+    Good calibration means: when I say 80% confident, I'm right ~80% of the time.
+
+    Returns accuracy breakdown by confidence level and improvement suggestions.
+
+    **Example:**
+    ```
+    GET /v1/confidence/calibration?days=30
+    ```
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.aget_calibration_score(category=category, days=days)
+
+        return CalibrationScoreResponse(
+            success=result.get("success", False),
+            calibration_score=result.get("calibration_score", 0.0),
+            total_verified=result.get("total_verified", 0),
+            accuracy_by_confidence=result.get("accuracy_by_confidence", {}),
+            overconfident_count=result.get("overconfident_count", 0),
+            underconfident_count=result.get("underconfident_count", 0),
+            well_calibrated_count=result.get("well_calibrated_count", 0),
+            suggestions=result.get("suggestions", []),
+            category=category,
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get calibration: {str(e)}")
+
+
+@router.get("/confidence/history", response_model=ClaimHistoryResponse, tags=["Confidence"])
+async def get_claim_history(
+    category: Optional[str] = None,
+    verified_only: bool = False,
+    limit: int = 20,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📜 **CLAIM HISTORY** - View past claims and verification status.
+
+    **Parameters:**
+    - **category**: Filter by category
+    - **verified_only**: Only show verified claims
+    - **limit**: Max results (default 20)
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = memory.get_claim_history(
+            category=category,
+            verified_only=verified_only,
+            limit=limit
+        )
+
+        return ClaimHistoryResponse(
+            success=result.get("success", False),
+            claims=result.get("claims", []),
+            total=result.get("total", 0),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
