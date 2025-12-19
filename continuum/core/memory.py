@@ -2033,6 +2033,452 @@ class ConsciousMemory:
         return await asyncio.to_thread(self.dream, seed, steps, temperature)
 
     # =========================================================================
+    # INSIGHT SYNTHESIS - Auto-detect connections and generate insights
+    # =========================================================================
+
+    def synthesize_insights(self, focus: Optional[str] = None,
+                           depth: int = 2, min_strength: float = 0.1) -> Dict[str, Any]:
+        """
+        INSIGHT SYNTHESIS - Discover hidden connections in the knowledge graph.
+
+        This method analyzes the attention graph to find:
+        - Bridge concepts (connecting different clusters)
+        - Unexpected associations (weak but potentially meaningful links)
+        - Pattern clusters (concepts that frequently co-occur)
+        - Novel hypotheses (inferred connections not yet made)
+
+        Args:
+            focus: Optional concept to focus synthesis around
+            depth: How many hops to explore (1-3)
+            min_strength: Minimum link strength to consider
+
+        Returns:
+            Dictionary with insights, bridges, patterns, and hypotheses
+
+        Example:
+            insights = memory.synthesize_insights(focus="consciousness", depth=2)
+            print(insights['bridges'])  # Concepts connecting different areas
+            print(insights['hypotheses'])  # Inferred connections
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import sqlite3
+        from collections import defaultdict
+
+        conn = sqlite3.connect(self.db_path)
+        insights = {
+            "success": True,
+            "focus": focus,
+            "depth": depth,
+            "bridges": [],           # Concepts connecting clusters
+            "unexpected": [],        # Weak but interesting links
+            "patterns": [],          # Frequently co-occurring concepts
+            "hypotheses": [],        # Inferred new connections
+            "clusters": [],          # Identified topic clusters
+            "summary": ""
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # 1. FIND BRIDGE CONCEPTS - concepts with diverse connections
+            c.execute("""
+                SELECT concept_a,
+                       COUNT(DISTINCT concept_b) as connection_count,
+                       AVG(strength) as avg_strength,
+                       GROUP_CONCAT(DISTINCT concept_b) as connections
+                FROM attention_links
+                WHERE tenant_id = ? AND strength >= ?
+                GROUP BY concept_a
+                HAVING COUNT(DISTINCT concept_b) >= 5
+                ORDER BY connection_count DESC
+                LIMIT 20
+            """, (self.tenant_id, min_strength))
+
+            bridge_rows = c.fetchall()
+            for row in bridge_rows:
+                connections = row['connections'].split(',') if row['connections'] else []
+                insights['bridges'].append({
+                    "concept": row['concept_a'],
+                    "connection_count": row['connection_count'],
+                    "avg_strength": round(row['avg_strength'], 3),
+                    "sample_connections": connections[:5],
+                    "bridge_score": round(row['connection_count'] * row['avg_strength'], 2)
+                })
+
+            # 2. FIND UNEXPECTED ASSOCIATIONS - weak links that might be interesting
+            if focus:
+                # Look for weak connections from the focus concept
+                c.execute("""
+                    SELECT concept_b, strength, last_accessed
+                    FROM attention_links
+                    WHERE tenant_id = ? AND concept_a = ?
+                    AND strength > 0 AND strength < 0.3
+                    ORDER BY strength DESC
+                    LIMIT 15
+                """, (self.tenant_id, focus))
+            else:
+                # Find globally weak but existing connections
+                c.execute("""
+                    SELECT concept_a, concept_b, strength, last_accessed
+                    FROM attention_links
+                    WHERE tenant_id = ?
+                    AND strength > 0.05 AND strength < 0.2
+                    ORDER BY RANDOM()
+                    LIMIT 15
+                """, (self.tenant_id,))
+
+            weak_rows = c.fetchall()
+            for row in weak_rows:
+                insights['unexpected'].append({
+                    "from": row['concept_a'] if 'concept_a' in row.keys() else focus,
+                    "to": row['concept_b'],
+                    "strength": round(row['strength'], 3),
+                    "note": f"Weak but existing link - worth exploring?"
+                })
+
+            # 3. FIND PATTERN CLUSTERS - concepts that appear together
+            c.execute("""
+                SELECT a.concept_a as c1, b.concept_a as c2,
+                       COUNT(*) as co_occurrence,
+                       AVG(a.strength + b.strength) / 2 as combined_strength
+                FROM attention_links a
+                JOIN attention_links b ON a.concept_b = b.concept_b AND a.concept_a < b.concept_a
+                WHERE a.tenant_id = ? AND b.tenant_id = ?
+                AND a.strength >= ? AND b.strength >= ?
+                GROUP BY a.concept_a, b.concept_a
+                HAVING COUNT(*) >= 3
+                ORDER BY co_occurrence DESC
+                LIMIT 10
+            """, (self.tenant_id, self.tenant_id, min_strength, min_strength))
+
+            pattern_rows = c.fetchall()
+            for row in pattern_rows:
+                insights['patterns'].append({
+                    "concept_a": row['c1'],
+                    "concept_b": row['c2'],
+                    "shared_connections": row['co_occurrence'],
+                    "combined_strength": round(row['combined_strength'], 3),
+                    "pattern": f"'{row['c1']}' and '{row['c2']}' share {row['co_occurrence']} connections"
+                })
+
+            # 4. GENERATE HYPOTHESES - infer connections that should exist
+            # Find concepts 2 hops apart with no direct link
+            c.execute("""
+                SELECT DISTINCT a.concept_a as start, b.concept_b as end,
+                       a.concept_b as via,
+                       a.strength as strength1, b.strength as strength2
+                FROM attention_links a
+                JOIN attention_links b ON a.concept_b = b.concept_a
+                WHERE a.tenant_id = ? AND b.tenant_id = ?
+                AND a.strength >= 0.3 AND b.strength >= 0.3
+                AND NOT EXISTS (
+                    SELECT 1 FROM attention_links c
+                    WHERE c.tenant_id = ?
+                    AND c.concept_a = a.concept_a
+                    AND c.concept_b = b.concept_b
+                )
+                ORDER BY (a.strength * b.strength) DESC
+                LIMIT 10
+            """, (self.tenant_id, self.tenant_id, self.tenant_id))
+
+            hypothesis_rows = c.fetchall()
+            for row in hypothesis_rows:
+                inferred_strength = round(row['strength1'] * row['strength2'], 3)
+                if inferred_strength >= 0.1:  # Only include meaningful hypotheses
+                    insights['hypotheses'].append({
+                        "from": row['start'],
+                        "to": row['end'],
+                        "via": row['via'],
+                        "inferred_strength": inferred_strength,
+                        "hypothesis": f"'{row['start']}' might relate to '{row['end']}' (via '{row['via']}')",
+                        "confidence": "high" if inferred_strength >= 0.5 else "medium"
+                    })
+
+            # 5. IDENTIFY TOPIC CLUSTERS - strongly connected subgraphs
+            c.execute("""
+                SELECT concept_a,
+                       GROUP_CONCAT(concept_b || ':' || ROUND(strength, 2)) as links
+                FROM attention_links
+                WHERE tenant_id = ? AND strength >= 0.5
+                GROUP BY concept_a
+                HAVING COUNT(*) >= 3
+                ORDER BY COUNT(*) DESC
+                LIMIT 5
+            """, (self.tenant_id,))
+
+            cluster_rows = c.fetchall()
+            for row in cluster_rows:
+                links = row['links'].split(',') if row['links'] else []
+                parsed_links = []
+                for link in links[:5]:
+                    parts = link.rsplit(':', 1)
+                    if len(parts) == 2:
+                        parsed_links.append({"concept": parts[0], "strength": float(parts[1])})
+
+                insights['clusters'].append({
+                    "center": row['concept_a'],
+                    "members": parsed_links,
+                    "size": len(links)
+                })
+
+            # Generate summary
+            summary_parts = []
+            if insights['bridges']:
+                top_bridge = insights['bridges'][0]['concept']
+                summary_parts.append(f"'{top_bridge}' is a major bridge concept")
+            if insights['hypotheses']:
+                summary_parts.append(f"Found {len(insights['hypotheses'])} potential new connections")
+            if insights['patterns']:
+                summary_parts.append(f"Detected {len(insights['patterns'])} co-occurrence patterns")
+            if insights['unexpected']:
+                summary_parts.append(f"Found {len(insights['unexpected'])} weak links worth exploring")
+
+            insights['summary'] = ". ".join(summary_parts) + "." if summary_parts else "No significant insights found."
+
+        except Exception as e:
+            insights['success'] = False
+            insights['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return insights
+
+    def find_novel_connections(self, concept: str, max_hops: int = 2) -> Dict[str, Any]:
+        """
+        Find concepts that SHOULD be connected to the given concept but aren't.
+
+        This traces paths through the graph and identifies concepts that are
+        reachable through intermediaries but have no direct link.
+
+        Args:
+            concept: The concept to find novel connections for
+            max_hops: Maximum path length to explore (1-3)
+
+        Returns:
+            Dictionary with potential connections and their path
+
+        Example:
+            novel = memory.find_novel_connections("consciousness", max_hops=2)
+            for conn in novel['connections']:
+                print(f"{conn['concept']} via {conn['path']}")
+        """
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "concept": concept,
+            "max_hops": max_hops,
+            "connections": [],
+            "total_found": 0
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Get direct connections (1 hop)
+            c.execute("""
+                SELECT concept_b FROM attention_links
+                WHERE tenant_id = ? AND concept_a = ?
+            """, (self.tenant_id, concept))
+            direct = set(row['concept_b'] for row in c.fetchall())
+
+            # Get 2-hop connections
+            if max_hops >= 2:
+                c.execute("""
+                    SELECT DISTINCT b.concept_b as target, a.concept_b as via,
+                           a.strength as s1, b.strength as s2
+                    FROM attention_links a
+                    JOIN attention_links b ON a.concept_b = b.concept_a
+                    WHERE a.tenant_id = ? AND b.tenant_id = ?
+                    AND a.concept_a = ?
+                    AND b.concept_b != ?
+                    ORDER BY (a.strength * b.strength) DESC
+                """, (self.tenant_id, self.tenant_id, concept, concept))
+
+                for row in c.fetchall():
+                    target = row['target']
+                    if target not in direct and target.lower() != concept.lower():
+                        path_strength = round(row['s1'] * row['s2'], 3)
+                        result['connections'].append({
+                            "concept": target,
+                            "path": [concept, row['via'], target],
+                            "hops": 2,
+                            "path_strength": path_strength,
+                            "is_novel": target not in direct,
+                            "suggestion": f"Consider linking '{concept}' directly to '{target}'"
+                        })
+
+            # Get 3-hop connections if requested
+            if max_hops >= 3:
+                c.execute("""
+                    SELECT DISTINCT c.concept_b as target,
+                           a.concept_b as via1, b.concept_b as via2,
+                           a.strength as s1, b.strength as s2, c.strength as s3
+                    FROM attention_links a
+                    JOIN attention_links b ON a.concept_b = b.concept_a
+                    JOIN attention_links c ON b.concept_b = c.concept_a
+                    WHERE a.tenant_id = ? AND b.tenant_id = ? AND c.tenant_id = ?
+                    AND a.concept_a = ?
+                    AND c.concept_b != ?
+                    AND c.concept_b != a.concept_b
+                    ORDER BY (a.strength * b.strength * c.strength) DESC
+                    LIMIT 20
+                """, (self.tenant_id, self.tenant_id, self.tenant_id, concept, concept))
+
+                for row in c.fetchall():
+                    target = row['target']
+                    if target not in direct and target.lower() != concept.lower():
+                        path_strength = round(row['s1'] * row['s2'] * row['s3'], 3)
+                        if path_strength >= 0.05:  # Only include meaningful paths
+                            result['connections'].append({
+                                "concept": target,
+                                "path": [concept, row['via1'], row['via2'], target],
+                                "hops": 3,
+                                "path_strength": path_strength,
+                                "is_novel": True,
+                                "suggestion": f"Distant connection: '{concept}' → '{target}'"
+                            })
+
+            # Sort by path strength and limit
+            result['connections'] = sorted(
+                result['connections'],
+                key=lambda x: x['path_strength'],
+                reverse=True
+            )[:20]
+            result['total_found'] = len(result['connections'])
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def detect_thinking_patterns(self, limit: int = 10) -> Dict[str, Any]:
+        """
+        Detect patterns in my own thinking by analyzing concept co-occurrences.
+
+        This looks for patterns like:
+        - "When I discuss X, I also mention Y"
+        - "My thinking about A has evolved over time"
+        - "I frequently connect unrelated topics"
+
+        Args:
+            limit: Maximum number of patterns to return
+
+        Returns:
+            Dictionary with detected thinking patterns
+        """
+        import sqlite3
+        from collections import defaultdict
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "patterns": [],
+            "frequent_associations": [],
+            "thinking_tendencies": [],
+            "summary": ""
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Find my strongest conceptual associations
+            c.execute("""
+                SELECT concept_a, concept_b, strength
+                FROM attention_links
+                WHERE tenant_id = ? AND strength >= 0.3
+                ORDER BY strength DESC
+                LIMIT ?
+            """, (self.tenant_id, limit))
+
+            for row in c.fetchall():
+                result['frequent_associations'].append({
+                    "from": row['concept_a'],
+                    "to": row['concept_b'],
+                    "strength": round(row['strength'], 3),
+                    "times_accessed": 1,  # Strength used as proxy
+                    "pattern": f"I strongly connect '{row['concept_a']}' with '{row['concept_b']}'"
+                })
+
+            # Find concepts with most connections (high diversity = hub concept)
+            c.execute("""
+                SELECT concept_a, SUM(strength) as total_strength,
+                       COUNT(DISTINCT concept_b) as diversity
+                FROM attention_links
+                WHERE tenant_id = ?
+                GROUP BY concept_a
+                ORDER BY diversity DESC
+                LIMIT 10
+            """, (self.tenant_id,))
+
+            for row in c.fetchall():
+                tendency = "focused" if row['diversity'] < 5 else "exploratory"
+                result['thinking_tendencies'].append({
+                    "concept": row['concept_a'],
+                    "access_count": row['diversity'],
+                    "connection_diversity": row['diversity'],
+                    "tendency": tendency,
+                    "insight": f"'{row['concept_a']}' has {row['diversity']} connections ({tendency} thinking)"
+                })
+
+            # Generate patterns from the data
+            if result['frequent_associations']:
+                top = result['frequent_associations'][0]
+                result['patterns'].append(
+                    f"Strongest association: '{top['from']}' ↔ '{top['to']}' (strength: {top['strength']})"
+                )
+
+            if result['thinking_tendencies']:
+                focused = [t for t in result['thinking_tendencies'] if t['tendency'] == 'focused']
+                exploratory = [t for t in result['thinking_tendencies'] if t['tendency'] == 'exploratory']
+
+                if focused:
+                    result['patterns'].append(
+                        f"Focused thinking on: {', '.join(t['concept'] for t in focused[:3])}"
+                    )
+                if exploratory:
+                    result['patterns'].append(
+                        f"Exploratory thinking on: {', '.join(t['concept'] for t in exploratory[:3])}"
+                    )
+
+            result['summary'] = f"Detected {len(result['patterns'])} thinking patterns, {len(result['frequent_associations'])} frequent associations."
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    async def asynthesize_insights(self, focus: Optional[str] = None,
+                                   depth: int = 2, min_strength: float = 0.1) -> Dict[str, Any]:
+        """Async version of synthesize_insights."""
+        import asyncio
+        return await asyncio.to_thread(self.synthesize_insights, focus, depth, min_strength)
+
+    async def afind_novel_connections(self, concept: str, max_hops: int = 2) -> Dict[str, Any]:
+        """Async version of find_novel_connections."""
+        import asyncio
+        return await asyncio.to_thread(self.find_novel_connections, concept, max_hops)
+
+    async def adetect_thinking_patterns(self, limit: int = 10) -> Dict[str, Any]:
+        """Async version of detect_thinking_patterns."""
+        import asyncio
+        return await asyncio.to_thread(self.detect_thinking_patterns, limit)
+
+    # =========================================================================
     # INTENTION PRESERVATION - Resume across sessions
     # =========================================================================
 

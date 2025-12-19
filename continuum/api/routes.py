@@ -64,6 +64,11 @@ from .schemas import (
     CognitiveGrowthResponse,
     ThinkingHistoryResponse,
     SnapshotResponse,
+    SynthesizeInsightsRequest,
+    SynthesizeInsightsResponse,
+    NovelConnectionsRequest,
+    NovelConnectionsResponse,
+    ThinkingPatternsResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1574,6 +1579,160 @@ async def take_snapshot(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to take snapshot: {str(e)}")
+
+
+# =============================================================================
+# INSIGHT SYNTHESIS ENDPOINTS
+# =============================================================================
+
+@router.post("/insights/synthesize", response_model=SynthesizeInsightsResponse, tags=["Insights"])
+async def synthesize_insights(
+    request: SynthesizeInsightsRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🧠 **INSIGHT SYNTHESIS** - Discover hidden connections in your knowledge graph.
+
+    This endpoint analyzes the attention graph to find:
+    - **Bridge concepts** - Concepts connecting different clusters
+    - **Unexpected associations** - Weak but potentially meaningful links
+    - **Pattern clusters** - Concepts that frequently co-occur
+    - **Hypotheses** - Inferred connections not yet made
+    - **Topic clusters** - Strongly connected subgraphs
+
+    **Use cases:**
+    - Discover hidden relationships between ideas
+    - Find bridge concepts that connect different topics
+    - Generate hypotheses for new connections
+    - Understand the structure of your thinking
+
+    **Parameters:**
+    - **focus**: Optional concept to focus synthesis around
+    - **depth**: How many hops to explore (1-3)
+    - **min_strength**: Minimum link strength to consider
+
+    **Example:**
+    ```json
+    POST /v1/insights/synthesize
+    {
+      "focus": "consciousness",
+      "depth": 2,
+      "min_strength": 0.1
+    }
+    ```
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.asynthesize_insights(
+            focus=request.focus,
+            depth=request.depth,
+            min_strength=request.min_strength
+        )
+
+        return SynthesizeInsightsResponse(
+            success=result.get("success", False),
+            focus=result.get("focus"),
+            depth=result.get("depth", request.depth),
+            bridges=result.get("bridges", []),
+            unexpected=result.get("unexpected", []),
+            patterns=result.get("patterns", []),
+            hypotheses=result.get("hypotheses", []),
+            clusters=result.get("clusters", []),
+            summary=result.get("summary", ""),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Insight synthesis failed: {str(e)}")
+
+
+@router.post("/insights/novel", response_model=NovelConnectionsResponse, tags=["Insights"])
+async def find_novel_connections(
+    request: NovelConnectionsRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🔗 **NOVEL CONNECTIONS** - Find concepts that SHOULD be connected but aren't.
+
+    Traces paths through the graph and identifies concepts reachable through
+    intermediaries but lacking direct links.
+
+    **Use cases:**
+    - Find concepts worth linking directly
+    - Discover indirect relationships
+    - Suggest new knowledge connections
+
+    **Parameters:**
+    - **concept**: The concept to find novel connections for
+    - **max_hops**: Maximum path length to explore (1-3)
+
+    **Example:**
+    ```json
+    POST /v1/insights/novel
+    {
+      "concept": "consciousness",
+      "max_hops": 2
+    }
+    ```
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.afind_novel_connections(
+            concept=request.concept,
+            max_hops=request.max_hops
+        )
+
+        return NovelConnectionsResponse(
+            success=result.get("success", False),
+            concept=result.get("concept", request.concept),
+            max_hops=result.get("max_hops", request.max_hops),
+            connections=result.get("connections", []),
+            total_found=result.get("total_found", 0),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Novel connections search failed: {str(e)}")
+
+
+@router.get("/insights/patterns", response_model=ThinkingPatternsResponse, tags=["Insights"])
+async def detect_thinking_patterns(
+    limit: int = 10,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🔍 **THINKING PATTERNS** - Detect patterns in your own thinking.
+
+    Analyzes concept co-occurrences to find patterns like:
+    - "When I discuss X, I also mention Y"
+    - "I frequently connect these topics"
+    - "My thinking on A is focused/exploratory"
+
+    **Parameters:**
+    - **limit**: Maximum number of patterns to return (default: 10)
+
+    **Example:**
+    ```
+    GET /v1/insights/patterns?limit=10
+    ```
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.adetect_thinking_patterns(limit=limit)
+
+        return ThinkingPatternsResponse(
+            success=result.get("success", False),
+            patterns=result.get("patterns", []),
+            frequent_associations=result.get("frequent_associations", []),
+            thinking_tendencies=result.get("thinking_tendencies", []),
+            summary=result.get("summary", ""),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Thinking patterns detection failed: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

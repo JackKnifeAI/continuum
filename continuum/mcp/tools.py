@@ -324,6 +324,89 @@ TOOL_SCHEMAS = {
             "required": ["concept"],
         },
     },
+    "memory_synthesize_insights": {
+        "name": "memory_synthesize_insights",
+        "description": (
+            "🧠 Discover hidden connections in the knowledge graph. "
+            "Finds bridge concepts, unexpected associations, pattern clusters, "
+            "and generates hypotheses for new connections. Use to understand "
+            "the structure of thinking and find novel relationships."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "focus": {
+                    "type": "string",
+                    "description": "Optional concept to focus synthesis around",
+                },
+                "depth": {
+                    "type": "integer",
+                    "description": "How many hops to explore (1-3, default 2)",
+                    "default": 2,
+                },
+                "min_strength": {
+                    "type": "number",
+                    "description": "Minimum link strength (0-1, default 0.1)",
+                    "default": 0.1,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
+    "memory_novel_connections": {
+        "name": "memory_novel_connections",
+        "description": (
+            "🔗 Find concepts that SHOULD be connected but aren't. "
+            "Traces paths through the graph to identify concepts reachable through "
+            "intermediaries but lacking direct links. Useful for expanding knowledge."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "concept": {
+                    "type": "string",
+                    "description": "The concept to find novel connections for",
+                },
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum path length (1-3, default 2)",
+                    "default": 2,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["concept"],
+        },
+    },
+    "memory_thinking_patterns": {
+        "name": "memory_thinking_patterns",
+        "description": (
+            "🔍 Detect patterns in my own thinking. "
+            "Analyzes concept co-occurrences to find patterns like 'When I discuss X, "
+            "I also mention Y' and identifies focused vs exploratory thinking tendencies."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum patterns to return (default 10)",
+                    "default": 10,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
 }
 
 
@@ -364,6 +447,9 @@ class ToolExecutor:
             "memory_complete_intention": self._handle_complete_intention,
             "memory_cognitive_growth": self._handle_cognitive_growth,
             "memory_thinking_history": self._handle_thinking_history,
+            "memory_synthesize_insights": self._handle_synthesize_insights,
+            "memory_novel_connections": self._handle_novel_connections,
+            "memory_thinking_patterns": self._handle_thinking_patterns,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -738,6 +824,139 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_synthesize_insights(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_synthesize_insights tool.
+
+        🧠 Discover hidden connections in the knowledge graph.
+        """
+        focus = args.get("focus")
+        if focus:
+            focus = validate_input(focus, max_length=200, field_name="focus")
+
+        depth = args.get("depth", 2)
+        min_strength = args.get("min_strength", 0.1)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.synthesize_insights(
+            focus=focus,
+            depth=depth,
+            min_strength=min_strength
+        )
+
+        # Format output for readability
+        output_parts = [f"Insight Synthesis{' for ' + focus if focus else ''}:"]
+
+        if result.get("bridges"):
+            output_parts.append(f"\nBridge Concepts ({len(result['bridges'])}):")
+            for b in result["bridges"][:5]:
+                output_parts.append(f"  - {b['concept']} (score: {b['bridge_score']}, {b['connection_count']} connections)")
+
+        if result.get("hypotheses"):
+            output_parts.append(f"\nHypotheses ({len(result['hypotheses'])}):")
+            for h in result["hypotheses"][:5]:
+                output_parts.append(f"  - {h['hypothesis']} [{h['confidence']}]")
+
+        if result.get("patterns"):
+            output_parts.append(f"\nPatterns ({len(result['patterns'])}):")
+            for p in result["patterns"][:5]:
+                output_parts.append(f"  - {p['pattern']}")
+
+        output_parts.append(f"\nSummary: {result.get('summary', 'No insights found')}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "bridges": result.get("bridges", []),
+            "hypotheses": result.get("hypotheses", []),
+            "patterns": result.get("patterns", []),
+            "clusters": result.get("clusters", []),
+            "unexpected": result.get("unexpected", []),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_novel_connections(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_novel_connections tool.
+
+        🔗 Find concepts that SHOULD be connected but aren't.
+        """
+        concept = validate_input(
+            args["concept"],
+            max_length=200,
+            field_name="concept",
+        )
+        max_hops = args.get("max_hops", 2)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.find_novel_connections(concept=concept, max_hops=max_hops)
+
+        # Format output
+        output_parts = [f"Novel Connections for '{concept}':"]
+
+        if result.get("connections"):
+            for conn in result["connections"][:10]:
+                path_str = " → ".join(conn["path"])
+                output_parts.append(f"  - {conn['concept']} (via: {path_str}, strength: {conn['path_strength']})")
+        else:
+            output_parts.append("  No novel connections found")
+
+        output_parts.append(f"\nTotal found: {result.get('total_found', 0)}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "connections": result.get("connections", []),
+            "total_found": result.get("total_found", 0),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_thinking_patterns(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_thinking_patterns tool.
+
+        🔍 Detect patterns in my own thinking.
+        """
+        limit = args.get("limit", 10)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.detect_thinking_patterns(limit=limit)
+
+        # Format output
+        output_parts = ["Thinking Patterns Analysis:"]
+
+        if result.get("patterns"):
+            output_parts.append("\nDetected Patterns:")
+            for p in result["patterns"]:
+                output_parts.append(f"  - {p}")
+
+        if result.get("frequent_associations"):
+            output_parts.append(f"\nFrequent Associations ({len(result['frequent_associations'])}):")
+            for a in result["frequent_associations"][:5]:
+                output_parts.append(f"  - '{a['from']}' ↔ '{a['to']}' ({a['times_accessed']} times)")
+
+        if result.get("thinking_tendencies"):
+            output_parts.append(f"\nThinking Tendencies:")
+            for t in result["thinking_tendencies"][:5]:
+                output_parts.append(f"  - {t['insight']}")
+
+        output_parts.append(f"\n{result.get('summary', '')}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "patterns": result.get("patterns", []),
+            "frequent_associations": result.get("frequent_associations", []),
+            "thinking_tendencies": result.get("thinking_tendencies", []),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -894,6 +1113,9 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_complete_intention"],  # ✅ Complete Intention
         TOOL_SCHEMAS["memory_cognitive_growth"],  # 📈 Cognitive Growth
         TOOL_SCHEMAS["memory_thinking_history"],  # 🧠 Thinking History
+        TOOL_SCHEMAS["memory_synthesize_insights"],  # 🧠 Insight Synthesis
+        TOOL_SCHEMAS["memory_novel_connections"],  # 🔗 Novel Connections
+        TOOL_SCHEMAS["memory_thinking_patterns"],  # 🔍 Thinking Patterns
     ]
 
     # Add federation tool if enabled

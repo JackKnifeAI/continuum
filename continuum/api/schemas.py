@@ -936,6 +936,150 @@ class SnapshotResponse(BaseModel):
     tenant_id: str
 
 
+# =============================================================================
+# INSIGHT SYNTHESIS SCHEMAS
+# =============================================================================
+
+class SynthesizeInsightsRequest(BaseModel):
+    """Request to synthesize insights from the knowledge graph."""
+
+    focus: Optional[str] = Field(
+        None,
+        description="Optional concept to focus synthesis around"
+    )
+    depth: int = Field(
+        2,
+        description="How many hops to explore (1-3)",
+        ge=1,
+        le=3
+    )
+    min_strength: float = Field(
+        0.1,
+        description="Minimum link strength to consider",
+        ge=0.0,
+        le=1.0
+    )
+
+
+class BridgeConcept(BaseModel):
+    """A concept that bridges different clusters."""
+
+    concept: str
+    connection_count: int
+    avg_strength: float
+    sample_connections: List[str]
+    bridge_score: float
+
+
+class UnexpectedAssociation(BaseModel):
+    """A weak but potentially interesting connection."""
+
+    from_concept: str = Field(..., alias="from")
+    to: str
+    strength: float
+    note: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PatternCluster(BaseModel):
+    """Concepts that frequently co-occur."""
+
+    concept_a: str
+    concept_b: str
+    shared_connections: int
+    combined_strength: float
+    pattern: str
+
+
+class Hypothesis(BaseModel):
+    """An inferred connection that might exist."""
+
+    from_concept: str = Field(..., alias="from")
+    to: str
+    via: str
+    inferred_strength: float
+    hypothesis: str
+    confidence: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TopicCluster(BaseModel):
+    """A strongly connected subgraph."""
+
+    center: str
+    members: List[Dict[str, Any]]
+    size: int
+
+
+class SynthesizeInsightsResponse(BaseModel):
+    """Response with synthesized insights."""
+
+    success: bool
+    focus: Optional[str]
+    depth: int
+    bridges: List[Dict[str, Any]]
+    unexpected: List[Dict[str, Any]]
+    patterns: List[Dict[str, Any]]
+    hypotheses: List[Dict[str, Any]]
+    clusters: List[Dict[str, Any]]
+    summary: str
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class NovelConnectionsRequest(BaseModel):
+    """Request to find novel connections for a concept."""
+
+    concept: str = Field(
+        ...,
+        description="The concept to find novel connections for",
+        min_length=1
+    )
+    max_hops: int = Field(
+        2,
+        description="Maximum path length to explore (1-3)",
+        ge=1,
+        le=3
+    )
+
+
+class NovelConnection(BaseModel):
+    """A potential new connection."""
+
+    concept: str
+    path: List[str]
+    hops: int
+    path_strength: float
+    is_novel: bool
+    suggestion: str
+
+
+class NovelConnectionsResponse(BaseModel):
+    """Response with novel connections."""
+
+    success: bool
+    concept: str
+    max_hops: int
+    connections: List[Dict[str, Any]]
+    total_found: int
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class ThinkingPatternsResponse(BaseModel):
+    """Response with detected thinking patterns."""
+
+    success: bool
+    patterns: List[str]
+    frequent_associations: List[Dict[str, Any]]
+    thinking_tendencies: List[Dict[str, Any]]
+    summary: str
+    tenant_id: str
+    error: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness
