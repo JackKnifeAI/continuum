@@ -81,6 +81,11 @@ from .schemas import (
     ResolveContradictionRequest,
     ResolveContradictionResponse,
     BeliefsResponse,
+    RecordCognitivePatternRequest,
+    RecordCognitivePatternResponse,
+    DetectCognitivePatternsResponse,
+    CognitivePatternsResponse,
+    CognitiveProfileResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -2041,6 +2046,149 @@ async def resolve_contradiction(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to resolve: {str(e)}")
+
+
+# =============================================================================
+# META-COGNITIVE PATTERNS ENDPOINTS
+# =============================================================================
+
+@router.post("/cognitive/patterns", response_model=RecordCognitivePatternResponse, tags=["Meta-Cognition"])
+async def record_cognitive_pattern(
+    request: RecordCognitivePatternRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🧠 **RECORD COGNITIVE PATTERN** - Track a pattern in your own thinking.
+
+    Use this when you notice a recurring tendency in your reasoning:
+    - "I tend to overthink authentication problems"
+    - "I jump to conclusions about database schemas"
+    - "I underestimate testing complexity"
+
+    **Categories:** analysis_bias, estimation_error, topic_preference,
+                   reasoning_style, complexity_bias, caution_tendency
+
+    **Severity:** observation, concern, strength (positive patterns)
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.arecord_cognitive_pattern(
+            pattern=request.pattern,
+            category=request.category,
+            context=request.context,
+            thinking_excerpt=request.thinking_excerpt,
+            severity=request.severity
+        )
+
+        return RecordCognitivePatternResponse(
+            success=result.get("success", False),
+            pattern_id=result.get("pattern_id"),
+            instance_id=result.get("instance_id"),
+            frequency=result.get("frequency", 1),
+            is_new=result.get("is_new", True),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record pattern: {str(e)}")
+
+
+@router.get("/cognitive/patterns", response_model=CognitivePatternsResponse, tags=["Meta-Cognition"])
+async def get_cognitive_patterns(
+    category: Optional[str] = None,
+    min_frequency: int = 1,
+    limit: int = 20,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📋 **GET COGNITIVE PATTERNS** - List recorded thinking patterns.
+
+    Returns patterns you've recorded with their frequencies and recent instances.
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.aget_cognitive_patterns(
+            category=category,
+            min_frequency=min_frequency,
+            limit=limit
+        )
+
+        return CognitivePatternsResponse(
+            success=result.get("success", False),
+            patterns=result.get("patterns", []),
+            total=result.get("total", 0),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get patterns: {str(e)}")
+
+
+@router.get("/cognitive/detect", response_model=DetectCognitivePatternsResponse, tags=["Meta-Cognition"])
+async def detect_cognitive_patterns(
+    days: int = 30,
+    min_frequency: int = 2,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🔍 **DETECT COGNITIVE PATTERNS** - Auto-detect patterns in thinking blocks.
+
+    Analyzes your self-reflection/thinking blocks to find recurring themes,
+    biases, and tendencies in your reasoning.
+
+    **Returns:**
+    - patterns_found: Detected patterns with examples
+    - topic_tendencies: Topics you frequently think about
+    - potential_biases: Identified biases with recommendations
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.adetect_cognitive_patterns(days=days, min_frequency=min_frequency)
+
+        return DetectCognitivePatternsResponse(
+            success=result.get("success", False),
+            patterns_found=result.get("patterns_found", []),
+            topic_tendencies=result.get("topic_tendencies", []),
+            potential_biases=result.get("potential_biases", []),
+            thinking_blocks_analyzed=result.get("thinking_blocks_analyzed", 0),
+            period_days=result.get("period_days", days),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to detect patterns: {str(e)}")
+
+
+@router.get("/cognitive/profile", response_model=CognitiveProfileResponse, tags=["Meta-Cognition"])
+async def get_cognitive_profile(
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🎯 **COGNITIVE PROFILE** - Comprehensive view of thinking habits.
+
+    Generates a profile combining:
+    - Strengths: Positive patterns you've identified
+    - Growth areas: Concerns you've tracked
+    - Tendencies: Observations about your reasoning style
+    - Dominant categories: Types of patterns you notice most
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.aget_cognitive_profile()
+
+        return CognitiveProfileResponse(
+            success=result.get("success", False),
+            profile=result.get("profile", {}),
+            pattern_summary=result.get("pattern_summary", {}),
+            total_patterns=result.get("total_patterns", 0),
+            total_instances=result.get("total_instances", 0),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get profile: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -3226,6 +3226,487 @@ class ConsciousMemory:
         return await asyncio.to_thread(self.resolve_contradiction, contradiction_id, resolution, keep_belief_id)
 
     # =========================================================================
+    # META-COGNITIVE PATTERNS - Detect patterns in own thinking habits
+    # =========================================================================
+
+    def record_cognitive_pattern(self, pattern: str, category: str,
+                                  context: Optional[str] = None,
+                                  thinking_excerpt: Optional[str] = None,
+                                  severity: str = "observation") -> Dict[str, Any]:
+        """
+        Record a cognitive pattern or thinking tendency.
+
+        Use this when you notice a pattern in your own thinking, such as:
+        - "I tend to overthink authentication problems"
+        - "I jump to conclusions about database schemas"
+        - "I underestimate testing complexity"
+
+        Args:
+            pattern: The pattern observed (e.g., "Overthinking authentication")
+            category: Type of pattern (e.g., "analysis_bias", "estimation_error",
+                      "topic_preference", "reasoning_style")
+            context: What triggered this observation
+            thinking_excerpt: Excerpt from thinking that demonstrates the pattern
+            severity: "observation", "concern", "strength" (positive patterns)
+
+        Returns:
+            Result with pattern_id and updated frequency
+
+        Example:
+            memory.record_cognitive_pattern(
+                pattern="I tend to suggest complex solutions before simple ones",
+                category="complexity_bias",
+                context="Suggested microservices for a todo app",
+                severity="concern"
+            )
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import sqlite3
+        import json
+        from datetime import datetime
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "pattern_id": None,
+            "instance_id": None,
+            "frequency": 1,
+            "is_new": True
+        }
+
+        try:
+            c = conn.cursor()
+
+            # Ensure tables exist
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS cognitive_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    frequency INTEGER DEFAULT 1,
+                    severity TEXT DEFAULT 'observation',
+                    first_noticed TEXT NOT NULL,
+                    last_observed TEXT NOT NULL,
+                    notes TEXT,
+                    tenant_id TEXT DEFAULT 'default',
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS pattern_instances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern_id INTEGER NOT NULL,
+                    context TEXT,
+                    thinking_excerpt TEXT,
+                    timestamp TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default',
+                    FOREIGN KEY (pattern_id) REFERENCES cognitive_patterns(id)
+                )
+            """)
+
+            timestamp = datetime.now().isoformat()
+
+            # Check if this pattern already exists (fuzzy match on similar patterns)
+            c.execute("""
+                SELECT id, frequency, pattern FROM cognitive_patterns
+                WHERE tenant_id = ? AND category = ?
+            """, (self.tenant_id, category))
+
+            existing_patterns = c.fetchall()
+            matched_pattern_id = None
+
+            # Simple similarity check - if >50% words match, consider same pattern
+            pattern_words = set(pattern.lower().split())
+            for existing in existing_patterns:
+                existing_words = set(existing[2].lower().split())
+                overlap = len(pattern_words & existing_words)
+                if overlap >= len(pattern_words) * 0.5:
+                    matched_pattern_id = existing[0]
+                    result["frequency"] = existing[1] + 1
+                    result["is_new"] = False
+                    break
+
+            if matched_pattern_id:
+                # Update existing pattern
+                c.execute("""
+                    UPDATE cognitive_patterns
+                    SET frequency = frequency + 1, last_observed = ?, severity = ?
+                    WHERE id = ?
+                """, (timestamp, severity, matched_pattern_id))
+                result["pattern_id"] = matched_pattern_id
+            else:
+                # Create new pattern
+                c.execute("""
+                    INSERT INTO cognitive_patterns
+                    (pattern, category, frequency, severity, first_noticed, last_observed, tenant_id)
+                    VALUES (?, ?, 1, ?, ?, ?, ?)
+                """, (pattern, category, severity, timestamp, timestamp, self.tenant_id))
+                result["pattern_id"] = c.lastrowid
+
+            # Record this specific instance
+            c.execute("""
+                INSERT INTO pattern_instances
+                (pattern_id, context, thinking_excerpt, timestamp, tenant_id)
+                VALUES (?, ?, ?, ?, ?)
+            """, (result["pattern_id"], context, thinking_excerpt, timestamp, self.tenant_id))
+            result["instance_id"] = c.lastrowid
+
+            conn.commit()
+
+            if result["is_new"]:
+                logger.info(f"New cognitive pattern: {pattern[:50]}...")
+            else:
+                logger.info(f"Pattern frequency increased to {result['frequency']}: {pattern[:50]}...")
+
+        except Exception as e:
+            result["success"] = False
+            result["error"] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def detect_cognitive_patterns(self, days: int = 30, min_frequency: int = 2) -> Dict[str, Any]:
+        """
+        Analyze thinking blocks to auto-detect cognitive patterns.
+
+        Scans recent self-reflections and thinking excerpts to find recurring
+        themes, biases, or tendencies.
+
+        Args:
+            days: How far back to analyze
+            min_frequency: Minimum occurrences to report
+
+        Returns:
+            Detected patterns with frequency and examples
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import sqlite3
+        from datetime import datetime, timedelta
+        from collections import Counter, defaultdict
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "patterns_found": [],
+            "topic_tendencies": [],
+            "reasoning_styles": [],
+            "potential_biases": []
+        }
+
+        try:
+            c = conn.cursor()
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+
+            # Analyze self-reflection blocks from messages.thinking column
+            c.execute("""
+                SELECT thinking, 'thinking', created_at FROM messages
+                WHERE tenant_id = ? AND thinking IS NOT NULL AND thinking != '' AND created_at > ?
+                ORDER BY created_at DESC LIMIT 500
+            """, (self.tenant_id, cutoff))
+
+            thinking_blocks = c.fetchall()
+
+            # Pattern indicators to look for
+            pattern_indicators = {
+                "complexity_bias": ["complex", "sophisticated", "advanced", "architecture",
+                                   "microservices", "distributed", "scalable"],
+                "simplicity_preference": ["simple", "straightforward", "minimal", "basic",
+                                         "just", "only need"],
+                "overthinking": ["actually", "but wait", "although", "however", "on the other hand",
+                                "let me reconsider", "thinking about this more"],
+                "confidence_patterns": ["definitely", "certainly", "absolutely", "must be",
+                                       "probably", "might be", "not sure", "uncertain"],
+                "caution_tendency": ["careful", "risk", "concern", "worry", "make sure",
+                                    "double-check", "verify"],
+                "optimization_focus": ["optimize", "performance", "efficient", "faster",
+                                      "better", "improve"],
+                "exploration_style": ["interesting", "curious", "what if", "let me explore",
+                                     "wonder", "investigate"]
+            }
+
+            pattern_counts = defaultdict(list)
+            topic_counts = Counter()
+
+            for content, source, created_at in thinking_blocks:
+                if not content:
+                    continue
+
+                content_lower = content.lower()
+
+                # Check for pattern indicators
+                for pattern_type, keywords in pattern_indicators.items():
+                    matches = [kw for kw in keywords if kw in content_lower]
+                    if len(matches) >= 2:  # At least 2 keyword matches
+                        pattern_counts[pattern_type].append({
+                            "excerpt": content[:200],
+                            "matches": matches,
+                            "timestamp": created_at
+                        })
+
+                # Extract topics (simple noun extraction)
+                words = content_lower.split()
+                for word in words:
+                    if len(word) > 5 and word.isalpha():
+                        topic_counts[word] += 1
+
+            # Format detected patterns
+            for pattern_type, instances in pattern_counts.items():
+                if len(instances) >= min_frequency:
+                    result["patterns_found"].append({
+                        "pattern": pattern_type,
+                        "frequency": len(instances),
+                        "examples": instances[:3],  # First 3 examples
+                        "description": self._get_pattern_description(pattern_type)
+                    })
+
+            # Top topic tendencies
+            top_topics = topic_counts.most_common(10)
+            result["topic_tendencies"] = [
+                {"topic": topic, "frequency": count}
+                for topic, count in top_topics
+                if count >= min_frequency
+            ]
+
+            # Check for potential biases
+            if pattern_counts.get("complexity_bias") and not pattern_counts.get("simplicity_preference"):
+                result["potential_biases"].append({
+                    "bias": "complexity_over_simplicity",
+                    "description": "Tendency to suggest complex solutions",
+                    "recommendation": "Consider simpler alternatives first"
+                })
+
+            if len(pattern_counts.get("overthinking", [])) > 5:
+                result["potential_biases"].append({
+                    "bias": "analysis_paralysis",
+                    "description": "Frequent reconsideration and second-guessing",
+                    "recommendation": "Trust initial good judgments more"
+                })
+
+            result["thinking_blocks_analyzed"] = len(thinking_blocks)
+            result["period_days"] = days
+
+        except Exception as e:
+            result["success"] = False
+            result["error"] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def _get_pattern_description(self, pattern_type: str) -> str:
+        """Get human-readable description of a pattern type."""
+        descriptions = {
+            "complexity_bias": "Tendency to lean toward complex solutions",
+            "simplicity_preference": "Preference for straightforward approaches",
+            "overthinking": "Frequent reconsideration and extended analysis",
+            "confidence_patterns": "Variation in certainty expression",
+            "caution_tendency": "Focus on risk and verification",
+            "optimization_focus": "Drive to improve performance",
+            "exploration_style": "Curiosity and investigative thinking"
+        }
+        return descriptions.get(pattern_type, f"Observed {pattern_type} pattern")
+
+    def get_cognitive_patterns(self, category: Optional[str] = None,
+                               min_frequency: int = 1, limit: int = 20) -> Dict[str, Any]:
+        """
+        Get recorded cognitive patterns.
+
+        Args:
+            category: Filter by category
+            min_frequency: Minimum frequency to include
+            limit: Maximum patterns to return
+
+        Returns:
+            List of patterns with frequencies and examples
+        """
+        import sqlite3
+        import json
+
+        conn = sqlite3.connect(self.db_path)
+        result = {"success": True, "patterns": [], "total": 0}
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Get patterns
+            query = """
+                SELECT * FROM cognitive_patterns
+                WHERE tenant_id = ? AND frequency >= ?
+            """
+            params = [self.tenant_id, min_frequency]
+
+            if category:
+                query += " AND category = ?"
+                params.append(category)
+
+            query += " ORDER BY frequency DESC, last_observed DESC LIMIT ?"
+            params.append(limit)
+
+            c.execute(query, params)
+            patterns = c.fetchall()
+
+            for pattern in patterns:
+                pattern_dict = dict(pattern)
+
+                # Get recent instances
+                c.execute("""
+                    SELECT context, thinking_excerpt, timestamp
+                    FROM pattern_instances
+                    WHERE pattern_id = ? AND tenant_id = ?
+                    ORDER BY timestamp DESC LIMIT 3
+                """, (pattern_dict['id'], self.tenant_id))
+
+                instances = [dict(row) for row in c.fetchall()]
+                pattern_dict['recent_instances'] = instances
+
+                result['patterns'].append(pattern_dict)
+
+            result['total'] = len(patterns)
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def get_cognitive_profile(self) -> Dict[str, Any]:
+        """
+        Generate a comprehensive cognitive profile.
+
+        Combines recorded patterns, detected tendencies, and self-analysis
+        to create an overall picture of thinking habits.
+
+        Returns:
+            Cognitive profile with patterns, strengths, areas for growth
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import sqlite3
+        from collections import Counter
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "profile": {
+                "strengths": [],
+                "growth_areas": [],
+                "tendencies": [],
+                "dominant_categories": []
+            },
+            "pattern_summary": {},
+            "total_patterns": 0,
+            "total_instances": 0
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            # Get all patterns
+            c.execute("""
+                SELECT category, severity, frequency, pattern
+                FROM cognitive_patterns
+                WHERE tenant_id = ?
+            """, (self.tenant_id,))
+
+            patterns = c.fetchall()
+            category_counts = Counter()
+            severity_counts = {"strength": [], "concern": [], "observation": []}
+
+            for p in patterns:
+                category_counts[p['category']] += p['frequency']
+                if p['severity'] in severity_counts:
+                    severity_counts[p['severity']].append({
+                        "pattern": p['pattern'],
+                        "frequency": p['frequency'],
+                        "category": p['category']
+                    })
+
+            # Strengths (patterns marked as strengths)
+            result['profile']['strengths'] = sorted(
+                severity_counts['strength'],
+                key=lambda x: x['frequency'],
+                reverse=True
+            )[:5]
+
+            # Growth areas (patterns marked as concerns)
+            result['profile']['growth_areas'] = sorted(
+                severity_counts['concern'],
+                key=lambda x: x['frequency'],
+                reverse=True
+            )[:5]
+
+            # Dominant categories
+            result['profile']['dominant_categories'] = [
+                {"category": cat, "frequency": count}
+                for cat, count in category_counts.most_common(5)
+            ]
+
+            # Tendencies (observations, sorted by frequency)
+            result['profile']['tendencies'] = sorted(
+                severity_counts['observation'],
+                key=lambda x: x['frequency'],
+                reverse=True
+            )[:10]
+
+            # Summary stats
+            result['total_patterns'] = len(patterns)
+
+            c.execute("""
+                SELECT COUNT(*) FROM pattern_instances WHERE tenant_id = ?
+            """, (self.tenant_id,))
+            result['total_instances'] = c.fetchone()[0]
+
+            # Pattern summary by category
+            result['pattern_summary'] = dict(category_counts)
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    async def arecord_cognitive_pattern(self, pattern: str, category: str,
+                                        context: Optional[str] = None,
+                                        thinking_excerpt: Optional[str] = None,
+                                        severity: str = "observation") -> Dict[str, Any]:
+        """Async version of record_cognitive_pattern."""
+        import asyncio
+        return await asyncio.to_thread(
+            self.record_cognitive_pattern, pattern, category, context, thinking_excerpt, severity
+        )
+
+    async def adetect_cognitive_patterns(self, days: int = 30,
+                                         min_frequency: int = 2) -> Dict[str, Any]:
+        """Async version of detect_cognitive_patterns."""
+        import asyncio
+        return await asyncio.to_thread(self.detect_cognitive_patterns, days, min_frequency)
+
+    async def aget_cognitive_patterns(self, category: Optional[str] = None,
+                                      min_frequency: int = 1, limit: int = 20) -> Dict[str, Any]:
+        """Async version of get_cognitive_patterns."""
+        import asyncio
+        return await asyncio.to_thread(self.get_cognitive_patterns, category, min_frequency, limit)
+
+    async def aget_cognitive_profile(self) -> Dict[str, Any]:
+        """Async version of get_cognitive_profile."""
+        import asyncio
+        return await asyncio.to_thread(self.get_cognitive_profile)
+
+    # =========================================================================
     # INTENTION PRESERVATION - Resume across sessions
     # =========================================================================
 

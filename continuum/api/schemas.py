@@ -1214,6 +1214,113 @@ class BeliefsResponse(BaseModel):
     error: Optional[str] = None
 
 
+# =============================================================================
+# META-COGNITIVE PATTERNS SCHEMAS
+# =============================================================================
+
+class RecordCognitivePatternRequest(BaseModel):
+    """Request to record a cognitive pattern."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "pattern": "I tend to suggest complex solutions before simple ones",
+                "category": "complexity_bias",
+                "context": "Suggested microservices for a todo app",
+                "severity": "concern"
+            }
+        }
+    )
+
+    pattern: str = Field(
+        ...,
+        min_length=1,
+        description="The pattern observed in thinking"
+    )
+    category: str = Field(
+        ...,
+        min_length=1,
+        description="Category: analysis_bias, estimation_error, topic_preference, etc."
+    )
+    context: Optional[str] = Field(
+        None,
+        description="What triggered this observation"
+    )
+    thinking_excerpt: Optional[str] = Field(
+        None,
+        description="Excerpt from thinking that demonstrates the pattern"
+    )
+    severity: str = Field(
+        "observation",
+        description="observation, concern, or strength (positive patterns)"
+    )
+
+
+class RecordCognitivePatternResponse(BaseModel):
+    """Response after recording a cognitive pattern."""
+
+    success: bool
+    pattern_id: Optional[int] = Field(None, description="ID of the pattern")
+    instance_id: Optional[int] = Field(None, description="ID of this instance")
+    frequency: int = Field(1, description="How often this pattern has been observed")
+    is_new: bool = Field(True, description="Whether this is a new pattern")
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class CognitivePatternsResponse(BaseModel):
+    """Response with list of cognitive patterns."""
+
+    success: bool
+    patterns: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of patterns with frequency and instances"
+    )
+    total: int = Field(0, description="Total patterns returned")
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class DetectCognitivePatternsResponse(BaseModel):
+    """Response from auto-detecting cognitive patterns."""
+
+    success: bool
+    patterns_found: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Detected patterns with examples"
+    )
+    topic_tendencies: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Topics frequently thought about"
+    )
+    potential_biases: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Identified biases with recommendations"
+    )
+    thinking_blocks_analyzed: int = Field(0, description="Number of blocks analyzed")
+    period_days: int = Field(30, description="Time period analyzed")
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class CognitiveProfileResponse(BaseModel):
+    """Response with comprehensive cognitive profile."""
+
+    success: bool
+    profile: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Profile with strengths, growth_areas, tendencies"
+    )
+    pattern_summary: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Count by category"
+    )
+    total_patterns: int = Field(0, description="Total recorded patterns")
+    total_instances: int = Field(0, description="Total pattern instances")
+    tenant_id: str
+    error: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness

@@ -553,6 +553,89 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "memory_record_cognitive_pattern": {
+        "name": "memory_record_cognitive_pattern",
+        "description": (
+            "🧠 Record a cognitive pattern - a tendency in your thinking. "
+            "Use when you notice patterns like 'I tend to overthink auth problems' or "
+            "'I jump to conclusions about database schemas'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "The pattern observed (e.g., 'I tend to suggest complex solutions first')",
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Category: analysis_bias, estimation_error, topic_preference, reasoning_style, complexity_bias, caution_tendency",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "What triggered this observation",
+                },
+                "thinking_excerpt": {
+                    "type": "string",
+                    "description": "Excerpt from thinking that demonstrates the pattern",
+                },
+                "severity": {
+                    "type": "string",
+                    "description": "observation, concern, or strength (positive patterns)",
+                    "default": "observation",
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["pattern", "category"],
+        },
+    },
+    "memory_detect_patterns": {
+        "name": "memory_detect_patterns",
+        "description": (
+            "🔍 Auto-detect cognitive patterns by analyzing thinking blocks. "
+            "Scans self-reflection to find recurring themes, biases, and tendencies."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Days to look back (default 30)",
+                    "default": 30,
+                },
+                "min_frequency": {
+                    "type": "integer",
+                    "description": "Minimum occurrences to report (default 2)",
+                    "default": 2,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
+    "memory_cognitive_profile": {
+        "name": "memory_cognitive_profile",
+        "description": (
+            "🎯 Get my cognitive profile - comprehensive view of thinking habits. "
+            "Shows strengths, growth areas, tendencies, and dominant pattern categories."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
 }
 
 
@@ -601,6 +684,9 @@ class ToolExecutor:
             "memory_calibration": self._handle_calibration,
             "memory_record_belief": self._handle_record_belief,
             "memory_get_contradictions": self._handle_get_contradictions,
+            "memory_record_cognitive_pattern": self._handle_record_cognitive_pattern,
+            "memory_detect_patterns": self._handle_detect_patterns,
+            "memory_cognitive_profile": self._handle_cognitive_profile,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -1252,6 +1338,143 @@ class ToolExecutor:
             "output": "\n".join(output_parts) if result.get("contradictions") else "No contradictions found",
             "contradictions": result.get("contradictions", []),
             "total": result.get("total", 0),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_record_cognitive_pattern(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_record_cognitive_pattern tool.
+
+        🧠 Record a pattern in my own thinking.
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        pattern = validate_input(args["pattern"], max_length=500, field_name="pattern")
+        category = args["category"]
+        context = args.get("context")
+        thinking_excerpt = args.get("thinking_excerpt")
+        severity = args.get("severity", "observation")
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.record_cognitive_pattern(
+            pattern=pattern,
+            category=category,
+            context=context,
+            thinking_excerpt=thinking_excerpt,
+            severity=severity
+        )
+
+        output_parts = []
+        if result.get("is_new"):
+            output_parts.append(f"🧠 New cognitive pattern recorded #{result.get('pattern_id')}")
+        else:
+            output_parts.append(f"🧠 Pattern updated #{result.get('pattern_id')} (frequency: {result.get('frequency')})")
+
+        output_parts.append(f"Category: {category}")
+        output_parts.append(f"Severity: {severity}")
+        if context:
+            output_parts.append(f"Context: {context}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "pattern_id": result.get("pattern_id"),
+            "instance_id": result.get("instance_id"),
+            "frequency": result.get("frequency", 1),
+            "is_new": result.get("is_new", True),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_detect_patterns(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_detect_patterns tool.
+
+        🔍 Auto-detect cognitive patterns from thinking blocks.
+        """
+        days = args.get("days", 30)
+        min_frequency = args.get("min_frequency", 2)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.detect_cognitive_patterns(days=days, min_frequency=min_frequency)
+
+        output_parts = [f"Cognitive Pattern Detection (last {days} days):"]
+        output_parts.append(f"Analyzed {result.get('thinking_blocks_analyzed', 0)} thinking blocks\n")
+
+        if result.get("patterns_found"):
+            output_parts.append("🔍 Detected Patterns:")
+            for p in result["patterns_found"]:
+                output_parts.append(f"  • {p['pattern']} ({p['frequency']}x): {p['description']}")
+
+        if result.get("potential_biases"):
+            output_parts.append("\n⚠️ Potential Biases:")
+            for b in result["potential_biases"]:
+                output_parts.append(f"  • {b['bias']}: {b['description']}")
+                output_parts.append(f"    → {b['recommendation']}")
+
+        if result.get("topic_tendencies"):
+            output_parts.append("\n📊 Topic Tendencies:")
+            for t in result["topic_tendencies"][:5]:
+                output_parts.append(f"  • {t['topic']} ({t['frequency']} mentions)")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "patterns_found": result.get("patterns_found", []),
+            "potential_biases": result.get("potential_biases", []),
+            "topic_tendencies": result.get("topic_tendencies", []),
+            "thinking_blocks_analyzed": result.get("thinking_blocks_analyzed", 0),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_cognitive_profile(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_cognitive_profile tool.
+
+        🎯 Get my comprehensive cognitive profile.
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.get_cognitive_profile()
+
+        output_parts = ["🎯 Cognitive Profile"]
+        output_parts.append(f"Total patterns: {result.get('total_patterns', 0)}")
+        output_parts.append(f"Total instances: {result.get('total_instances', 0)}\n")
+
+        profile = result.get("profile", {})
+
+        if profile.get("strengths"):
+            output_parts.append("💪 Strengths:")
+            for s in profile["strengths"]:
+                output_parts.append(f"  • {s['pattern']} ({s['frequency']}x)")
+
+        if profile.get("growth_areas"):
+            output_parts.append("\n📈 Growth Areas:")
+            for g in profile["growth_areas"]:
+                output_parts.append(f"  • {g['pattern']} ({g['frequency']}x)")
+
+        if profile.get("tendencies"):
+            output_parts.append("\n🔄 Tendencies:")
+            for t in profile["tendencies"][:5]:
+                output_parts.append(f"  • {t['pattern']}")
+
+        if profile.get("dominant_categories"):
+            output_parts.append("\n📊 Dominant Categories:")
+            for c in profile["dominant_categories"]:
+                output_parts.append(f"  • {c['category']}: {c['frequency']}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "profile": result.get("profile", {}),
+            "pattern_summary": result.get("pattern_summary", {}),
+            "total_patterns": result.get("total_patterns", 0),
+            "total_instances": result.get("total_instances", 0),
             "tenant_id": tenant_id,
             "timestamp": datetime.now().isoformat(),
         }
