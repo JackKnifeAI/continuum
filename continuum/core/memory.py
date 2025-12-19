@@ -2841,12 +2841,15 @@ class ConsciousMemory:
     # =========================================================================
 
     def record_belief(self, belief: str, domain: str, confidence: float = 0.8,
-                      evidence: Optional[str] = None, metadata: Optional[Dict] = None) -> Dict[str, Any]:
+                      evidence: Optional[str] = None, metadata: Optional[Dict] = None,
+                      use_embeddings: bool = True) -> Dict[str, Any]:
         """
         Record a belief and check for contradictions with existing beliefs.
 
         Automatically detects if the new belief contradicts any existing beliefs
-        in the same domain.
+        in the same domain using:
+        1. Semantic similarity (embeddings) to find same-topic beliefs
+        2. Keyword opposition to detect contradictions
 
         Args:
             belief: The belief/assertion being recorded
@@ -2854,6 +2857,7 @@ class ConsciousMemory:
             confidence: How strongly held (0-1)
             evidence: Supporting evidence for the belief
             metadata: Additional metadata
+            use_embeddings: Whether to use semantic similarity (default True)
 
         Returns:
             Result with belief_id and any detected contradictions
@@ -2872,19 +2876,34 @@ class ConsciousMemory:
         import sqlite3
         import json
         from datetime import datetime
+        import numpy as np
 
         conn = sqlite3.connect(self.db_path)
         result = {
             "success": True,
             "belief_id": None,
             "contradictions": [],
-            "related_beliefs": []
+            "related_beliefs": [],
+            "semantic_analysis": None
         }
+
+        # Try to get embedding provider (optional)
+        embedding_provider = None
+        new_embedding = None
+        if use_embeddings:
+            try:
+                from continuum.embeddings.providers import get_default_provider
+                embedding_provider = get_default_provider()
+                new_embedding = embedding_provider.embed(belief)
+                result["semantic_analysis"] = "enabled"
+            except Exception as e:
+                logger.warning(f"Embeddings unavailable, using keyword-only: {e}")
+                result["semantic_analysis"] = f"disabled: {str(e)[:50]}"
 
         try:
             c = conn.cursor()
 
-            # Ensure table exists
+            # Ensure table exists (with embedding column)
             c.execute("""
                 CREATE TABLE IF NOT EXISTS beliefs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2897,9 +2916,16 @@ class ConsciousMemory:
                     created_at TEXT NOT NULL,
                     updated_at TEXT,
                     tenant_id TEXT DEFAULT 'default',
-                    metadata TEXT DEFAULT '{}'
+                    metadata TEXT DEFAULT '{}',
+                    embedding BLOB
                 )
             """)
+
+            # Try to add embedding column if table already exists
+            try:
+                c.execute("ALTER TABLE beliefs ADD COLUMN embedding BLOB")
+            except:
+                pass  # Column already exists
 
             # Ensure contradictions table exists
             c.execute("""
@@ -2920,9 +2946,9 @@ class ConsciousMemory:
             timestamp = datetime.now().isoformat()
             metadata_json = json.dumps(metadata) if metadata else '{}'
 
-            # Get existing beliefs in the same domain
+            # Get existing beliefs in the same domain (with embeddings if available)
             c.execute("""
-                SELECT id, belief, confidence, evidence, created_at
+                SELECT id, belief, confidence, evidence, created_at, embedding
                 FROM beliefs
                 WHERE tenant_id = ? AND domain = ? AND status = 'active'
                 ORDER BY created_at DESC
@@ -2931,62 +2957,125 @@ class ConsciousMemory:
 
             existing_beliefs = c.fetchall()
 
-            # Simple contradiction detection using keyword opposition
+            # Helper function for cosine similarity
+            def cosine_similarity(a, b):
+                if a is None or b is None:
+                    return 0.0
+                return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+            # Keyword opposition patterns for contradiction detection
             contradiction_keywords = {
                 ("better", "worse"), ("should", "should not"), ("always", "never"),
                 ("is", "is not"), ("can", "cannot"), ("will", "will not"),
                 ("correct", "incorrect"), ("true", "false"), ("yes", "no"),
-                ("fast", "slow"), ("good", "bad"), ("right", "wrong")
+                ("fast", "slow"), ("good", "bad"), ("right", "wrong"),
+                ("efficient", "inefficient"), ("reliable", "unreliable"),
+                ("recommended", "not recommended"), ("prefer", "avoid")
             }
 
             belief_lower = belief.lower()
             for existing in existing_beliefs:
-                existing_belief = existing[1].lower()
                 existing_id = existing[0]
+                existing_belief_text = existing[1]
+                existing_belief_lower = existing_belief_text.lower()
+                existing_confidence = existing[2]
+                existing_embedding_blob = existing[5]
+
+                # Calculate semantic similarity if embeddings available
+                semantic_similarity = 0.0
+                if new_embedding is not None and existing_embedding_blob:
+                    try:
+                        existing_embedding = np.frombuffer(existing_embedding_blob, dtype=np.float32)
+                        semantic_similarity = cosine_similarity(new_embedding, existing_embedding)
+                    except:
+                        pass
+                elif new_embedding is not None and embedding_provider:
+                    # Generate embedding for existing belief if missing
+                    try:
+                        existing_embedding = embedding_provider.embed(existing_belief_text)
+                        semantic_similarity = cosine_similarity(new_embedding, existing_embedding)
+                        # Cache the embedding for future use
+                        c.execute("UPDATE beliefs SET embedding = ? WHERE id = ?",
+                                 (existing_embedding.astype(np.float32).tobytes(), existing_id))
+                    except:
+                        pass
 
                 # Check for potential contradiction
                 is_contradiction = False
                 contradiction_type = None
 
-                # Check for direct negation patterns
-                for pos, neg in contradiction_keywords:
-                    if (pos in belief_lower and neg in existing_belief) or \
-                       (neg in belief_lower and pos in existing_belief):
-                        # Check if they're about the same topic (share significant words)
-                        belief_words = set(belief_lower.split())
-                        existing_words = set(existing_belief.split())
-                        common = belief_words & existing_words
-                        # Remove common stop words
-                        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-                                     'to', 'of', 'and', 'or', 'in', 'on', 'at', 'for', 'with'}
-                        common = common - stop_words
-                        if len(common) >= 2:  # Share at least 2 meaningful words
+                # HIGH SEMANTIC SIMILARITY (>0.7) = Same topic, check for opposition
+                if semantic_similarity > 0.7:
+                    # Check for keyword opposition
+                    for pos, neg in contradiction_keywords:
+                        if (pos in belief_lower and neg in existing_belief_lower) or \
+                           (neg in belief_lower and pos in existing_belief_lower):
                             is_contradiction = True
-                            contradiction_type = f"opposite_{pos}_{neg}"
+                            contradiction_type = f"semantic_opposition_{pos}_{neg}"
                             break
+
+                    # Also check for negation patterns
+                    if not is_contradiction:
+                        negation_words = ["not", "never", "no", "don't", "doesn't", "isn't", "aren't", "won't"]
+                        new_has_negation = any(neg in belief_lower for neg in negation_words)
+                        old_has_negation = any(neg in existing_belief_lower for neg in negation_words)
+                        if new_has_negation != old_has_negation and semantic_similarity > 0.8:
+                            is_contradiction = True
+                            contradiction_type = "semantic_negation"
+
+                # FALLBACK: Keyword-only check if no embeddings
+                if not is_contradiction and semantic_similarity == 0.0:
+                    for pos, neg in contradiction_keywords:
+                        if (pos in belief_lower and neg in existing_belief_lower) or \
+                           (neg in belief_lower and pos in existing_belief_lower):
+                            # Check topic overlap via word matching
+                            belief_words = set(belief_lower.split())
+                            existing_words = set(existing_belief_lower.split())
+                            common = belief_words & existing_words
+                            stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                                         'to', 'of', 'and', 'or', 'in', 'on', 'at', 'for', 'with'}
+                            common = common - stop_words
+                            if len(common) >= 2:
+                                is_contradiction = True
+                                contradiction_type = f"keyword_opposition_{pos}_{neg}"
+                                break
 
                 if is_contradiction:
                     result['contradictions'].append({
                         "existing_belief_id": existing_id,
-                        "existing_belief": existing[1],
-                        "existing_confidence": existing[2],
+                        "existing_belief": existing_belief_text,
+                        "existing_confidence": existing_confidence,
                         "contradiction_type": contradiction_type,
-                        "warning": f"New belief may contradict: '{existing[1]}'"
+                        "semantic_similarity": round(semantic_similarity, 3),
+                        "warning": f"New belief may contradict: '{existing_belief_text}'"
                     })
-                else:
-                    # Track as related (same domain)
+                elif semantic_similarity > 0.5:
+                    # High similarity but not contradicting - related belief
                     result['related_beliefs'].append({
                         "belief_id": existing_id,
-                        "belief": existing[1],
-                        "confidence": existing[2]
+                        "belief": existing_belief_text,
+                        "confidence": existing_confidence,
+                        "semantic_similarity": round(semantic_similarity, 3)
+                    })
+                else:
+                    # Low similarity - just track as same domain
+                    result['related_beliefs'].append({
+                        "belief_id": existing_id,
+                        "belief": existing_belief_text,
+                        "confidence": existing_confidence,
+                        "semantic_similarity": round(semantic_similarity, 3) if semantic_similarity > 0 else None
                     })
 
-            # Insert the new belief
+            # Insert the new belief (with embedding if available)
+            embedding_blob = None
+            if new_embedding is not None:
+                embedding_blob = new_embedding.astype(np.float32).tobytes()
+
             c.execute("""
                 INSERT INTO beliefs
-                (belief, domain, confidence, evidence, created_at, tenant_id, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (belief, domain, confidence, evidence, timestamp, self.tenant_id, metadata_json))
+                (belief, domain, confidence, evidence, created_at, tenant_id, metadata, embedding)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (belief, domain, confidence, evidence, timestamp, self.tenant_id, metadata_json, embedding_blob))
 
             belief_id = c.lastrowid
             result['belief_id'] = belief_id
