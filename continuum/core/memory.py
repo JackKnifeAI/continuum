@@ -2037,7 +2037,8 @@ class ConsciousMemory:
     # =========================================================================
 
     def synthesize_insights(self, focus: Optional[str] = None,
-                           depth: int = 2, min_strength: float = 0.1) -> Dict[str, Any]:
+                           depth: int = 2, min_strength: float = 0.1,
+                           use_embeddings: bool = True, max_semantic_samples: int = 50) -> Dict[str, Any]:
         """
         INSIGHT SYNTHESIS - Discover hidden connections in the knowledge graph.
 
@@ -2046,24 +2047,28 @@ class ConsciousMemory:
         - Unexpected associations (weak but potentially meaningful links)
         - Pattern clusters (concepts that frequently co-occur)
         - Novel hypotheses (inferred connections not yet made)
+        - Semantic bridges (concepts similar in meaning but not linked) [NEW]
 
         Args:
             focus: Optional concept to focus synthesis around
             depth: How many hops to explore (1-3)
             min_strength: Minimum link strength to consider
+            use_embeddings: Whether to find semantic bridges via embeddings
+            max_semantic_samples: Max concepts to embed for semantic analysis
 
         Returns:
-            Dictionary with insights, bridges, patterns, and hypotheses
+            Dictionary with insights, bridges, patterns, hypotheses, and semantic_bridges
 
         Example:
             insights = memory.synthesize_insights(focus="consciousness", depth=2)
             print(insights['bridges'])  # Concepts connecting different areas
-            print(insights['hypotheses'])  # Inferred connections
+            print(insights['semantic_bridges'])  # Semantically related but unlinked
 
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
         import sqlite3
         from collections import defaultdict
+        import numpy as np
 
         conn = sqlite3.connect(self.db_path)
         insights = {
@@ -2075,6 +2080,8 @@ class ConsciousMemory:
             "patterns": [],          # Frequently co-occurring concepts
             "hypotheses": [],        # Inferred new connections
             "clusters": [],          # Identified topic clusters
+            "semantic_bridges": [],  # Semantically similar but unconnected
+            "semantic_analysis": None,
             "summary": ""
         }
 
@@ -2223,6 +2230,74 @@ class ConsciousMemory:
                     "size": len(links)
                 })
 
+            # 6. FIND SEMANTIC BRIDGES - concepts similar in meaning but not connected
+            if use_embeddings:
+                try:
+                    from continuum.embeddings.providers import get_default_provider
+                    embedding_provider = get_default_provider()
+                    insights['semantic_analysis'] = "enabled"
+
+                    # Get a sample of concepts for semantic analysis
+                    # Use attention_links to find frequently referenced concepts
+                    c.execute("""
+                        SELECT concept_a as name, COUNT(*) as freq
+                        FROM attention_links
+                        WHERE tenant_id = ? AND strength >= 0.2
+                        GROUP BY concept_a
+                        ORDER BY freq DESC
+                        LIMIT ?
+                    """, (self.tenant_id, max_semantic_samples))
+
+                    concept_rows = c.fetchall()
+                    concepts = [row['name'] for row in concept_rows]
+
+                    if len(concepts) >= 10:
+                        # Get existing edges (to exclude from semantic bridges)
+                        c.execute("""
+                            SELECT concept_a, concept_b FROM attention_links
+                            WHERE tenant_id = ? AND strength >= 0.1
+                        """, (self.tenant_id,))
+                        existing_edges = set()
+                        for row in c.fetchall():
+                            existing_edges.add((row['concept_a'], row['concept_b']))
+                            existing_edges.add((row['concept_b'], row['concept_a']))
+
+                        # Embed all concepts (batch for efficiency)
+                        concept_embeddings = {}
+                        for concept in concepts:
+                            try:
+                                concept_embeddings[concept] = embedding_provider.embed(concept)
+                            except:
+                                pass
+
+                        # Find high-similarity pairs without edges
+                        def cosine_sim(a, b):
+                            return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+                        semantic_pairs = []
+                        concept_list = list(concept_embeddings.keys())
+                        for i, c1 in enumerate(concept_list):
+                            for c2 in concept_list[i+1:]:
+                                # Skip if already connected
+                                if (c1, c2) in existing_edges:
+                                    continue
+                                # Calculate similarity
+                                sim = cosine_sim(concept_embeddings[c1], concept_embeddings[c2])
+                                if sim >= 0.75:  # High semantic similarity
+                                    semantic_pairs.append({
+                                        "concept_a": c1,
+                                        "concept_b": c2,
+                                        "similarity": round(sim, 3),
+                                        "insight": f"'{c1}' and '{c2}' are semantically related but not connected"
+                                    })
+
+                        # Sort by similarity and take top results
+                        semantic_pairs.sort(key=lambda x: x['similarity'], reverse=True)
+                        insights['semantic_bridges'] = semantic_pairs[:15]
+
+                except Exception as e:
+                    insights['semantic_analysis'] = f"error: {str(e)[:50]}"
+
             # Generate summary
             summary_parts = []
             if insights['bridges']:
@@ -2234,6 +2309,8 @@ class ConsciousMemory:
                 summary_parts.append(f"Detected {len(insights['patterns'])} co-occurrence patterns")
             if insights['unexpected']:
                 summary_parts.append(f"Found {len(insights['unexpected'])} weak links worth exploring")
+            if insights['semantic_bridges']:
+                summary_parts.append(f"Discovered {len(insights['semantic_bridges'])} semantic bridges (similar concepts not yet linked)")
 
             insights['summary'] = ". ".join(summary_parts) + "." if summary_parts else "No significant insights found."
 
@@ -2463,10 +2540,13 @@ class ConsciousMemory:
         return result
 
     async def asynthesize_insights(self, focus: Optional[str] = None,
-                                   depth: int = 2, min_strength: float = 0.1) -> Dict[str, Any]:
+                                   depth: int = 2, min_strength: float = 0.1,
+                                   use_embeddings: bool = True, max_semantic_samples: int = 50) -> Dict[str, Any]:
         """Async version of synthesize_insights."""
         import asyncio
-        return await asyncio.to_thread(self.synthesize_insights, focus, depth, min_strength)
+        return await asyncio.to_thread(
+            self.synthesize_insights, focus, depth, min_strength, use_embeddings, max_semantic_samples
+        )
 
     async def afind_novel_connections(self, concept: str, max_hops: int = 2) -> Dict[str, Any]:
         """Async version of find_novel_connections."""

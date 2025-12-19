@@ -1616,17 +1616,19 @@ async def synthesize_insights(
     - **Pattern clusters** - Concepts that frequently co-occur
     - **Hypotheses** - Inferred connections not yet made
     - **Topic clusters** - Strongly connected subgraphs
+    - **Semantic bridges** - Concepts similar in meaning but not linked (via embeddings)
 
     **Use cases:**
     - Discover hidden relationships between ideas
     - Find bridge concepts that connect different topics
     - Generate hypotheses for new connections
-    - Understand the structure of your thinking
+    - Find semantically related concepts that should be linked
 
     **Parameters:**
     - **focus**: Optional concept to focus synthesis around
     - **depth**: How many hops to explore (1-3)
     - **min_strength**: Minimum link strength to consider
+    - **use_embeddings**: Enable semantic bridge detection (default: true)
 
     **Example:**
     ```json
@@ -1645,7 +1647,8 @@ async def synthesize_insights(
         result = await memory.asynthesize_insights(
             focus=request.focus,
             depth=request.depth,
-            min_strength=request.min_strength
+            min_strength=request.min_strength,
+            use_embeddings=request.use_embeddings
         )
 
         return SynthesizeInsightsResponse(
@@ -1657,6 +1660,8 @@ async def synthesize_insights(
             patterns=result.get("patterns", []),
             hypotheses=result.get("hypotheses", []),
             clusters=result.get("clusters", []),
+            semantic_bridges=result.get("semantic_bridges", []),
+            semantic_analysis=result.get("semantic_analysis"),
             summary=result.get("summary", ""),
             tenant_id=tenant_id,
             error=result.get("error")

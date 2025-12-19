@@ -959,6 +959,10 @@ class SynthesizeInsightsRequest(BaseModel):
         ge=0.0,
         le=1.0
     )
+    use_embeddings: bool = Field(
+        True,
+        description="Enable semantic bridge detection via embeddings"
+    )
 
 
 class BridgeConcept(BaseModel):
@@ -1024,6 +1028,14 @@ class SynthesizeInsightsResponse(BaseModel):
     patterns: List[Dict[str, Any]]
     hypotheses: List[Dict[str, Any]]
     clusters: List[Dict[str, Any]]
+    semantic_bridges: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Concepts semantically similar but not connected in graph"
+    )
+    semantic_analysis: Optional[str] = Field(
+        None,
+        description="Status of semantic analysis (enabled/disabled/error)"
+    )
     summary: str
     tenant_id: str
     error: Optional[str] = None
