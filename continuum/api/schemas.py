@@ -1151,6 +1151,69 @@ class ClaimHistoryResponse(BaseModel):
     error: Optional[str] = None
 
 
+# =============================================================================
+# CONTRADICTION DETECTION SCHEMAS
+# =============================================================================
+
+class RecordBeliefRequest(BaseModel):
+    """Request to record a belief."""
+
+    belief: str = Field(..., min_length=1, description="The belief/assertion")
+    domain: str = Field(..., min_length=1, description="Domain: architecture, debugging, etc.")
+    confidence: float = Field(0.8, ge=0.0, le=1.0, description="Confidence level")
+    evidence: Optional[str] = Field(None, description="Supporting evidence")
+
+
+class RecordBeliefResponse(BaseModel):
+    """Response after recording a belief."""
+
+    success: bool
+    belief_id: Optional[int]
+    contradictions: List[Dict[str, Any]]
+    related_beliefs: List[Dict[str, Any]]
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class ContradictionsResponse(BaseModel):
+    """Response with contradictions."""
+
+    success: bool
+    contradictions: List[Dict[str, Any]]
+    total: int
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class ResolveContradictionRequest(BaseModel):
+    """Request to resolve a contradiction."""
+
+    contradiction_id: int = Field(..., description="ID of contradiction")
+    resolution: str = Field(..., min_length=1, description="Explanation of resolution")
+    keep_belief_id: Optional[int] = Field(None, description="ID of belief to keep")
+
+
+class ResolveContradictionResponse(BaseModel):
+    """Response after resolving."""
+
+    success: bool
+    resolution: Optional[str]
+    kept_belief_id: Optional[int]
+    superseded_belief_id: Optional[int]
+    tenant_id: str
+    error: Optional[str] = None
+
+
+class BeliefsResponse(BaseModel):
+    """Response with beliefs."""
+
+    success: bool
+    beliefs: List[Dict[str, Any]]
+    total: int
+    tenant_id: str
+    error: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness

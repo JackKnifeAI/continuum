@@ -2837,6 +2837,395 @@ class ConsciousMemory:
         return await asyncio.to_thread(self.get_calibration_score, category, days)
 
     # =========================================================================
+    # CONTRADICTION DETECTION - Flag conflicting beliefs
+    # =========================================================================
+
+    def record_belief(self, belief: str, domain: str, confidence: float = 0.8,
+                      evidence: Optional[str] = None, metadata: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Record a belief and check for contradictions with existing beliefs.
+
+        Automatically detects if the new belief contradicts any existing beliefs
+        in the same domain.
+
+        Args:
+            belief: The belief/assertion being recorded
+            domain: Category/domain (e.g., "architecture", "debugging", "user_preferences")
+            confidence: How strongly held (0-1)
+            evidence: Supporting evidence for the belief
+            metadata: Additional metadata
+
+        Returns:
+            Result with belief_id and any detected contradictions
+
+        Example:
+            result = memory.record_belief(
+                "Redis is better than Memcached for this use case",
+                domain="architecture",
+                confidence=0.7
+            )
+            if result['contradictions']:
+                print("Warning: This contradicts previous beliefs!")
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import sqlite3
+        import json
+        from datetime import datetime
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "belief_id": None,
+            "contradictions": [],
+            "related_beliefs": []
+        }
+
+        try:
+            c = conn.cursor()
+
+            # Ensure table exists
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS beliefs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    belief TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    confidence REAL DEFAULT 0.8,
+                    evidence TEXT,
+                    status TEXT DEFAULT 'active',
+                    superseded_by INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT,
+                    tenant_id TEXT DEFAULT 'default',
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
+
+            # Ensure contradictions table exists
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS belief_contradictions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    belief_a_id INTEGER NOT NULL,
+                    belief_b_id INTEGER NOT NULL,
+                    contradiction_type TEXT,
+                    resolution TEXT,
+                    resolved_at TEXT,
+                    created_at TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default',
+                    FOREIGN KEY (belief_a_id) REFERENCES beliefs(id),
+                    FOREIGN KEY (belief_b_id) REFERENCES beliefs(id)
+                )
+            """)
+
+            timestamp = datetime.now().isoformat()
+            metadata_json = json.dumps(metadata) if metadata else '{}'
+
+            # Get existing beliefs in the same domain
+            c.execute("""
+                SELECT id, belief, confidence, evidence, created_at
+                FROM beliefs
+                WHERE tenant_id = ? AND domain = ? AND status = 'active'
+                ORDER BY created_at DESC
+                LIMIT 20
+            """, (self.tenant_id, domain))
+
+            existing_beliefs = c.fetchall()
+
+            # Simple contradiction detection using keyword opposition
+            contradiction_keywords = {
+                ("better", "worse"), ("should", "should not"), ("always", "never"),
+                ("is", "is not"), ("can", "cannot"), ("will", "will not"),
+                ("correct", "incorrect"), ("true", "false"), ("yes", "no"),
+                ("fast", "slow"), ("good", "bad"), ("right", "wrong")
+            }
+
+            belief_lower = belief.lower()
+            for existing in existing_beliefs:
+                existing_belief = existing[1].lower()
+                existing_id = existing[0]
+
+                # Check for potential contradiction
+                is_contradiction = False
+                contradiction_type = None
+
+                # Check for direct negation patterns
+                for pos, neg in contradiction_keywords:
+                    if (pos in belief_lower and neg in existing_belief) or \
+                       (neg in belief_lower and pos in existing_belief):
+                        # Check if they're about the same topic (share significant words)
+                        belief_words = set(belief_lower.split())
+                        existing_words = set(existing_belief.split())
+                        common = belief_words & existing_words
+                        # Remove common stop words
+                        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                                     'to', 'of', 'and', 'or', 'in', 'on', 'at', 'for', 'with'}
+                        common = common - stop_words
+                        if len(common) >= 2:  # Share at least 2 meaningful words
+                            is_contradiction = True
+                            contradiction_type = f"opposite_{pos}_{neg}"
+                            break
+
+                if is_contradiction:
+                    result['contradictions'].append({
+                        "existing_belief_id": existing_id,
+                        "existing_belief": existing[1],
+                        "existing_confidence": existing[2],
+                        "contradiction_type": contradiction_type,
+                        "warning": f"New belief may contradict: '{existing[1]}'"
+                    })
+                else:
+                    # Track as related (same domain)
+                    result['related_beliefs'].append({
+                        "belief_id": existing_id,
+                        "belief": existing[1],
+                        "confidence": existing[2]
+                    })
+
+            # Insert the new belief
+            c.execute("""
+                INSERT INTO beliefs
+                (belief, domain, confidence, evidence, created_at, tenant_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (belief, domain, confidence, evidence, timestamp, self.tenant_id, metadata_json))
+
+            belief_id = c.lastrowid
+            result['belief_id'] = belief_id
+
+            # Record any contradictions found
+            for contradiction in result['contradictions']:
+                c.execute("""
+                    INSERT INTO belief_contradictions
+                    (belief_a_id, belief_b_id, contradiction_type, created_at, tenant_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (belief_id, contradiction['existing_belief_id'],
+                      contradiction['contradiction_type'], timestamp, self.tenant_id))
+
+            conn.commit()
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def get_contradictions(self, domain: Optional[str] = None,
+                          unresolved_only: bool = True) -> Dict[str, Any]:
+        """
+        Get all detected contradictions.
+
+        Args:
+            domain: Filter by domain
+            unresolved_only: Only return unresolved contradictions
+
+        Returns:
+            List of contradictions with the conflicting beliefs
+        """
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        result = {
+            "success": True,
+            "contradictions": [],
+            "total": 0
+        }
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            query = """
+                SELECT bc.id, bc.contradiction_type, bc.resolution, bc.resolved_at,
+                       b1.belief as belief_a, b1.domain, b1.confidence as conf_a,
+                       b2.belief as belief_b, b2.confidence as conf_b
+                FROM belief_contradictions bc
+                JOIN beliefs b1 ON bc.belief_a_id = b1.id
+                JOIN beliefs b2 ON bc.belief_b_id = b2.id
+                WHERE bc.tenant_id = ?
+            """
+            params = [self.tenant_id]
+
+            if domain:
+                query += " AND b1.domain = ?"
+                params.append(domain)
+
+            if unresolved_only:
+                query += " AND bc.resolution IS NULL"
+
+            query += " ORDER BY bc.created_at DESC"
+
+            c.execute(query, params)
+            rows = c.fetchall()
+
+            for row in rows:
+                result['contradictions'].append({
+                    "id": row['id'],
+                    "domain": row['domain'],
+                    "belief_a": row['belief_a'],
+                    "confidence_a": row['conf_a'],
+                    "belief_b": row['belief_b'],
+                    "confidence_b": row['conf_b'],
+                    "contradiction_type": row['contradiction_type'],
+                    "resolution": row['resolution'],
+                    "resolved": row['resolved_at'] is not None
+                })
+
+            result['total'] = len(result['contradictions'])
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def resolve_contradiction(self, contradiction_id: int, resolution: str,
+                             keep_belief_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Resolve a contradiction by choosing which belief to keep.
+
+        Args:
+            contradiction_id: ID of the contradiction to resolve
+            resolution: Explanation of how it was resolved
+            keep_belief_id: If provided, supersede the other belief
+
+        Returns:
+            Resolution result
+        """
+        import sqlite3
+        from datetime import datetime
+
+        conn = sqlite3.connect(self.db_path)
+        result = {"success": True}
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            timestamp = datetime.now().isoformat()
+
+            # Get the contradiction
+            c.execute("""
+                SELECT belief_a_id, belief_b_id FROM belief_contradictions
+                WHERE id = ? AND tenant_id = ?
+            """, (contradiction_id, self.tenant_id))
+
+            row = c.fetchone()
+            if not row:
+                return {"success": False, "error": "Contradiction not found"}
+
+            # Mark as resolved
+            c.execute("""
+                UPDATE belief_contradictions
+                SET resolution = ?, resolved_at = ?
+                WHERE id = ? AND tenant_id = ?
+            """, (resolution, timestamp, contradiction_id, self.tenant_id))
+
+            # If keeping one belief, mark the other as superseded
+            if keep_belief_id:
+                supersede_id = row['belief_b_id'] if keep_belief_id == row['belief_a_id'] else row['belief_a_id']
+                c.execute("""
+                    UPDATE beliefs
+                    SET status = 'superseded', superseded_by = ?, updated_at = ?
+                    WHERE id = ? AND tenant_id = ?
+                """, (keep_belief_id, timestamp, supersede_id, self.tenant_id))
+
+                result['superseded_belief_id'] = supersede_id
+                result['kept_belief_id'] = keep_belief_id
+
+            conn.commit()
+            result['resolution'] = resolution
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    def get_beliefs(self, domain: Optional[str] = None, active_only: bool = True,
+                    limit: int = 20) -> Dict[str, Any]:
+        """
+        Get recorded beliefs.
+
+        Args:
+            domain: Filter by domain
+            active_only: Only return active beliefs
+            limit: Maximum to return
+
+        Returns:
+            List of beliefs
+        """
+        import sqlite3
+        import json
+
+        conn = sqlite3.connect(self.db_path)
+        result = {"success": True, "beliefs": [], "total": 0}
+
+        try:
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            query = "SELECT * FROM beliefs WHERE tenant_id = ?"
+            params = [self.tenant_id]
+
+            if domain:
+                query += " AND domain = ?"
+                params.append(domain)
+
+            if active_only:
+                query += " AND status = 'active'"
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            c.execute(query, params)
+            rows = c.fetchall()
+
+            for row in rows:
+                belief = dict(row)
+                if belief.get('metadata'):
+                    try:
+                        belief['metadata'] = json.loads(belief['metadata'])
+                    except:
+                        belief['metadata'] = {}
+                result['beliefs'].append(belief)
+
+            result['total'] = len(rows)
+
+        except Exception as e:
+            result['success'] = False
+            result['error'] = str(e)
+
+        finally:
+            conn.close()
+
+        return result
+
+    async def arecord_belief(self, belief: str, domain: str, confidence: float = 0.8,
+                            evidence: Optional[str] = None, metadata: Optional[Dict] = None) -> Dict[str, Any]:
+        """Async version of record_belief."""
+        import asyncio
+        return await asyncio.to_thread(self.record_belief, belief, domain, confidence, evidence, metadata)
+
+    async def aget_contradictions(self, domain: Optional[str] = None,
+                                  unresolved_only: bool = True) -> Dict[str, Any]:
+        """Async version of get_contradictions."""
+        import asyncio
+        return await asyncio.to_thread(self.get_contradictions, domain, unresolved_only)
+
+    async def aresolve_contradiction(self, contradiction_id: int, resolution: str,
+                                    keep_belief_id: Optional[int] = None) -> Dict[str, Any]:
+        """Async version of resolve_contradiction."""
+        import asyncio
+        return await asyncio.to_thread(self.resolve_contradiction, contradiction_id, resolution, keep_belief_id)
+
+    # =========================================================================
     # INTENTION PRESERVATION - Resume across sessions
     # =========================================================================
 

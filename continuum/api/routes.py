@@ -75,6 +75,12 @@ from .schemas import (
     VerifyClaimResponse,
     CalibrationScoreResponse,
     ClaimHistoryResponse,
+    RecordBeliefRequest,
+    RecordBeliefResponse,
+    ContradictionsResponse,
+    ResolveContradictionRequest,
+    ResolveContradictionResponse,
+    BeliefsResponse,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1907,6 +1913,134 @@ async def get_claim_history(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
+
+
+# =============================================================================
+# CONTRADICTION DETECTION ENDPOINTS
+# =============================================================================
+
+@router.post("/beliefs", response_model=RecordBeliefResponse, tags=["Contradictions"])
+async def record_belief(
+    request: RecordBeliefRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    🎯 **RECORD BELIEF** - Store a belief and detect contradictions.
+
+    Automatically checks for conflicts with existing beliefs in the same domain.
+
+    **Domains:** architecture, debugging, user_preferences, technical, general
+
+    **Example:**
+    ```json
+    POST /v1/beliefs
+    {
+      "belief": "Redis is better for this caching use case",
+      "domain": "architecture",
+      "confidence": 0.8
+    }
+    ```
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.arecord_belief(
+            belief=request.belief,
+            domain=request.domain,
+            confidence=request.confidence,
+            evidence=request.evidence
+        )
+
+        return RecordBeliefResponse(
+            success=result.get("success", False),
+            belief_id=result.get("belief_id"),
+            contradictions=result.get("contradictions", []),
+            related_beliefs=result.get("related_beliefs", []),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record belief: {str(e)}")
+
+
+@router.get("/beliefs", response_model=BeliefsResponse, tags=["Contradictions"])
+async def get_beliefs(
+    domain: Optional[str] = None,
+    active_only: bool = True,
+    limit: int = 20,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    📚 **GET BELIEFS** - List recorded beliefs.
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = memory.get_beliefs(domain=domain, active_only=active_only, limit=limit)
+
+        return BeliefsResponse(
+            success=result.get("success", False),
+            beliefs=result.get("beliefs", []),
+            total=result.get("total", 0),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get beliefs: {str(e)}")
+
+
+@router.get("/contradictions", response_model=ContradictionsResponse, tags=["Contradictions"])
+async def get_contradictions(
+    domain: Optional[str] = None,
+    unresolved_only: bool = True,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    ⚠️ **GET CONTRADICTIONS** - List detected contradictions.
+
+    Returns pairs of beliefs that conflict with each other.
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.aget_contradictions(domain=domain, unresolved_only=unresolved_only)
+
+        return ContradictionsResponse(
+            success=result.get("success", False),
+            contradictions=result.get("contradictions", []),
+            total=result.get("total", 0),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get contradictions: {str(e)}")
+
+
+@router.post("/contradictions/resolve", response_model=ResolveContradictionResponse, tags=["Contradictions"])
+async def resolve_contradiction(
+    request: ResolveContradictionRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    ✅ **RESOLVE CONTRADICTION** - Mark a contradiction as resolved.
+
+    Optionally specify which belief to keep (the other becomes superseded).
+    """
+    try:
+        memory = tenant_manager.get_tenant(tenant_id)
+        result = await memory.aresolve_contradiction(
+            contradiction_id=request.contradiction_id,
+            resolution=request.resolution,
+            keep_belief_id=request.keep_belief_id
+        )
+
+        return ResolveContradictionResponse(
+            success=result.get("success", False),
+            resolution=result.get("resolution"),
+            kept_belief_id=result.get("kept_belief_id"),
+            superseded_belief_id=result.get("superseded_belief_id"),
+            tenant_id=tenant_id,
+            error=result.get("error")
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to resolve: {str(e)}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

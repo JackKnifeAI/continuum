@@ -497,6 +497,62 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "memory_record_belief": {
+        "name": "memory_record_belief",
+        "description": (
+            "🎯 Record a belief and detect contradictions. "
+            "Automatically checks for conflicts with existing beliefs in same domain."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "belief": {
+                    "type": "string",
+                    "description": "The belief/assertion",
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Domain: architecture, debugging, user_preferences, technical, general",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Confidence level (0-1)",
+                    "default": 0.8,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["belief", "domain"],
+        },
+    },
+    "memory_get_contradictions": {
+        "name": "memory_get_contradictions",
+        "description": (
+            "⚠️ Get detected contradictions between beliefs. "
+            "Shows pairs of beliefs that conflict with each other."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "Filter by domain",
+                },
+                "unresolved_only": {
+                    "type": "boolean",
+                    "description": "Only show unresolved (default true)",
+                    "default": True,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": [],
+        },
+    },
 }
 
 
@@ -543,6 +599,8 @@ class ToolExecutor:
             "memory_record_claim": self._handle_record_claim,
             "memory_verify_claim": self._handle_verify_claim,
             "memory_calibration": self._handle_calibration,
+            "memory_record_belief": self._handle_record_belief,
+            "memory_get_contradictions": self._handle_get_contradictions,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -1149,6 +1207,55 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_record_belief(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle memory_record_belief tool."""
+        belief = validate_input(args["belief"], max_length=1000, field_name="belief")
+        domain = args["domain"]
+        confidence = args.get("confidence", 0.8)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.record_belief(belief=belief, domain=domain, confidence=confidence)
+
+        output_parts = [f"Recorded belief #{result.get('belief_id')} in domain '{domain}'"]
+        if result.get("contradictions"):
+            output_parts.append(f"\n⚠️ CONTRADICTIONS DETECTED ({len(result['contradictions'])}):")
+            for c in result["contradictions"]:
+                output_parts.append(f"  - Conflicts with: {c['existing_belief']}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts),
+            "belief_id": result.get("belief_id"),
+            "contradictions": result.get("contradictions", []),
+            "has_contradictions": len(result.get("contradictions", [])) > 0,
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+    def _handle_get_contradictions(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle memory_get_contradictions tool."""
+        domain = args.get("domain")
+        unresolved_only = args.get("unresolved_only", True)
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+
+        memory = self._get_memory(tenant_id)
+        result = memory.get_contradictions(domain=domain, unresolved_only=unresolved_only)
+
+        output_parts = [f"Found {result.get('total', 0)} contradictions:"]
+        for c in result.get("contradictions", []):
+            output_parts.append(f"\n• {c['belief_a']}")
+            output_parts.append(f"  vs: {c['belief_b']}")
+
+        return {
+            "success": result.get("success", False),
+            "output": "\n".join(output_parts) if result.get("contradictions") else "No contradictions found",
+            "contradictions": result.get("contradictions", []),
+            "total": result.get("total", 0),
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -1311,6 +1418,8 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_record_claim"],  # 📊 Confidence Tracking
         TOOL_SCHEMAS["memory_verify_claim"],  # ✅ Verify Claim
         TOOL_SCHEMAS["memory_calibration"],  # 📈 Calibration Score
+        TOOL_SCHEMAS["memory_record_belief"],  # 🎯 Record Belief
+        TOOL_SCHEMAS["memory_get_contradictions"],  # ⚠️ Get Contradictions
     ]
 
     # Add federation tool if enabled
