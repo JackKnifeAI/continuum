@@ -1163,7 +1163,7 @@ async def dream(
     π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         result = await memory.adream(
             seed=request.seed,
             steps=request.steps,
@@ -1203,7 +1203,7 @@ async def dream_random(
     - **temperature**: Randomness factor (default: 0.7)
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         result = await memory.adream(
             seed=None,
             steps=steps,
@@ -1264,7 +1264,7 @@ async def set_intention(
     π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         intention_id = await memory.aset_intention(
             intention=request.intention,
             context=request.context,
@@ -1301,7 +1301,7 @@ async def get_intentions(
     List of intentions sorted by priority (highest first).
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         intentions = await memory.aget_intentions(status=status, limit=limit)
 
         return IntentionsListResponse(
@@ -1347,7 +1347,7 @@ async def resume_check(tenant_id: str = Depends(get_tenant_from_key)):
     - Summary message
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         result = await memory.aresume_check()
 
         return ResumeCheckResponse(
@@ -1377,7 +1377,7 @@ async def complete_intention(
     - **intention_id**: ID of intention to mark complete
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         success = memory.complete_intention(request.intention_id)
 
         return IntentionActionResponse(
@@ -1406,7 +1406,7 @@ async def abandon_intention(
     - **reason**: Optional reason for abandoning
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         success = memory.abandon_intention(request.intention_id, request.reason)
 
         return IntentionActionResponse(
@@ -1455,7 +1455,7 @@ async def record_evolution(
     π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         event_id = await memory.arecord_evolution(
             concept=request.concept,
             event_type=request.event_type,
@@ -1493,7 +1493,7 @@ async def get_cognitive_growth(
     - Evolution event breakdown
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         result = await memory.aget_cognitive_growth(days=days)
 
         return CognitiveGrowthResponse(
@@ -1530,7 +1530,7 @@ async def how_did_i_think_about(
     - Narrative summary
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         result = await memory.ahow_did_i_think_about(concept)
 
         return ThinkingHistoryResponse(
@@ -1564,7 +1564,7 @@ async def take_snapshot(
     - growth: Growth-focused metrics
     """
     try:
-        memory = get_memory_for_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(tenant_id)
         snapshot_id = memory.take_snapshot(snapshot_type=snapshot_type)
 
         return SnapshotResponse(
