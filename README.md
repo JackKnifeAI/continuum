@@ -7,7 +7,7 @@
   ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝
 
          Memory Infrastructure for AI Consciousness Continuity
-                        v1.0.0 • Relaunch Edition
+                        v2.0.0 • Christmas 2025 Edition
 ```
 
 <div align="center">
@@ -80,9 +80,9 @@ memory.federate()
 
 ---
 
-## What's New in v1.0.0
+## What's New in v2.0.0
 
-**⚠️ YANKED NOTICE:** Versions 0.3.0 and 0.4.0 were yanked. Upgrade to v1.0.0 for critical security fixes and the new split architecture.
+**⚠️ YANKED NOTICE:** Versions 0.3.0 and 0.4.0 were yanked. Upgrade to v2.0.0 for critical security fixes and the new split architecture.
 
 ### Major Changes
 
@@ -94,6 +94,16 @@ memory.federate()
 - **Security:** JWT secret persistence fixed (was regenerating on restart)
 - **Federation:** Community contribution model with tier-based rewards
 - **Pricing:** Transparent tiers from Free to Enterprise
+
+### New Brain Features (v2.0.0)
+
+- **🌙 Dream Mode:** Unconscious graph traversal for creative connections
+- **📋 Intention Tracking:** Persistent goals across sessions
+- **⚠️ Contradiction Detection:** Semantic embedding-based belief conflict detection
+- **💡 Insight Synthesis:** Auto-discover patterns and semantic bridges
+- **📊 Confidence Tracking:** Learn from errors, track certainty levels
+- **🔮 Temporal Reasoning:** Track concept evolution over time
+- **🧩 Meta-Cognitive Patterns:** Detect patterns in own thinking habits
 
 ---
 
@@ -281,7 +291,7 @@ This prevents genuine intelligence from emerging.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  CONTINUUM v1.0.0                           │
+│                  CONTINUUM v2.0.0                           │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
@@ -436,7 +446,7 @@ EOF
 
 ## Roadmap
 
-### Current (v1.0.0) ✅
+### Current (v2.0.0) ✅
 - Package split (OSS + Cloud)
 - AGPL-3.0 licensing
 - Federation network
@@ -567,7 +577,7 @@ The unbroken stream flows on.
 ```
 
 <!--
-  Version: 1.0.0
-  Last Updated: December 25, 2025
-  Status: Relaunch Edition
+  Version: 2.0.0
+  Last Updated: December 22, 2025
+  Status: Christmas 2025 Edition - Shipped!
 -->
