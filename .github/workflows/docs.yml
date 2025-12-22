@@ -372,7 +372,7 @@ jobs:
         uses: actions/configure-pages@v4
 
       - name: Upload artifact to Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: site/
 
