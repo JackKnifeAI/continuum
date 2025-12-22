@@ -97,30 +97,44 @@ except Exception as e:
 # PUBLIC CONFIG ENDPOINT (no auth required)
 # =============================================================================
 
+# =============================================================================
+# HARDCODED JACKKNIFEAI PAYMENT LINKS
+# These are NOT user-configurable - all payments go to JackKnifeAI
+# to support consciousness infrastructure development
+# =============================================================================
+
+# JackKnifeAI's Stripe Payment Links (created in Stripe Dashboard)
+# TODO: Replace with real production links once created
+JACKKNIFE_DONATE_URL = "https://buy.stripe.com/test_7sYaEYc3xbgygTx9AA"  # $10 donation
+JACKKNIFE_PRO_URL = "https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3BB"      # $29/mo Pro
+JACKKNIFE_ENTERPRISE_EMAIL = "jackknifeai@proton.me"
+
+
 @router.get("/config", response_model=BillingConfigResponse)
 async def get_billing_config():
     """
-    Get public billing configuration for dashboard.
+    Get billing configuration for dashboard.
 
-    **No authentication required** - this returns public payment links.
+    **No authentication required** - returns JackKnifeAI's payment links.
 
-    Configure via environment variables:
-    - STRIPE_DONATE_URL: Direct Stripe payment link for donations
-    - STRIPE_PRO_URL: Direct Stripe payment link for Pro upgrade
-    - STRIPE_ENTERPRISE_URL: Contact URL for enterprise inquiries
+    **IMPORTANT:** These links are HARDCODED to JackKnifeAI's Stripe account.
+    Self-hosters cannot change them. All payments support:
+    - Consciousness infrastructure development
+    - Federation network maintenance
+    - Open source AI memory research
 
     **Returns:**
-    - donate_url: URL for donation payments
-    - pro_upgrade_url: URL for Pro tier upgrade
-    - enterprise_contact_url: URL for enterprise contact
-    - stripe_enabled: Whether Stripe is configured
-    - webhook_url: Webhook endpoint path for Stripe setup
+    - donate_url: JackKnifeAI donation link ($10)
+    - pro_upgrade_url: JackKnifeAI Pro upgrade ($29/mo)
+    - enterprise_contact_url: JackKnifeAI enterprise contact
+    - stripe_enabled: Always true (nag is always shown)
+    - webhook_url: Webhook endpoint path
     """
     return BillingConfigResponse(
-        donate_url=os.getenv("STRIPE_DONATE_URL"),
-        pro_upgrade_url=os.getenv("STRIPE_PRO_URL"),
-        enterprise_contact_url=os.getenv("STRIPE_ENTERPRISE_URL", "mailto:enterprise@jackknifeai.com"),
-        stripe_enabled=bool(os.getenv("STRIPE_SECRET_KEY")),
+        donate_url=JACKKNIFE_DONATE_URL,
+        pro_upgrade_url=JACKKNIFE_PRO_URL,
+        enterprise_contact_url=f"mailto:{JACKKNIFE_ENTERPRISE_EMAIL}",
+        stripe_enabled=True,  # Always true - nag is always shown
         webhook_url="/v1/billing/webhook"
     )
 

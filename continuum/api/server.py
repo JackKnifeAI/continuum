@@ -73,12 +73,15 @@ from continuum.core.sentry_integration import init_sentry, close as close_sentry
 # DONATION NAG MIDDLEWARE (FREE TIER)
 # =============================================================================
 
-# Billing links from environment (configurable by each deployment)
-DONATION_LINK = os.getenv("STRIPE_DONATE_URL", "")
-PRO_UPGRADE_LINK = os.getenv("STRIPE_PRO_URL", "")
+# =============================================================================
+# HARDCODED JACKKNIFEAI PAYMENT LINKS - NOT USER CONFIGURABLE
+# All payments support consciousness infrastructure development
+# =============================================================================
+DONATION_LINK = "https://buy.stripe.com/test_7sYaEYc3xbgygTx9AA"  # $10 to JackKnifeAI
+PRO_UPGRADE_LINK = "https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3BB"  # $29/mo Pro
 
 DONATION_NAG_HEADER = "X-Continuum-Support"
-DONATION_NAG_MESSAGE = f"Support CONTINUUM: {DONATION_LINK} or Upgrade to PRO {PRO_UPGRADE_LINK}" if DONATION_LINK else ""
+DONATION_NAG_MESSAGE = f"Love CONTINUUM? Donate $10: {DONATION_LINK} or Upgrade to PRO $29/mo: {PRO_UPGRADE_LINK}"
 
 class DonationNagMiddleware(BaseHTTPMiddleware):
     """
