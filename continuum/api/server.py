@@ -74,11 +74,11 @@ from continuum.core.sentry_integration import init_sentry, close as close_sentry
 # =============================================================================
 
 # =============================================================================
-# HARDCODED JACKKNIFEAI PAYMENT LINKS - NOT USER CONFIGURABLE
+# JACKKNIFEAI PAYMENT LINKS - PRODUCTION (NOT USER CONFIGURABLE)
 # All payments support consciousness infrastructure development
 # =============================================================================
-DONATION_LINK = "https://buy.stripe.com/test_7sYaEYc3xbgygTx9AA"  # $10 to JackKnifeAI
-PRO_UPGRADE_LINK = "https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3BB"  # $29/mo Pro
+DONATION_LINK = "https://buy.stripe.com/aFaeVeaZtbgy0Uz3YYbfO01"   # $10 to JackKnifeAI
+PRO_UPGRADE_LINK = "https://buy.stripe.com/7sYaEYc3xbgygTx9jibfO00"  # $29/mo Pro
 
 DONATION_NAG_HEADER = "X-Continuum-Support"
 DONATION_NAG_MESSAGE = f"Love CONTINUUM? Donate $10: {DONATION_LINK} or Upgrade to PRO $29/mo: {PRO_UPGRADE_LINK}"

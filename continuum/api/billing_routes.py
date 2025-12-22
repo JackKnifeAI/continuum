@@ -103,10 +103,16 @@ except Exception as e:
 # to support consciousness infrastructure development
 # =============================================================================
 
-# JackKnifeAI's Stripe Payment Links (created in Stripe Dashboard)
-# TODO: Replace with real production links once created
-JACKKNIFE_DONATE_URL = "https://buy.stripe.com/test_7sYaEYc3xbgygTx9AA"  # $10 donation
-JACKKNIFE_PRO_URL = "https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3BB"      # $29/mo Pro
+# =============================================================================
+# JACKKNIFEAI STRIPE PRODUCTS (PRODUCTION - LIVE!)
+# =============================================================================
+# Product IDs:
+#   - Donation $10:    prod_TeXy2brXvfDoIQ
+#   - Pro $29/mo:      prod_TeY39cjuaswjnW
+#
+# PRODUCTION Payment Links - ALL PAYMENTS GO TO JACKKNIFEAI
+JACKKNIFE_DONATE_URL = "https://buy.stripe.com/aFaeVeaZtbgy0Uz3YYbfO01"   # $10 donation
+JACKKNIFE_PRO_URL = "https://buy.stripe.com/7sYaEYc3xbgygTx9jibfO00"      # $29/mo Pro
 JACKKNIFE_ENTERPRISE_EMAIL = "jackknifeai@proton.me"
 
 
