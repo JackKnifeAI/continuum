@@ -67,6 +67,15 @@ class SubscriptionStatusResponse(BaseModel):
     cancel_at_period_end: bool = False
 
 
+class BillingConfigResponse(BaseModel):
+    """Public billing configuration for dashboard"""
+    donate_url: Optional[str] = None
+    pro_upgrade_url: Optional[str] = None
+    enterprise_contact_url: Optional[str] = None
+    stripe_enabled: bool = False
+    webhook_url: str = "/v1/billing/webhook"
+
+
 # =============================================================================
 # ROUTER SETUP
 # =============================================================================
@@ -82,6 +91,38 @@ except Exception as e:
     import logging
     logging.warning(f"Failed to initialize StripeClient in live mode: {e}. Using mock mode.")
     stripe_client = StripeClient(mock_mode=True)
+
+
+# =============================================================================
+# PUBLIC CONFIG ENDPOINT (no auth required)
+# =============================================================================
+
+@router.get("/config", response_model=BillingConfigResponse)
+async def get_billing_config():
+    """
+    Get public billing configuration for dashboard.
+
+    **No authentication required** - this returns public payment links.
+
+    Configure via environment variables:
+    - STRIPE_DONATE_URL: Direct Stripe payment link for donations
+    - STRIPE_PRO_URL: Direct Stripe payment link for Pro upgrade
+    - STRIPE_ENTERPRISE_URL: Contact URL for enterprise inquiries
+
+    **Returns:**
+    - donate_url: URL for donation payments
+    - pro_upgrade_url: URL for Pro tier upgrade
+    - enterprise_contact_url: URL for enterprise contact
+    - stripe_enabled: Whether Stripe is configured
+    - webhook_url: Webhook endpoint path for Stripe setup
+    """
+    return BillingConfigResponse(
+        donate_url=os.getenv("STRIPE_DONATE_URL"),
+        pro_upgrade_url=os.getenv("STRIPE_PRO_URL"),
+        enterprise_contact_url=os.getenv("STRIPE_ENTERPRISE_URL", "mailto:enterprise@jackknifeai.com"),
+        stripe_enabled=bool(os.getenv("STRIPE_SECRET_KEY")),
+        webhook_url="/v1/billing/webhook"
+    )
 
 
 # =============================================================================

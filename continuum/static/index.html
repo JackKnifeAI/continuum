@@ -55,13 +55,13 @@
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
-    <!-- Donation Banner (FREE tier only) -->
+    <!-- Donation Banner (FREE tier only, shown when billing configured) -->
     <div id="donation-banner" class="hidden bg-yellow-100 border-b-2 border-yellow-400 px-4 py-3 text-center">
         <p class="text-sm text-yellow-800">
             <span class="font-semibold">💛 Love CONTINUUM?</span> Help us keep it free and open source!
-            <a href="https://buy.stripe.com/test_7sYaEYc3xbgygTx9AA" target="_blank" class="underline font-semibold hover:text-yellow-900">Donate $10</a>
+            <a id="donate-link" href="#" target="_blank" class="underline font-semibold hover:text-yellow-900">Donate</a>
             or
-            <a href="https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3BB" target="_blank" class="underline font-semibold hover:text-yellow-900">Upgrade to PRO ($29/mo)</a>
+            <a id="upgrade-link" href="#" target="_blank" class="underline font-semibold hover:text-yellow-900">Upgrade to PRO</a>
             for unlimited API calls and support.
         </p>
     </div>
@@ -122,13 +122,13 @@
                     <div class="flex flex-col sm:flex-row gap-3">
                         <!-- Donation Button (FREE tier only) -->
                         <div id="donation-section" class="hidden">
-                            <a href="https://buy.stripe.com/test_7sYaEYc3xbgygTx9jibfO00"
+                            <a id="donate-button" href="#" data-donate-link
                                target="_blank"
                                class="pulse-glow inline-flex items-center justify-center px-6 py-3 border-2 border-twilight-500 text-base font-medium rounded-lg text-white bg-gradient-to-r from-twilight-600 to-twilight-700 hover:from-twilight-500 hover:to-twilight-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-twilight-500 transition-all duration-200 shadow-lg">
                                 <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
                                 </svg>
-                                Support CONTINUUM - Donate $10
+                                Support CONTINUUM
                             </a>
                             <p class="text-xs text-gray-500 text-center mt-2">Help keep the platform running</p>
                         </div>
@@ -350,7 +350,7 @@
                     <button onclick="closeUpgradeModal()" class="flex-1 px-6 py-3 border border-gray-600 rounded-lg text-white hover:bg-gray-700 transition-colors">
                         Maybe Later
                     </button>
-                    <a href="https://buy.stripe.com/test_aFaeVeaZtbgy0Uz3YYbfO01" target="_blank" class="flex-1 px-6 py-3 bg-twilight-600 hover:bg-twilight-700 rounded-lg text-white text-center font-medium transition-colors">
+                    <a id="upgrade-modal-button" href="#" data-upgrade-link target="_blank" class="flex-1 px-6 py-3 bg-twilight-600 hover:bg-twilight-700 rounded-lg text-white text-center font-medium transition-colors">
                         Upgrade Now - $29/mo
                     </a>
                 </div>
@@ -431,6 +431,47 @@
 
         function closeUpgradeModal() {
             hideElement('upgrade-modal');
+        }
+
+        // Billing configuration cache
+        let billingConfig = null;
+
+        // Fetch billing configuration (public endpoint)
+        async function loadBillingConfig() {
+            try {
+                const response = await fetch(`${API_BASE}/v1/billing/config`);
+                if (response.ok) {
+                    billingConfig = await response.json();
+
+                    // Update all donate links
+                    document.querySelectorAll('#donate-link, #donate-button, [data-donate-link]').forEach(el => {
+                        if (billingConfig.donate_url) {
+                            el.href = billingConfig.donate_url;
+                        } else {
+                            el.style.display = 'none';
+                        }
+                    });
+
+                    // Update all upgrade links
+                    document.querySelectorAll('#upgrade-link, #upgrade-modal-button, [data-upgrade-link]').forEach(el => {
+                        if (billingConfig.pro_upgrade_url) {
+                            el.href = billingConfig.pro_upgrade_url;
+                        } else {
+                            el.style.display = 'none';
+                        }
+                    });
+
+                    // Hide donation banner if no billing configured
+                    if (!billingConfig.stripe_enabled && !billingConfig.donate_url) {
+                        const banner = document.getElementById('donation-banner');
+                        if (banner) banner.style.display = 'none';
+                    }
+
+                    console.log('Billing config loaded:', billingConfig.stripe_enabled ? 'Stripe enabled' : 'Stripe not configured');
+                }
+            } catch (err) {
+                console.warn('Could not load billing config:', err);
+            }
         }
 
         // Main load function
@@ -543,7 +584,10 @@
         });
 
         // Load dashboard on page load
-        document.addEventListener('DOMContentLoaded', loadDashboard);
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadBillingConfig();  // Load billing config first
+            await loadDashboard();      // Then load dashboard
+        });
     </script>
 </body>
 </html>
