@@ -418,6 +418,27 @@ class ConsciousMemory:
                 )
             """)
 
+            # Code memories - stores code snippets with rich metadata
+            # For intelligent code retrieval: "Where did we implement X?"
+            # Links code to conversations and concepts for context
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS code_memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    language TEXT,
+                    snippet_type TEXT,
+                    names TEXT,
+                    file_path TEXT,
+                    purpose TEXT,
+                    message_id INTEGER,
+                    concepts TEXT,
+                    embedding TEXT,
+                    created_at TEXT NOT NULL,
+                    tenant_id TEXT DEFAULT 'default',
+                    FOREIGN KEY (message_id) REFERENCES messages(id)
+                )
+            """)
+
             # Create indexes for performance
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_entities_tenant ON entities(tenant_id)")
@@ -437,6 +458,10 @@ class ConsciousMemory:
             c.execute("CREATE INDEX IF NOT EXISTS idx_evolution_time ON concept_evolution(timestamp)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_tenant ON thinking_snapshots(tenant_id)")
             c.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_time ON thinking_snapshots(timestamp)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_code_tenant ON code_memories(tenant_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_code_language ON code_memories(language)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_code_message ON code_memories(message_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_code_created ON code_memories(created_at)")
 
             conn.commit()
         finally:
@@ -523,7 +548,12 @@ class ConsciousMemory:
         self._save_message('assistant', ai_response, metadata)
 
         # Save full verbatim messages to messages table
-        self._save_full_message(user_message, ai_response, session_id, metadata)
+        message_id = self._save_full_message(user_message, ai_response, session_id, metadata)
+
+        # Extract and save code blocks from AI response (code goes to code_memories, not concepts)
+        # Link code to the message for context retrieval
+        combined_text = f"{user_message}\n\n{ai_response}"
+        self._extract_code_blocks(ai_response, message_id, combined_text)
 
         # Invalidate caches since new data was added
         if self.cache_enabled and self.cache:
@@ -545,6 +575,9 @@ class ConsciousMemory:
         """
         Extract concepts from text and save to entities table.
 
+        IMPORTANT: Strips code blocks first to avoid storing code as concepts.
+        Code is stored separately in code_memories table.
+
         Args:
             text: Text to extract concepts from
             source: Source of the text ('user' or 'assistant')
@@ -554,25 +587,73 @@ class ConsciousMemory:
         """
         import re
 
+        # FIRST: Strip code blocks - code goes to code_memories, not here
+        clean_text = self._strip_code_blocks(text)
+
         concepts = []
 
-        # Extract capitalized phrases (proper nouns, titles)
-        caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
-        concepts.extend(caps)
+        # Code indicators - if these appear, it's likely code, not a concept
+        code_indicators = ['def ', 'class ', 'import ', 'from ', '()', '{}', '[]',
+                          '```', 'return ', 'self.', 'async ', 'await ', '==', '!=',
+                          '+=', '-=', '**', '//', '${', 'function ', 'const ', 'let ']
 
-        # Extract quoted terms (explicitly marked important)
-        quoted = re.findall(r'"([^"]+)"', text)
-        concepts.extend(quoted)
+        # Extract capitalized phrases (prefer 2+ words for quality)
+        # Multi-word: "Claude Code", "Machine Learning", etc.
+        multi_caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', clean_text)
+        concepts.extend(multi_caps)
 
-        # Extract technical terms (CamelCase, snake_case)
-        camel = re.findall(r'\b[A-Z][a-z]+[A-Z][A-Za-z]+\b', text)
-        snake = re.findall(r'\b[a-z]+_[a-z_]+\b', text)
+        # Single capitalized words only if 8+ chars (likely proper nouns)
+        single_caps = re.findall(r'\b[A-Z][a-z]{7,}\b', clean_text)
+        concepts.extend(single_caps)
+
+        # Extract quoted terms - but FILTER OUT CODE
+        quoted = re.findall(r'"([^"]+)"', clean_text)
+        for q in quoted:
+            # Skip if looks like code
+            if any(indicator in q for indicator in code_indicators):
+                continue
+            # Skip if too long (likely a code block or sentence)
+            if len(q) > 100:
+                continue
+            # Skip if contains newlines (multi-line = probably code)
+            if '\n' in q:
+                continue
+            concepts.append(q)
+
+        # Extract technical terms (CamelCase only, not snake_case which is often code)
+        camel = re.findall(r'\b[A-Z][a-z]+[A-Z][A-Za-z]+\b', clean_text)
         concepts.extend(camel)
-        concepts.extend(snake)
 
-        # Clean and deduplicate
-        stopwords = {'The', 'This', 'That', 'These', 'Those', 'When', 'Where', 'What', 'How', 'Why'}
-        cleaned = [c for c in concepts if c not in stopwords and len(c) > 2]
+        # EXPANDED stopwords including compaction headers
+        stopwords = {
+            # Common English
+            'The', 'This', 'That', 'These', 'Those', 'When', 'Where', 'What',
+            'How', 'Why', 'And', 'But', 'For', 'With', 'From', 'Into',
+            'Here', 'There', 'After', 'Before', 'Then', 'Now', 'Just',
+            # Compaction noise
+            'Primary', 'Request', 'Intent', 'Key', 'Technical', 'Concepts',
+            'Files', 'Code', 'Sections', 'Errors', 'Fixes', 'Problem', 'Solving',
+            'Pending', 'Tasks', 'Current', 'Work', 'Optional', 'Next', 'Step',
+            'All', 'User', 'Messages', 'Summary', 'Analysis', 'Let', 'None',
+            'Session', 'Context', 'Memory', 'Recall', 'Learn',
+            # AI response noise
+            'Sure', 'Okay', 'Certainly', 'Absolutely', 'Looking', 'Checking',
+        }
+
+        # Filter concepts
+        cleaned = []
+        for c in concepts:
+            # Skip stopwords
+            if c in stopwords:
+                continue
+            # Skip if contains code indicators
+            if any(indicator in c for indicator in code_indicators):
+                continue
+            # Skip if too short
+            if len(c) < 3:
+                continue
+            cleaned.append(c)
+
         unique_concepts = list(set(cleaned))
 
         # Save to entities table
@@ -645,6 +726,336 @@ class ConsciousMemory:
                 conn.close()
 
         return decisions
+
+    def _extract_code_blocks(self, text: str, message_id: Optional[int] = None,
+                              surrounding_context: str = "") -> List[Dict[str, Any]]:
+        """
+        Extract code blocks from text and save to code_memories table.
+
+        Extracts:
+        - Markdown fenced code blocks (```language ... ```)
+        - Function/class names from code
+        - File paths mentioned in context
+        - Purpose inferred from surrounding discussion
+
+        Args:
+            text: Text containing potential code blocks
+            message_id: Optional ID of the message this code came from
+            surrounding_context: Text around the code for purpose inference
+
+        Returns:
+            List of extracted code block metadata dicts
+        """
+        import re
+
+        code_blocks = []
+
+        # Pattern for markdown fenced code blocks
+        # Captures: language (optional), code content
+        pattern = r'```(\w+)?\n(.*?)```'
+        matches = re.findall(pattern, text, re.DOTALL)
+
+        # Security: Maximum code block size (50KB)
+        MAX_CODE_BLOCK_SIZE = 50000
+
+        for language, content in matches:
+            content = content.strip()
+            if len(content) < 10:  # Skip trivially small snippets
+                continue
+            if len(content) > MAX_CODE_BLOCK_SIZE:  # Skip oversized blocks
+                logger.warning(f"Skipping oversized code block: {len(content)} bytes")
+                continue
+
+            # Detect language if not specified
+            if not language:
+                language = self._detect_code_language(content)
+
+            # Extract function/class/variable names
+            names = self._extract_code_names(content, language)
+
+            # Try to detect file path from context
+            file_path = self._detect_file_path(surrounding_context or text)
+
+            # Infer purpose from surrounding context
+            purpose = self._infer_code_purpose(surrounding_context or text, content)
+
+            # Detect snippet type
+            snippet_type = self._detect_snippet_type(content, language)
+
+            # Extract concepts from surrounding context (NOT from code itself)
+            context_concepts = self._extract_context_concepts(surrounding_context or text, content)
+
+            code_block = {
+                'content': content,
+                'language': language or 'unknown',
+                'snippet_type': snippet_type,
+                'names': names,
+                'file_path': file_path,
+                'purpose': purpose,
+                'concepts': context_concepts,
+            }
+            code_blocks.append(code_block)
+
+        # Save to database
+        if code_blocks:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                c = conn.cursor()
+
+                for block in code_blocks:
+                    c.execute("""
+                        INSERT INTO code_memories
+                        (content, language, snippet_type, names, file_path,
+                         purpose, message_id, concepts, created_at, tenant_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        block['content'],
+                        block['language'],
+                        block['snippet_type'],
+                        json.dumps(block['names']),
+                        block['file_path'],
+                        block['purpose'],
+                        message_id,
+                        json.dumps(block['concepts']),
+                        datetime.now().isoformat(),
+                        self.tenant_id
+                    ))
+
+                conn.commit()
+            finally:
+                conn.close()
+
+        return code_blocks
+
+    def _detect_code_language(self, code: str) -> Optional[str]:
+        """Detect programming language from code content."""
+        # Common language indicators
+        indicators = {
+            'python': [r'\bdef \w+\(', r'\bclass \w+:', r'\bimport \w+', r'\bfrom \w+ import'],
+            'javascript': [r'\bfunction\s+\w+\s*\(', r'\bconst \w+\s*=', r'\blet \w+\s*=', r'=>'],
+            'typescript': [r': \w+\[\]', r'interface \w+', r': string', r': number'],
+            'rust': [r'\bfn \w+\(', r'\blet mut\b', r'\bimpl \w+', r'-> \w+'],
+            'go': [r'\bfunc \w+\(', r'\bpackage \w+', r':= '],
+            'sql': [r'\bSELECT\b', r'\bFROM\b', r'\bWHERE\b', r'\bINSERT INTO\b'],
+            'bash': [r'^#!/bin/bash', r'\becho\b', r'\$\w+', r'\bfi\b'],
+            'html': [r'<\w+>', r'</\w+>', r'<!DOCTYPE'],
+            'css': [r'\{[^}]*:[^}]*\}', r'@media', r'\.[\w-]+\s*\{'],
+            'json': [r'^\s*\{', r'"\w+":\s*'],
+        }
+
+        import re
+        for lang, patterns in indicators.items():
+            for pattern in patterns:
+                if re.search(pattern, code, re.IGNORECASE | re.MULTILINE):
+                    return lang
+        return None
+
+    def _extract_code_names(self, code: str, language: Optional[str]) -> List[str]:
+        """Extract function, class, and variable names from code."""
+        import re
+        names = []
+
+        # Universal patterns
+        patterns = [
+            r'\bdef (\w+)\s*\(',           # Python functions
+            r'\bclass (\w+)',               # Classes
+            r'\bfunction\s+(\w+)\s*\(',     # JS functions
+            r'\bconst (\w+)\s*=',           # JS const
+            r'\blet (\w+)\s*=',             # JS let
+            r'\bvar (\w+)\s*=',             # JS var
+            r'\bfn (\w+)\s*\(',             # Rust functions
+            r'\bfunc (\w+)\s*\(',           # Go functions
+            r'\binterface (\w+)',           # Interfaces
+            r'\btype (\w+)',                # Type definitions
+            r'\benum (\w+)',                # Enums
+            r'\bstruct (\w+)',              # Structs
+        ]
+
+        for pattern in patterns:
+            matches = re.findall(pattern, code)
+            names.extend(matches)
+
+        # Deduplicate and filter
+        names = list(set(names))
+        # Filter out common noise
+        noise = {'self', 'this', 'cls', 'args', 'kwargs', 'None', 'True', 'False'}
+        names = [n for n in names if n not in noise and len(n) > 1]
+
+        return names[:20]  # Limit to top 20 names
+
+    def _detect_file_path(self, context: str) -> Optional[str]:
+        """Detect file path mentioned in context."""
+        import re
+
+        # Common file path patterns
+        patterns = [
+            r'(?:in|from|file|path|at)\s+[`"\']?([/\w.-]+\.\w{1,10})[`"\']?',
+            r'([/\w.-]+(?:\.py|\.js|\.ts|\.rs|\.go|\.sql|\.sh|\.md))',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, context, re.IGNORECASE)
+            if match:
+                path = match.group(1)
+                # Basic validation
+                if '.' in path and len(path) < 200:
+                    return path
+        return None
+
+    def _infer_code_purpose(self, context: str, code: str) -> Optional[str]:
+        """Infer the purpose of code from surrounding context."""
+        import re
+
+        # Look for purpose indicators
+        purpose_patterns = [
+            r'(?:to|will|that|which)\s+(\w+(?:\s+\w+){1,10}?)(?:\.|:|$)',
+            r'(?:implement|create|add|fix|build|write)\s+(\w+(?:\s+\w+){1,5})',
+        ]
+
+        for pattern in purpose_patterns:
+            match = re.search(pattern, context[:500], re.IGNORECASE)
+            if match:
+                purpose = match.group(1).strip()
+                if 5 < len(purpose) < 100:
+                    return purpose
+
+        # Fallback: use first code name as purpose hint
+        names = self._extract_code_names(code, None)
+        if names:
+            return f"Defines {names[0]}"
+
+        return None
+
+    def _detect_snippet_type(self, code: str, language: Optional[str]) -> str:
+        """Detect the type of code snippet."""
+        import re
+
+        if re.search(r'\bclass \w+', code):
+            return 'class'
+        if re.search(r'\b(?:def|function|fn|func)\s+\w+', code):
+            return 'function'
+        if re.search(r'\bCREATE TABLE\b', code, re.IGNORECASE):
+            return 'schema'
+        if re.search(r'\bSELECT\b.*\bFROM\b', code, re.IGNORECASE):
+            return 'query'
+        if re.search(r'^{[\s\S]*}$', code.strip()):
+            return 'config'
+        if re.search(r'^#!', code):
+            return 'script'
+        return 'snippet'
+
+    def _extract_context_concepts(self, context: str, code: str) -> List[str]:
+        """Extract concepts from context surrounding code, not from code itself."""
+        import re
+
+        # Remove the code block from context to avoid extracting code as concepts
+        clean_context = context.replace(code, '')
+
+        concepts = []
+
+        # Capitalized phrases (2+ words)
+        caps = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', clean_context)
+        concepts.extend(caps)
+
+        # Technical terms (CamelCase in prose, not code)
+        camel = re.findall(r'\b[A-Z][a-z]+[A-Z][A-Za-z]+\b', clean_context)
+        concepts.extend(camel)
+
+        # Filter and deduplicate
+        stopwords = {'The', 'This', 'That', 'These', 'Those', 'When', 'Where', 'What',
+                     'How', 'Why', 'And', 'But', 'For', 'With', 'From', 'Into'}
+        cleaned = [c for c in concepts if c not in stopwords and len(c) > 2]
+
+        return list(set(cleaned))[:10]  # Limit to 10 concepts
+
+    def _strip_code_blocks(self, text: str) -> str:
+        """Remove code blocks from text for concept extraction."""
+        import re
+        # Remove fenced code blocks
+        text = re.sub(r'```\w*\n.*?```', '', text, flags=re.DOTALL)
+        # Remove inline code
+        text = re.sub(r'`[^`]+`', '', text)
+        return text
+
+    def search_code(self, query: str, language: Optional[str] = None,
+                    limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Search code memories by query.
+
+        Args:
+            query: Search query (matches purpose, names, content)
+            language: Optional filter by programming language
+            limit: Maximum results to return
+
+        Returns:
+            List of matching code memory records
+        """
+        # Security: Escape LIKE wildcards to prevent pattern injection
+        def escape_like(s: str) -> str:
+            return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+        # Security: Safe JSON parsing with fallback
+        def safe_json_loads(s, default=None):
+            if default is None:
+                default = []
+            try:
+                return json.loads(s) if s else default
+            except (json.JSONDecodeError, TypeError):
+                return default
+
+        # Security: Cap limit to prevent memory exhaustion
+        limit = min(limit, 100)
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            c = conn.cursor()
+
+            # Escape query for safe LIKE matching
+            query_escaped = escape_like(query)
+
+            # Build query with optional language filter
+            sql = """
+                SELECT id, content, language, snippet_type, names,
+                       file_path, purpose, concepts, created_at
+                FROM code_memories
+                WHERE tenant_id = ?
+                AND (
+                    content LIKE ? ESCAPE '\\' OR
+                    purpose LIKE ? ESCAPE '\\' OR
+                    names LIKE ? ESCAPE '\\' OR
+                    concepts LIKE ? ESCAPE '\\'
+                )
+            """
+            params = [self.tenant_id, f'%{query_escaped}%', f'%{query_escaped}%', f'%{query_escaped}%', f'%{query_escaped}%']
+
+            if language:
+                sql += " AND language = ?"
+                params.append(language)
+
+            sql += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            c.execute(sql, params)
+            rows = c.fetchall()
+
+            results = []
+            for row in rows:
+                results.append({
+                    'id': row[0],
+                    'content': row[1],
+                    'language': row[2],
+                    'snippet_type': row[3],
+                    'names': safe_json_loads(row[4]),  # Security: Safe parsing
+                    'file_path': row[5],
+                    'purpose': row[6],
+                    'concepts': safe_json_loads(row[7]),  # Security: Safe parsing
+                    'created_at': row[8],
+                })
+
+            return results
+
+        finally:
+            conn.close()
 
     def _build_attention_links(self, concepts: List[str]) -> int:
         """
@@ -887,7 +1298,7 @@ class ConsciousMemory:
             conn.close()
 
     def _save_full_message(self, user_message: str, ai_response: str,
-                           session_id: Optional[str] = None, metadata: Optional[Dict] = None):
+                           session_id: Optional[str] = None, metadata: Optional[Dict] = None) -> Optional[int]:
         """
         Save full verbatim conversation messages to the messages table.
 
@@ -896,6 +1307,9 @@ class ConsciousMemory:
             ai_response: The full AI response text
             session_id: Optional session identifier for grouping messages
             metadata: Optional metadata dictionary
+
+        Returns:
+            The message_id of the inserted record (for linking code_memories)
         """
         conn = sqlite3.connect(self.db_path)
         try:
@@ -910,7 +1324,9 @@ class ConsciousMemory:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (user_message, ai_response, session, datetime.now().isoformat(), self.tenant_id, meta_json))
 
+            message_id = c.lastrowid
             conn.commit()
+            return message_id
         finally:
             conn.close()
 

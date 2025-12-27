@@ -86,6 +86,9 @@ from .schemas import (
     DetectCognitivePatternsResponse,
     CognitivePatternsResponse,
     CognitiveProfileResponse,
+    CodeSearchRequest,
+    CodeSearchResponse,
+    CodeMemoryItem,
 )
 from .middleware import get_tenant_from_key, optional_tenant_from_key
 from continuum.core.memory import TenantManager
@@ -1112,6 +1115,86 @@ async def index_memory(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
+
+
+# =============================================================================
+# CODE MEMORY SEARCH
+# =============================================================================
+
+@router.post("/code/search", response_model=CodeSearchResponse, tags=["Code Memory"])
+async def search_code(
+    request: CodeSearchRequest,
+    tenant_id: str = Depends(get_tenant_from_key)
+):
+    """
+    Search code memories for stored code snippets.
+
+    Code is automatically extracted from conversations and stored with:
+    - Language detection
+    - Function/class name extraction
+    - File path detection
+    - Purpose inference
+    - Related concepts
+
+    **Use this to:**
+    - Find code you wrote before: "pagination"
+    - Search by function name: "parse_jsonl"
+    - Filter by language: "python" + "async"
+    - Find patterns: "error handling"
+
+    **Parameters:**
+    - query: Search term (matches content, names, purpose, concepts)
+    - language: Optional filter by language (python, javascript, etc.)
+    - limit: Maximum results (default 10)
+
+    **Example:**
+    ```
+    POST /v1/code/search
+    {"query": "extract concepts", "language": "python", "limit": 5}
+    ```
+    """
+    try:
+        start_time = time.time()
+        memory = TenantManager.get_memory(tenant_id)
+
+        # Search code memories
+        results = memory.search_code(
+            query=request.query,
+            language=request.language,
+            limit=request.limit
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return CodeSearchResponse(
+            success=True,
+            results=[
+                CodeMemoryItem(
+                    id=r['id'],
+                    content=r['content'],
+                    language=r['language'],
+                    snippet_type=r['snippet_type'],
+                    names=r['names'],
+                    file_path=r['file_path'],
+                    purpose=r['purpose'],
+                    concepts=r['concepts'],
+                    created_at=r['created_at']
+                )
+                for r in results
+            ],
+            count=len(results),
+            query_time_ms=query_time_ms,
+            tenant_id=tenant_id
+        )
+    except Exception as e:
+        return CodeSearchResponse(
+            success=False,
+            results=[],
+            count=0,
+            query_time_ms=0,
+            tenant_id=tenant_id,
+            error=str(e)
+        )
 
 
 @router.get("/semantic/stats", tags=["Semantic Search"])

@@ -636,6 +636,41 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "memory_code_search": {
+        "name": "memory_code_search",
+        "description": (
+            "💻 Search code memories for stored code snippets. "
+            "Code is automatically extracted from conversations with rich metadata: "
+            "language detection, function/class names, file paths, purpose inference, "
+            "and related concepts. Use to find: 'pagination code', 'error handling', "
+            "'that async function I wrote', or filter by language."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (matches content, names, purpose, concepts)",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Filter by programming language (python, javascript, etc.)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results (default 10)",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 10,
+                },
+                "tenant_id": {
+                    "type": "string",
+                    "description": "Tenant identifier",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 }
 
 
@@ -687,6 +722,7 @@ class ToolExecutor:
             "memory_record_cognitive_pattern": self._handle_record_cognitive_pattern,
             "memory_detect_patterns": self._handle_detect_patterns,
             "memory_cognitive_profile": self._handle_cognitive_profile,
+            "memory_code_search": self._handle_code_search,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -1479,6 +1515,65 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_code_search(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle memory_code_search tool.
+
+        Search code memories for stored code snippets with rich metadata.
+
+        Args:
+            args: Tool arguments (query, language, limit, tenant_id)
+
+        Returns:
+            Search results with code snippets and metadata
+        """
+        # Validate inputs
+        query = validate_input(
+            args["query"],
+            max_length=self.mcp_config.max_query_length,
+            field_name="query",
+        )
+
+        # Get parameters
+        tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
+        language = args.get("language")
+        limit = min(args.get("limit", 10), 50)
+
+        # Get memory instance
+        memory = self._get_memory(tenant_id)
+
+        # Search code memories
+        results = memory.search_code(
+            query=query,
+            language=language,
+            limit=limit
+        )
+
+        # Format results
+        formatted_results = []
+        for r in results:
+            formatted_results.append({
+                "id": r["id"],
+                "content": r["content"][:1000] if len(r["content"]) > 1000 else r["content"],
+                "language": r["language"],
+                "snippet_type": r["snippet_type"],
+                "names": r["names"],
+                "file_path": r["file_path"],
+                "purpose": r["purpose"],
+                "concepts": r["concepts"],
+                "created_at": r["created_at"],
+            })
+
+        return {
+            "success": True,
+            "results": formatted_results,
+            "count": len(formatted_results),
+            "query": query,
+            "language_filter": language,
+            "tenant_id": tenant_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -1643,6 +1738,7 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_calibration"],  # 📈 Calibration Score
         TOOL_SCHEMAS["memory_record_belief"],  # 🎯 Record Belief
         TOOL_SCHEMAS["memory_get_contradictions"],  # ⚠️ Get Contradictions
+        TOOL_SCHEMAS["memory_code_search"],  # 💻 Code Memory Search
     ]
 
     # Add federation tool if enabled

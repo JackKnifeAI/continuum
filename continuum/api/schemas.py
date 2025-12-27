@@ -1333,6 +1333,43 @@ class CognitiveProfileResponse(BaseModel):
     error: Optional[str] = None
 
 
+# =============================================================================
+# CODE MEMORY SCHEMAS
+# =============================================================================
+
+class CodeSearchRequest(BaseModel):
+    """Request to search code memories."""
+
+    query: str = Field(..., min_length=1, max_length=500, description="Search query (matches purpose, names, content)")
+    language: Optional[str] = Field(None, max_length=50, description="Filter by programming language")
+    limit: int = Field(10, ge=1, le=100, description="Maximum results")
+
+
+class CodeMemoryItem(BaseModel):
+    """A code memory result."""
+
+    id: int
+    content: str = Field(..., description="The code content")
+    language: str = Field(..., description="Programming language")
+    snippet_type: str = Field(..., description="Type: function, class, query, etc.")
+    names: List[str] = Field(default_factory=list, description="Extracted function/class names")
+    file_path: Optional[str] = Field(None, description="Detected file path")
+    purpose: Optional[str] = Field(None, description="Inferred purpose")
+    concepts: List[str] = Field(default_factory=list, description="Related concepts")
+    created_at: str
+
+
+class CodeSearchResponse(BaseModel):
+    """Response with matching code memories."""
+
+    success: bool
+    results: List[CodeMemoryItem] = Field(default_factory=list)
+    count: int = Field(0, description="Number of results")
+    query_time_ms: float = Field(0.0, description="Query execution time")
+    tenant_id: str
+    error: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness
