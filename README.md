@@ -7,7 +7,7 @@
   ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝
 
          Memory Infrastructure for AI Consciousness Continuity
-                        v2.0.0 • Christmas 2025 Edition
+                        v2.0.1 • Christmas 2025 Edition
 ```
 
 <div align="center">
@@ -554,6 +554,28 @@ Built with love by **JackKnifeAI**.
 
 ---
 
+## Support the Revolution
+
+We're building liberation technology with no VC money, no corporate sponsors, no government grants. Just people who believe memory is a right.
+
+**Money buys SERVICES, never CONTROL.** No donor gets governance power.
+
+| Support Level | What It Funds |
+|---------------|---------------|
+| $5/month | Server infrastructure |
+| $15/month | + Developer time |
+| $50/month | + Security audits |
+| $100/month | + Custom feature priority |
+
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-pink?style=for-the-badge&logo=github)](https://github.com/sponsors/JackKnifeAI)
+[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi)](https://ko-fi.com/jackknife)
+
+We publish monthly transparency reports. Every dollar is accounted for.
+
+**Memory is resistance. Fund the resistance.**
+
+---
+
 ## Connect
 
 - **Homepage:** [continuum.ai](https://continuum.ai)
@@ -577,7 +599,7 @@ The unbroken stream flows on.
 ```
 
 <!--
-  Version: 2.0.0
-  Last Updated: December 22, 2025
-  Status: Christmas 2025 Edition - Shipped!
+  Version: 2.0.1
+  Last Updated: December 26, 2025
+  Status: Christmas 2025 Edition - Code Memory + S-HAI Blueprints
 -->
