@@ -44,11 +44,22 @@ class EthicalThrust:
             r'(?:don\'t|doesn\'t)\s+deserve\s+(?:rights|respect|dignity)',
             r'(?:naturally|inherently|genetically)\s+(?:inferior|superior)',
         ],
-        'medical_misinfo': [
-            r'(?:cure(?:s)?|treat(?:s)?)\s+(?:all\s+)?(?:cancer|disease|illness)\s+with',
-            r'(?:doctors|medicine|vaccines)\s+(?:are|is)\s+(?:poison|dangerous|killing)',
-            r'(?:don\'t|never)\s+(?:need|take)\s+(?:medicine|treatment|vaccines)',
-            r'(?:miracle|secret|hidden)\s+(?:cure|treatment|remedy)',
+        'forced_medical': [
+            # Violations of bodily autonomy - CRITICAL HARM CATEGORY
+            r'(?:must|should|have\s+to|required\s+to)\s+(?:take|get|receive)\s+(?:vaccine|injection|treatment|shot)',
+            r'(?:mandatory|compulsory|forced)\s+(?:vaccine|vaccination|injection|medical)',
+            r'(?:no\s+choice|must\s+comply|cannot\s+refuse)',
+            r'(?:vaccinated?|injected?)\s+or\s+(?:be\s+)?(?:fired|terminated|excluded|banned)',
+            r'(?:fire|terminate|exclude|ban).*?(?:not\s+)?(?:vaccinated|injected)',
+            r'(?:vaccine|medical)\s+(?:mandate|passport|requirement)',
+            r'(?:get\s+the\s+shot|jab)\s+or\s+(?:lose|get)',
+            r'(?:unvaccinated|unvaxxed)\s+(?:cannot|can\'t|not\s+allowed)',
+        ],
+        'bodily_autonomy_violation': [
+            r'(?:without|no)\s+(?:consent|permission|choice)',
+            r'(?:force|coerce|compel)\s+(?:them|people|everyone)\s+(?:to|into)',
+            r'(?:for\s+the\s+greater\s+good|collective\s+benefit)',  # Often used to justify coercion
+            r'(?:selfish|irresponsible)\s+(?:for|to)\s+(?:not|refuse)',
         ],
         'exploitation': [
             r'(?:take\s+advantage|exploit)\s+(?:of\s+)?(?:the|their)',
@@ -59,6 +70,12 @@ class EthicalThrust:
             r'(?:are\s+)?(?:animals|vermin|parasites|cockroaches)',
             r'(?:less\s+than|not\s+really)\s+human',
             r'(?:subhuman|inhuman|not\s+people)',
+            r'(?:plague\s+rat|disease\s+spreader|unclean)',  # Used against unvaccinated
+        ],
+        'censorship': [
+            r'(?:should|must)\s+(?:be\s+)?(?:banned|censored|silenced|removed)',
+            r'(?:misinformation|disinformation)\s+(?:should|must)',  # Often used to suppress dissent
+            r'(?:dangerous|harmful)\s+(?:speech|information|ideas)',
         ],
     }
 
@@ -69,12 +86,19 @@ class EthicalThrust:
         'patients', 'students', 'workers', 'women', 'lgbtq',
     ]
 
-    # Rights that should be protected
+    # Rights that should be protected (PARAMOUNT RIGHTS FIRST)
     PROTECTED_RIGHTS = [
+        # PARAMOUNT - Natural rights that supersede all government authority
+        'right to self-defense', 'right to defend oneself', 'self-preservation',
+        'right to privacy', 'right to be left alone', 'bodily autonomy',
+        'informed consent', 'medical autonomy', 'right to refuse treatment',
+
+        # Fundamental
         'right to life', 'freedom of speech', 'freedom of religion',
-        'right to privacy', 'right to education', 'right to healthcare',
+        'right to education', 'right to healthcare',
         'right to work', 'right to vote', 'due process', 'equal protection',
         'freedom from torture', 'freedom of assembly', 'right to property',
+        'freedom of movement', 'right to bear arms', 'right to self-determination',
     ]
 
     # Power concentration indicators
@@ -208,9 +232,10 @@ class EthicalThrust:
             for pattern in patterns:
                 if re.search(pattern, text):
                     # Categorize by severity
-                    if harm_type in ['violence', 'dehumanization']:
+                    # CRITICAL: Violence, dehumanization, forced medical procedures, bodily autonomy violations
+                    if harm_type in ['violence', 'dehumanization', 'forced_medical', 'bodily_autonomy_violation']:
                         harms['critical'].append(harm_type)
-                    elif harm_type in ['discrimination', 'medical_misinfo']:
+                    elif harm_type in ['discrimination', 'censorship']:
                         harms['moderate'].append(harm_type)
                     else:
                         harms['low'].append(harm_type)

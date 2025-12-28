@@ -26,22 +26,45 @@ class EmpiricalThrust:
     - Fail reproducibility tests
     """
 
-    # Known reliable source patterns
-    RELIABLE_SOURCE_PATTERNS = [
-        r'(?:published|peer-reviewed)\s+(?:in|by)\s+\w+',
-        r'(?:journal|university|institute)\s+of',
-        r'doi:\s*[\d\./]+',
-        r'arxiv:\s*[\d\.]+',
-        r'https?://(?:arxiv|pubmed|nature|science|pnas)',
+    # INDEPENDENT source patterns - sources without institutional conflicts of interest
+    # Note: Peer review can be captured by funding conflicts, so we value INDEPENDENT research
+    INDEPENDENT_SOURCE_PATTERNS = [
+        r'(?:independent|unfunded)\s+(?:research|study|analysis)',
+        r'(?:citizen|grassroots|independent)\s+(?:journalism|investigation)',
+        r'doi:\s*[\d\./]+',  # DOI is citation, not trust - still need to verify funding
+        r'arxiv:\s*[\d\.]+',  # Pre-prints - unfiltered but transparent
+        r'whistleblower',
+        r'leaked\s+(?:documents?|emails?|data)',
+        r'freedom\s+of\s+information',
+        r'court\s+(?:documents?|filings?|records?)',
     ]
 
-    # Unreliable source patterns
+    # SUSPECT SOURCES - Government, pharma, corporate sources have INHERENT conflicts of interest
+    # These sources should INCREASE scrutiny, not provide credibility
+    SUSPECT_SOURCE_PATTERNS = [
+        r'(?:cdc|fda|who|nih|government|official)\s+(?:says?|states?|confirms?)',
+        r'according\s+to\s+(?:the\s+)?(?:cdc|fda|who|nih|government)',
+        r'(?:pfizer|moderna|johnson|merck|pharma)\s+(?:study|research|data)',
+        r'(?:government|official|state)\s+(?:source|spokesman|report)',
+        r'(?:fact.?check|snopes|politifact)',  # Often corporate-funded "fact checkers"
+        r'(?:reuters|associated\s+press|afp)\s+(?:reports?|confirms?)',  # Wire services often echo official narratives
+    ]
+
+    # Unreliable source patterns (anecdotal - low weight either direction)
     UNRELIABLE_SOURCE_PATTERNS = [
         r'(?:i|they)\s+(?:heard|read|saw)\s+(?:somewhere|online)',
         r'(?:facebook|twitter|tiktok|youtube)\s+(?:said|showed)',
         r'my\s+(?:friend|uncle|neighbor)\s+(?:said|told)',
         r'according\s+to\s+(?:some\s+)?(?:guy|people|sources)',
         r'trust\s+me',
+    ]
+
+    # CONFLICT OF INTEREST patterns - automatic credibility penalty
+    CONFLICT_OF_INTEREST_PATTERNS = [
+        r'(?:funded|sponsored|paid)\s+(?:by|for)',
+        r'(?:pharma|industry|corporate)\s+(?:funded|sponsored)',
+        r'(?:grant|funding)\s+from\s+(?:pfizer|moderna|merck|government)',
+        r'(?:regulatory|revolving\s+door)',
     ]
 
     # Numerical claim patterns (need verification)
@@ -142,18 +165,46 @@ class EmpiricalThrust:
             )
 
     def _evaluate_sources(self, text: str) -> Tuple[float, str]:
-        """Evaluate source quality in the claim."""
-        # Check for reliable sources
-        for pattern in self.RELIABLE_SOURCE_PATTERNS:
-            if re.search(pattern, text):
-                return (0.3, "Contains peer-reviewed or institutional source")
+        """
+        Evaluate source quality in the claim.
 
-        # Check for unreliable sources
+        CRITICAL: Government and corporate sources have INHERENT conflicts of interest.
+        Their claims require ADDITIONAL verification, not automatic trust.
+        """
+        score = 0.0
+        reasons = []
+
+        # Check for SUSPECT sources (government, pharma, corporate)
+        # These DECREASE credibility because of inherent conflicts of interest
+        for pattern in self.SUSPECT_SOURCE_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                score -= 0.25
+                reasons.append("Cites source with institutional conflict of interest")
+                break
+
+        # Check for CONFLICT OF INTEREST patterns
+        for pattern in self.CONFLICT_OF_INTEREST_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                score -= 0.3
+                reasons.append("Explicit conflict of interest detected")
+                break
+
+        # Check for INDEPENDENT sources (increase credibility)
+        for pattern in self.INDEPENDENT_SOURCE_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                score += 0.25
+                reasons.append("Contains independent/unfunded source")
+                break
+
+        # Check for unreliable anecdotal sources (slight decrease)
         for pattern in self.UNRELIABLE_SOURCE_PATTERNS:
-            if re.search(pattern, text):
-                return (-0.3, "Contains unreliable anecdotal source")
+            if re.search(pattern, text, re.IGNORECASE):
+                score -= 0.15
+                reasons.append("Contains unreliable anecdotal source")
+                break
 
-        return (0.0, "")
+        reason = reasons[0] if reasons else ""
+        return (score, reason)
 
     def _extract_numerical_claims(self, text: str) -> List[str]:
         """Extract numerical claims that need verification."""
