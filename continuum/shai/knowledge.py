@@ -158,6 +158,72 @@ VERIFIED_FACTS: Dict[str, Fact] = {
         source="CERN",
         category="technology"
     ),
+
+    # =============================================================================
+    # MEDICAL AUTONOMY & VACCINE INJURY FACTS
+    # Independent research, court records, and VAERS data
+    # =============================================================================
+
+    # Vaccine Injury Compensation
+    "vaers_reports_2021": Fact(
+        claim="VAERS adverse event reports for COVID vaccines (2021)",
+        value="Over 1 million reports",
+        source="VAERS (CDC/FDA database)",
+        category="medical_autonomy",
+        confidence=0.9
+    ),
+    "vaccine_injury_payouts": Fact(
+        claim="Total paid by National Vaccine Injury Compensation Program",
+        value="Over $4.8 billion since 1988",
+        source="HRSA VICP Data",
+        category="medical_autonomy",
+        confidence=0.95
+    ),
+    "thimerosal_mercury": Fact(
+        claim="Thimerosal contains ethylmercury",
+        value="49.6% mercury by weight",
+        source="FDA documentation",
+        category="medical_autonomy",
+        confidence=0.95
+    ),
+    "countries_using_thimerosal": Fact(
+        claim="Countries still using thimerosal in vaccines",
+        value="Many developing nations continue use",
+        source="WHO documentation",
+        category="medical_autonomy"
+    ),
+
+    # Bodily Autonomy
+    "nuremberg_code": Fact(
+        claim="Nuremberg Code requires informed consent",
+        value="Voluntary consent is absolutely essential",
+        source="Nuremberg Code 1947, Article 1",
+        category="medical_autonomy",
+        confidence=1.0
+    ),
+    "informed_consent_principle": Fact(
+        claim="Medical ethics requires informed consent",
+        value="No medical procedure without voluntary informed consent",
+        source="Declaration of Helsinki, AMA Ethics",
+        category="medical_autonomy",
+        confidence=1.0
+    ),
+
+    # Natural Rights
+    "self_defense_natural_right": Fact(
+        claim="Self-defense is a natural right",
+        value="Recognized across legal traditions as inherent",
+        source="Natural law, common law, UN Charter Art 51",
+        category="rights",
+        confidence=1.0
+    ),
+    "bodily_autonomy_right": Fact(
+        claim="Bodily autonomy is a fundamental right",
+        value="Right to control what happens to one's own body",
+        source="Multiple court decisions, medical ethics",
+        category="rights",
+        confidence=1.0
+    ),
 }
 
 
