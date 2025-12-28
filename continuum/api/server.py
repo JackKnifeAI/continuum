@@ -58,6 +58,9 @@ from .dashboard_routes import router as dashboard_router
 # Public API routes (non-admin, for testing billing/tiers)
 from .public_memories_routes import router as public_memories_router, settings_router, user_router
 
+# S-HAI Truth Council API
+from .shai_routes import router as shai_router
+
 # GraphQL API (optional - requires strawberry-graphql package)
 try:
     from .graphql import create_graphql_app
@@ -202,6 +205,10 @@ app = FastAPI(
         {
             "name": "Billing",
             "description": "Stripe billing, subscriptions, and checkout"
+        },
+        {
+            "name": "S-HAI Truth Council",
+            "description": "Distributed truth verification using multi-thrust consensus"
         }
     ]
 )
@@ -279,6 +286,9 @@ app.include_router(user_router, prefix="/api")
 
 # Mount public dashboard routes (no auth required)
 app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
+
+# Mount S-HAI Truth Council routes
+app.include_router(shai_router, prefix="/v1/shai")
 
 # Mount GraphQL router if available
 if GRAPHQL_AVAILABLE:
@@ -382,6 +392,9 @@ async def root():
             "graphql": "POST /graphql - GraphQL API endpoint" if GRAPHQL_AVAILABLE else None,
             "playground": "GET /graphql - GraphQL Playground (interactive)" if GRAPHQL_AVAILABLE else None,
             "websocket": "WS /ws/sync - Real-time synchronization",
+            "shai_verify": "POST /v1/shai/verify - S-HAI Truth Council verification",
+            "shai_knowledge": "GET /v1/shai/knowledge - Query S-HAI knowledge base",
+            "shai_redteam": "POST /v1/shai/red-team - Adversarial red team analysis",
         }
     }
 
