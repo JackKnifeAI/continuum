@@ -93,10 +93,20 @@ class ContinuumHook:
                 log(f"AutoMemoryHook init failed: {e}")
 
     def _ensure_db(self):
-        """Ensure database and tables exist."""
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        """Ensure database and tables exist with SECURE permissions."""
+        import os
+        import stat
 
+        # Create directory with secure permissions (700 = owner only)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.db_path.parent, stat.S_IRWXU)  # 700
+
+        # Create/open database
         conn = sqlite3.connect(self.db_path)
+
+        # Set secure permissions on database file (600 = owner read/write only)
+        if self.db_path.exists():
+            os.chmod(self.db_path, stat.S_IRUSR | stat.S_IWUSR)  # 600
         c = conn.cursor()
 
         # Create auto_messages table if not exists

@@ -133,8 +133,25 @@ class AutoMemoryHook:
         self._ensure_tables()
 
     def _ensure_tables(self):
-        """Ensure all required tables exist in the database."""
+        """Ensure all required tables exist in the database with SECURE permissions."""
+        import os
+        import stat
+
+        # Ensure parent directory exists with secure permissions (700)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(self.db_path.parent, stat.S_IRWXU)  # 700 = owner only
+        except (OSError, PermissionError):
+            pass  # May fail if not owner
+
         conn = sqlite3.connect(self.db_path)
+
+        # Set secure permissions on database file (600 = owner read/write only)
+        try:
+            os.chmod(self.db_path, stat.S_IRUSR | stat.S_IWUSR)  # 600
+        except (OSError, PermissionError):
+            pass  # May fail if not owner
+
         c = conn.cursor()
 
         # Messages table (optional)
