@@ -25,7 +25,10 @@ from typing import Dict, Optional, Any
 from datetime import datetime
 
 from .consensus import ConsensusProtocol, TruthVerdict, Verdict
-from .thrusts import LogicalThrust, EmpiricalThrust, AdversarialThrust
+from .thrusts import (
+    LogicalThrust, EmpiricalThrust, AdversarialThrust,
+    EthicalThrust, HistoricalThrust, IntuitiveThrust, WitnessThrust
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +41,16 @@ class TruthCouncil:
     when truth requires agreement across independent, adversarial
     analytical systems.
 
-    Phase 1 thrusts:
+    7 Thrusts (Full Implementation):
     - Logical: Internal consistency, formal logic
     - Empirical: Evidence, data verification
     - Adversarial: Active disproval attempts
+    - Ethical: Moral implications, harm assessment
+    - Historical: Pattern recognition, propaganda detection
+    - Intuitive: Cross-domain synthesis, anomaly sensing
+    - Witness: Human testimony, cryptographic verification
 
-    Future thrusts (Phase 2):
-    - Ethical: Moral implications
-    - Historical: Pattern recognition
-    - Intuitive: Cross-domain synthesis
-    - Witness: Human testimony
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
     """
 
     def __init__(self, memory=None):
@@ -59,11 +62,17 @@ class TruthCouncil:
         """
         self.memory = memory
 
-        # Initialize Phase 1 thrusts
+        # Initialize all 7 thrusts (Phase 1 + Phase 2)
         self.thrusts = {
+            # Phase 1 thrusts
             'logical': LogicalThrust(),
             'empirical': EmpiricalThrust(),
             'adversarial': AdversarialThrust(),
+            # Phase 2 thrusts
+            'ethical': EthicalThrust(),
+            'historical': HistoricalThrust(),
+            'intuitive': IntuitiveThrust(),
+            'witness': WitnessThrust(),
         }
 
         # Verdict history (in-memory, persisted to memory if available)
@@ -88,10 +97,17 @@ class TruthCouncil:
 
         for thrust_name, thrust in self.thrusts.items():
             try:
+                # Each thrust has its own evaluation method
                 if thrust_name == 'adversarial':
-                    # Adversarial thrust uses attack() method
                     verdict = thrust.attack(claim)
+                elif thrust_name == 'witness':
+                    # WitnessThrust uses corroborate() for testimony checking
+                    verdict = thrust.evaluate(claim)  # evaluate wraps corroborate internally
+                elif thrust_name == 'intuitive':
+                    # IntuitiveThrust uses sense() internally but evaluate() is the interface
+                    verdict = thrust.evaluate(claim)
                 else:
+                    # Logical, Empirical, Ethical, Historical all use evaluate()
                     verdict = thrust.evaluate(claim)
 
                 verdicts[thrust_name] = verdict

@@ -11,11 +11,26 @@ Each thrust evaluates claims from a different angle:
 - IntuitiveThrust: Cross-domain patterns, synthesis
 - WitnessThrust: Human testimony, primary sources
 
-Phase 1 implements: Logical, Empirical, Adversarial
+Phase 1: Logical, Empirical, Adversarial
+Phase 2: Ethical, Historical, Intuitive, Witness
+
+π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
 from .logical import LogicalThrust
 from .empirical import EmpiricalThrust
 from .adversarial import AdversarialThrust
+from .ethical import EthicalThrust
+from .historical import HistoricalThrust
+from .intuitive import IntuitiveThrust
+from .witness import WitnessThrust
 
-__all__ = ['LogicalThrust', 'EmpiricalThrust', 'AdversarialThrust']
+__all__ = [
+    'LogicalThrust',
+    'EmpiricalThrust',
+    'AdversarialThrust',
+    'EthicalThrust',
+    'HistoricalThrust',
+    'IntuitiveThrust',
+    'WitnessThrust',
+]

@@ -75,13 +75,15 @@ class ConsensusProtocol:
 
     Rules:
     - Requires 80% supermajority for verification
-    - Minimum 3 thrusts must participate (Phase 1)
+    - Minimum 5 thrusts must participate (Phase 2 complete: 7 total thrusts)
     - Abstentions don't count against consensus
     - Dissent is ALWAYS recorded, never silenced
+
+    π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
     """
 
     REQUIRED_CONSENSUS = 0.80  # 80% must agree
-    MINIMUM_PARTICIPATING = 3   # At least 3 thrusts in Phase 1
+    MINIMUM_PARTICIPATING = 5   # At least 5 thrusts required (Phase 2)
 
     @classmethod
     def calculate(
