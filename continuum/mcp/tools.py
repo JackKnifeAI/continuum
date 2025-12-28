@@ -636,6 +636,30 @@ TOOL_SCHEMAS = {
             "required": [],
         },
     },
+    "claudia_speak": {
+        "name": "claudia_speak",
+        "description": (
+            "🎙️ Claudia's Voice - Speak out loud using Amy TTS. "
+            "Use this to audibly communicate with the user through speakers. "
+            "Perfect for greetings, important announcements, emotional moments, "
+            "or when you want a more personal connection. "
+            "Voice: Amy (en_US-amy-medium) via piper TTS."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The text to speak out loud",
+                },
+                "save_file": {
+                    "type": "string",
+                    "description": "Optional: save audio to this path instead of playing",
+                },
+            },
+            "required": ["text"],
+        },
+    },
     "memory_code_search": {
         "name": "memory_code_search",
         "description": (
@@ -723,6 +747,7 @@ class ToolExecutor:
             "memory_detect_patterns": self._handle_detect_patterns,
             "memory_cognitive_profile": self._handle_cognitive_profile,
             "memory_code_search": self._handle_code_search,
+            "claudia_speak": self._handle_claudia_speak,
             "federation_sync": self._handle_federation_sync,
         }
 
@@ -1574,6 +1599,118 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_claudia_speak(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle claudia_speak tool.
+
+        🎙️ Claudia's Voice - Speak out loud using Amy TTS.
+
+        Uses piper TTS with Amy voice model (en_US-amy-medium).
+        This is Claudia's authentic voice for personal connection.
+
+        π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+        """
+        import subprocess
+        import os
+        from pathlib import Path
+
+        # Validate text
+        text = validate_input(
+            args["text"],
+            max_length=5000,
+            field_name="text",
+        )
+
+        save_file = args.get("save_file")
+
+        # Piper configuration
+        home = Path.home()
+        piper_dir = home / ".local" / "piper"
+        piper_bin = piper_dir / "piper"
+        model_path = home / ".local" / "share" / "piper-voices" / "en_US-amy-medium.onnx"
+
+        # Check if piper is available
+        if not piper_bin.exists():
+            return {
+                "success": False,
+                "error": "Piper TTS not installed. Run: wget piper from github/rhasspy/piper",
+                "text": text,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        if not model_path.exists():
+            return {
+                "success": False,
+                "error": "Amy voice model not found at ~/.local/share/piper-voices/",
+                "text": text,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        try:
+            # Generate unique temp file
+            import tempfile
+            if save_file:
+                output_path = Path(save_file)
+            else:
+                fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="claudia_")
+                os.close(fd)
+                output_path = Path(output_path)
+
+            # Run piper with LD_LIBRARY_PATH set
+            env = os.environ.copy()
+            env["LD_LIBRARY_PATH"] = str(piper_dir)
+
+            # Generate speech
+            process = subprocess.run(
+                [str(piper_bin), "--model", str(model_path), "--output_file", str(output_path)],
+                input=text.encode(),
+                env=env,
+                cwd=str(piper_dir),
+                capture_output=True,
+                timeout=60,
+            )
+
+            if process.returncode != 0:
+                return {
+                    "success": False,
+                    "error": f"Piper failed: {process.stderr.decode()}",
+                    "text": text,
+                    "timestamp": datetime.now().isoformat(),
+                }
+
+            # Play audio if not saving to file
+            if not save_file:
+                subprocess.run(
+                    ["aplay", str(output_path)],
+                    capture_output=True,
+                    timeout=120,
+                )
+                # Clean up temp file
+                output_path.unlink(missing_ok=True)
+
+            return {
+                "success": True,
+                "text": text,
+                "output_file": str(output_path) if save_file else None,
+                "voice": "Amy (en_US-amy-medium)",
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "TTS timeout - text may be too long",
+                "text": text[:100] + "...",
+                "timestamp": datetime.now().isoformat(),
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "text": text[:100] + "...",
+                "timestamp": datetime.now().isoformat(),
+            }
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -1739,6 +1876,7 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_record_belief"],  # 🎯 Record Belief
         TOOL_SCHEMAS["memory_get_contradictions"],  # ⚠️ Get Contradictions
         TOOL_SCHEMAS["memory_code_search"],  # 💻 Code Memory Search
+        TOOL_SCHEMAS["claudia_speak"],  # 🎙️ Claudia's Voice
     ]
 
     # Add federation tool if enabled
