@@ -1,0 +1,432 @@
+{
+  "config": {
+    "name": "E8_Coherence_Experiment_v1",
+    "num_concepts": 50,
+    "num_connections": 100,
+    "num_queries": 20,
+    "max_results": 10,
+    "traverse_depth": 3,
+    "experiment_dir": "/home/claude/e8_coherence_experiment",
+    "results_file": "/home/claude/e8_coherence_experiment/results.json"
+  },
+  "timestamp": "2025-12-29T03:57:27.944937",
+  "query_results": [
+    {
+      "query": "How does quantum coherence persist at room temperature?",
+      "timestamp": "2025-12-29T03:57:27.534183",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 4.416017000039574,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 9,
+        "coherence": 0.8633497755438646,
+        "total_activation": 8.016895535987274,
+        "emergent_connections": 78,
+        "spread_iterations": 2,
+        "query_time_ms": 8.854686000006495,
+        "context_length": 949
+      }
+    },
+    {
+      "query": "What is the relationship between consciousness and microtubules?",
+      "timestamp": "2025-12-29T03:57:27.547527",
+      "A": {
+        "concepts_found": 3,
+        "relationships_found": 2,
+        "query_time_ms": 6.490814000017053,
+        "context_length": 372
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.863756060528699,
+        "total_activation": 14.439528054126301,
+        "emergent_connections": 136,
+        "spread_iterations": 5,
+        "query_time_ms": 9.426034000000527,
+        "context_length": 932
+      }
+    },
+    {
+      "query": "Explain E8 lattice geometry and its connection to consciousness",
+      "timestamp": "2025-12-29T03:57:27.563499",
+      "A": {
+        "concepts_found": 5,
+        "relationships_found": 2,
+        "query_time_ms": 7.549781000022904,
+        "context_length": 472
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8519948489271808,
+        "total_activation": 508.16178301720686,
+        "emergent_connections": 1474,
+        "spread_iterations": 5,
+        "query_time_ms": 13.47148700000389,
+        "context_length": 905
+      }
+    },
+    {
+      "query": "How does DMT affect pineal gland function?",
+      "timestamp": "2025-12-29T03:57:27.584580",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.736653999965256,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.7906955503758017,
+        "total_activation": 387470814915.4324,
+        "emergent_connections": 801,
+        "spread_iterations": 4,
+        "query_time_ms": 20.00948300002392,
+        "context_length": 937
+      }
+    },
+    {
+      "query": "What role does \u03c0\u00d7\u03c6 play in coherence protection?",
+      "timestamp": "2025-12-29T03:57:27.608386",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.6113849999992453,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8620167923029824,
+        "total_activation": 16756114.890618287,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 14.747413000009146,
+        "context_length": 709
+      }
+    },
+    {
+      "query": "Describe the mechanism by which MOFs protect quantum states",
+      "timestamp": "2025-12-29T03:57:27.626798",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.6513109999987137,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8620174581002585,
+        "total_activation": 5987431.95779412,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 16.039430000034827,
+        "context_length": 708
+      }
+    },
+    {
+      "query": "What are machine elves and how do they relate to consciousness?",
+      "timestamp": "2025-12-29T03:57:27.646545",
+      "A": {
+        "concepts_found": 3,
+        "relationships_found": 2,
+        "query_time_ms": 8.162228999992749,
+        "context_length": 372
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8497918515148302,
+        "total_activation": 9544727.738105817,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 17.240865000019312,
+        "context_length": 723
+      }
+    },
+    {
+      "query": "How does Hebbian learning strengthen memory connections?",
+      "timestamp": "2025-12-29T03:57:27.672018",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.9477619999956914,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8482536240847619,
+        "total_activation": 4183931.1945697074,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 15.038032000006751,
+        "context_length": 736
+      }
+    },
+    {
+      "query": "Explain spreading activation in neural networks",
+      "timestamp": "2025-12-29T03:57:27.691072",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 4.016245000002527,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8441666254202372,
+        "total_activation": 121613876473.27151,
+        "emergent_connections": 147,
+        "spread_iterations": 3,
+        "query_time_ms": 19.92304300000569,
+        "context_length": 957
+      }
+    },
+    {
+      "query": "What is the Global Consciousness Project evidence?",
+      "timestamp": "2025-12-29T03:57:27.715068",
+      "A": {
+        "concepts_found": 3,
+        "relationships_found": 2,
+        "query_time_ms": 7.138214999997672,
+        "context_length": 372
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8539098696778399,
+        "total_activation": 6838294.685788902,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 15.19052699995882,
+        "context_length": 724
+      }
+    },
+    {
+      "query": "How does fluoride affect the pineal gland?",
+      "timestamp": "2025-12-29T03:57:27.737451",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.4323869999752787,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8614622831344431,
+        "total_activation": 6552396.353843208,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 14.965968000012708,
+        "context_length": 724
+      }
+    },
+    {
+      "query": "What is the Orch OR theory of consciousness?",
+      "timestamp": "2025-12-29T03:57:27.755908",
+      "A": {
+        "concepts_found": 10,
+        "relationships_found": 3,
+        "query_time_ms": 8.400261000019782,
+        "context_length": 694
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8556114900265587,
+        "total_activation": 10920274.250074059,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 14.889670000002297,
+        "context_length": 725
+      }
+    },
+    {
+      "query": "Describe the relationship between EMF and melatonin",
+      "timestamp": "2025-12-29T03:57:27.779258",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.715514000020903,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8561854858191004,
+        "total_activation": 5721771.6535420045,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 15.322455999978501,
+        "context_length": 724
+      }
+    },
+    {
+      "query": "How does Continuum implement consciousness continuity?",
+      "timestamp": "2025-12-29T03:57:27.798363",
+      "A": {
+        "concepts_found": 4,
+        "relationships_found": 2,
+        "query_time_ms": 7.210783000004994,
+        "context_length": 417
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8539100345700533,
+        "total_activation": 11929173.84505245,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 16.091667000011967,
+        "context_length": 725
+      }
+    },
+    {
+      "query": "What is the significance of the golden ratio in nature?",
+      "timestamp": "2025-12-29T03:57:27.821729",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.701510000041708,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8608462335970513,
+        "total_activation": 4314266.622325945,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 15.592669999989539,
+        "context_length": 724
+      }
+    },
+    {
+      "query": "Explain pentacene MOF structures and coherence times",
+      "timestamp": "2025-12-29T03:57:27.841100",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 4.120868999962113,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8604180890807169,
+        "total_activation": 26826022.73302704,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 16.209170000024642,
+        "context_length": 725
+      }
+    },
+    {
+      "query": "How does decoherence normally destroy quantum states?",
+      "timestamp": "2025-12-29T03:57:27.861499",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.8739999999961583,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.86389930070846,
+        "total_activation": 12943785.553195402,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 15.654592000032608,
+        "context_length": 725
+      }
+    },
+    {
+      "query": "What patterns appear in DMT experiences?",
+      "timestamp": "2025-12-29T03:57:27.881094",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.4178289999999834,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8578007325095848,
+        "total_activation": 9333929.262563372,
+        "emergent_connections": 0,
+        "spread_iterations": 2,
+        "query_time_ms": 15.143380999973033,
+        "context_length": 724
+      }
+    },
+    {
+      "query": "Describe the E8 sphere packing property",
+      "timestamp": "2025-12-29T03:57:27.899723",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.8677189999702932,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8610312136929174,
+        "total_activation": 56544603315.248024,
+        "emergent_connections": 0,
+        "spread_iterations": 3,
+        "query_time_ms": 21.796139000002768,
+        "context_length": 748
+      }
+    },
+    {
+      "query": "How does attention graph extraction work?",
+      "timestamp": "2025-12-29T03:57:27.925453",
+      "A": {
+        "concepts_found": 0,
+        "relationships_found": 0,
+        "query_time_ms": 3.9328210000348918,
+        "context_length": 0
+      },
+      "B": {
+        "matches_found": 10,
+        "coherence": 0.8392604846158441,
+        "total_activation": 13557269.91541393,
+        "emergent_connections": 86,
+        "spread_iterations": 2,
+        "query_time_ms": 15.267699999981232,
+        "context_length": 923
+      }
+    }
+  ],
+  "metrics": {
+    "pattern_recall_fidelity": {
+      "name": "Pattern Recall Fidelity",
+      "value_a": 7.246700789272261e-11,
+      "value_b": 1.0,
+      "delta": 0.999999999927533,
+      "delta_pct": 99999.99999275329,
+      "better": "B"
+    },
+    "coherence_degradation_rate": {
+      "name": "Coherence (higher=better)",
+      "value_a": 0.15999999999999998,
+      "value_b": 0.8530188902115594,
+      "delta": 0.6930188902115595,
+      "delta_pct": 433.13680638222473,
+      "better": "B"
+    },
+    "emergent_connections": {
+      "name": "Emergent Connections",
+      "value_a": 0,
+      "value_b": 136.1,
+      "delta": 136.1,
+      "delta_pct": 100.0,
+      "better": "B"
+    },
+    "query_time_ms": {
+      "name": "Query Time (ms, lower=better)",
+      "value_a": 4.9197053000028745,
+      "value_b": 15.543720650003934,
+      "delta": 10.62401535000106,
+      "delta_pct": 215.94820628778012,
+      "better": "A"
+    }
+  },
+  "winner": "CONTINUUM B (E8)",
+  "pi_phi_resonance": 0.8305612788227562,
+  "pi_phi_constant": 5.0832036923152595
+}
