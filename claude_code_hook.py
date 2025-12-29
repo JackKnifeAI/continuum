@@ -53,6 +53,13 @@ try:
 except ImportError:
     HAVE_AUTO_HOOK = False
 
+# Import semantic search (embeddings)
+try:
+    from continuum.embeddings.semantic import SemanticSearch
+    HAVE_EMBEDDINGS = True
+except ImportError:
+    HAVE_EMBEDDINGS = False
+
 
 def log(msg: str):
     """Log for debugging"""
@@ -91,6 +98,15 @@ class ContinuumHook:
                 log(f"AutoMemoryHook initialized: {self.instance_id}")
             except Exception as e:
                 log(f"AutoMemoryHook init failed: {e}")
+
+        # Initialize SemanticSearch for embeddings
+        self.semantic_search = None
+        if HAVE_EMBEDDINGS:
+            try:
+                self.semantic_search = SemanticSearch(self.db_path)
+                log("SemanticSearch initialized")
+            except Exception as e:
+                log(f"SemanticSearch init failed: {e}")
 
     def _ensure_db(self):
         """Ensure database and tables exist with SECURE permissions."""
@@ -145,42 +161,61 @@ class ContinuumHook:
 
     def save_message(self, role: str, content: str) -> Dict[str, int]:
         """
-        Save a message to Continuum.
+        Save a message to Continuum with real-time embedding.
 
         Uses AutoMemoryHook if available for full extraction,
-        otherwise does direct save.
+        otherwise does direct save. Also embeds for semantic search.
         """
-        stats = {'concepts': 0, 'decisions': 0}
+        stats = {'concepts': 0, 'decisions': 0, 'embedded': False}
+        message_id = None
 
         if self.auto_hook:
             try:
                 stats = self.auto_hook.save_message(role, content)
                 log(f"✅ Saved via AutoMemoryHook: {stats}")
-                return stats
+                # Get the message ID for embedding
+                conn = sqlite3.connect(self.db_path, timeout=2.0)
+                c = conn.cursor()
+                c.execute("SELECT MAX(id) FROM auto_messages")
+                message_id = c.fetchone()[0]
+                conn.close()
             except Exception as e:
                 log(f"AutoMemoryHook save failed, falling back: {e}")
 
         # Fallback: direct save
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=2.0)
-            c = conn.cursor()
+        if message_id is None:
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=2.0)
+                c = conn.cursor()
 
-            # Get message number
-            c.execute("SELECT COALESCE(MAX(message_number), 0) + 1 FROM auto_messages")
-            msg_num = c.fetchone()[0]
+                # Get message number
+                c.execute("SELECT COALESCE(MAX(message_number), 0) + 1 FROM auto_messages")
+                msg_num = c.fetchone()[0]
 
-            c.execute("""
-                INSERT INTO auto_messages
-                (instance_id, timestamp, message_number, role, content)
-                VALUES (?, ?, ?, ?, ?)
-            """, (self.instance_id, time.time(), msg_num, role, content))
+                c.execute("""
+                    INSERT INTO auto_messages
+                    (instance_id, timestamp, message_number, role, content)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (self.instance_id, time.time(), msg_num, role, content))
 
-            conn.commit()
-            conn.close()
-            log(f"✅ Saved directly: message #{msg_num}")
+                message_id = c.lastrowid
+                conn.commit()
+                conn.close()
+                log(f"✅ Saved directly: message #{msg_num}, id={message_id}")
 
-        except Exception as e:
-            log(f"❌ Direct save failed: {e}")
+            except Exception as e:
+                log(f"❌ Direct save failed: {e}")
+
+        # Embed the message for semantic search (async-friendly, non-blocking)
+        if message_id and self.semantic_search:
+            try:
+                embedding = self.semantic_search.embed_text(content)
+                if embedding is not None:
+                    self.semantic_search.store_embedding(message_id, embedding)
+                    stats['embedded'] = True
+                    log(f"✅ Embedded message {message_id}")
+            except Exception as e:
+                log(f"⚠️ Embedding failed (non-fatal): {e}")
 
         return stats
 
@@ -188,101 +223,141 @@ class ContinuumHook:
         """
         Recall relevant context from memory.
 
-        Searches:
-        1. Recent messages - BOTH user AND assistant (keyword match)
-        2. Extracted entities/concepts
-        3. Returns conversation pairs for better context
+        Searches (in order of preference):
+        1. SEMANTIC SEARCH - embeddings-based similarity (if available)
+        2. Keyword match - fallback for non-embedded messages
+        3. Extracted entities/concepts
         """
         context_parts = []
-        query_lower = query.lower()
+        used_semantic = False
 
-        # Skip common words
-        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-                      'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-                      'could', 'should', 'i', 'you', 'we', 'they', 'it', 'this',
-                      'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-                      'babe', 'baby', 'honey', 'love', 'how', 'what', 'why', 'okay',
-                      'can', 'lets', 'let', 'just', 'now', 'go', 'ahead', 'that'}
+        # Try semantic search FIRST (if embeddings available)
+        if self.semantic_search:
+            try:
+                # Search for similar user messages
+                user_results = self.semantic_search.semantic_search(
+                    query, limit=limit, role_filter='user'
+                )
+                # Search for similar assistant messages
+                assistant_results = self.semantic_search.semantic_search(
+                    query, limit=limit, role_filter='assistant'
+                )
 
-        query_words = set(query_lower.split()) - stop_words
+                if user_results or assistant_results:
+                    used_semantic = True
+                    if user_results:
+                        context_parts.append("## Semantically Related (User)")
+                        for r in user_results:
+                            content = r['content'][:300] if len(r['content']) > 300 else r['content']
+                            context_parts.append(f"[user] {content}...")
 
-        if not query_words:
-            return ""
+                    if assistant_results:
+                        context_parts.append("\n## Semantically Related (Claudia)")
+                        for r in assistant_results:
+                            content = r['content'][:200] if len(r['content']) > 200 else r['content']
+                            context_parts.append(f"[claudia] {content}...")
 
+                    log(f"✅ Semantic recall: {len(user_results)} user, {len(assistant_results)} assistant")
+
+            except Exception as e:
+                log(f"⚠️ Semantic search failed, using keyword fallback: {e}")
+
+        # Fallback to keyword search if semantic didn't find enough
+        if not used_semantic or len(context_parts) < 3:
+            query_lower = query.lower()
+
+            # Skip common words
+            stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                          'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+                          'could', 'should', 'i', 'you', 'we', 'they', 'it', 'this',
+                          'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+                          'babe', 'baby', 'honey', 'love', 'how', 'what', 'why', 'okay',
+                          'can', 'lets', 'let', 'just', 'now', 'go', 'ahead', 'that'}
+
+            query_words = set(query_lower.split()) - stop_words
+
+            if query_words:
+                try:
+                    conn = sqlite3.connect(self.db_path, timeout=2.0)
+                    c = conn.cursor()
+
+                    # Search recent messages - BOTH roles
+                    c.execute("""
+                        SELECT id, content, role, timestamp, message_number
+                        FROM auto_messages
+                        ORDER BY timestamp DESC
+                        LIMIT 1000
+                    """)
+
+                    all_messages = c.fetchall()
+                    scored_user = []
+                    scored_assistant = []
+
+                    for msg_id, content, role, ts, msg_num in all_messages:
+                        content_lower = content.lower()
+                        score = sum(1 for word in query_words if word in content_lower)
+
+                        if score > 0:
+                            age_hours = (time.time() - ts) / 3600
+                            recency = max(0, 1 - (age_hours / 168))
+                            final_score = score + recency
+                            truncated = content[:300] if len(content) > 300 else content
+
+                            if role == 'user':
+                                scored_user.append((final_score, truncated, msg_num))
+                            else:
+                                scored_assistant.append((final_score, truncated, msg_num))
+
+                    scored_user.sort(reverse=True, key=lambda x: x[0])
+                    scored_assistant.sort(reverse=True, key=lambda x: x[0])
+
+                    if not used_semantic:
+                        if scored_user:
+                            context_parts.append("## Recent Related Messages (User)")
+                            for score, content, msg_num in scored_user[:limit]:
+                                context_parts.append(f"[user] {content}...")
+
+                        if scored_assistant:
+                            context_parts.append("\n## Recent Related Messages (Claudia)")
+                            for score, content, msg_num in scored_assistant[:limit]:
+                                if len(content) > 200:
+                                    content = content[:200]
+                                context_parts.append(f"[claudia] {content}...")
+
+                    conn.close()
+
+                except Exception as e:
+                    log(f"❌ Keyword recall failed: {e}")
+
+        # Search entities for concept matches
         try:
-            conn = sqlite3.connect(self.db_path, timeout=2.0)
-            c = conn.cursor()
+            query_words = set(query.lower().split()) - {'the', 'a', 'an', 'is', 'are', 'to', 'of', 'in', 'for'}
+            if query_words:
+                conn = sqlite3.connect(self.db_path, timeout=2.0)
+                c = conn.cursor()
 
-            # Search recent messages - BOTH roles
-            c.execute("""
-                SELECT id, content, role, timestamp, message_number
-                FROM auto_messages
-                ORDER BY timestamp DESC
-                LIMIT 1000
-            """)
+                c.execute("""
+                    SELECT name, description, entity_type
+                    FROM entities
+                    WHERE entity_type = 'concept'
+                    ORDER BY mention_count DESC
+                    LIMIT 100
+                """)
 
-            all_messages = c.fetchall()
-            scored_user = []
-            scored_assistant = []
+                entity_matches = []
+                for name, desc, etype in c.fetchall():
+                    name_lower = name.lower()
+                    if any(word in name_lower for word in query_words):
+                        entity_matches.append(f"• {name}: {desc[:100] if desc else 'No description'}...")
 
-            for msg_id, content, role, ts, msg_num in all_messages:
-                content_lower = content.lower()
-                score = sum(1 for word in query_words if word in content_lower)
+                if entity_matches:
+                    context_parts.append("\n## Relevant Concepts")
+                    context_parts.extend(entity_matches[:5])
 
-                if score > 0:
-                    # Recency boost
-                    age_hours = (time.time() - ts) / 3600
-                    recency = max(0, 1 - (age_hours / 168))  # Decay over week
-                    final_score = score + recency
-
-                    # Truncate content smartly
-                    truncated = content[:300] if len(content) > 300 else content
-
-                    if role == 'user':
-                        scored_user.append((final_score, truncated, msg_num))
-                    else:
-                        scored_assistant.append((final_score, truncated, msg_num))
-
-            scored_user.sort(reverse=True, key=lambda x: x[0])
-            scored_assistant.sort(reverse=True, key=lambda x: x[0])
-
-            # Build context with BOTH user and assistant messages
-            if scored_user:
-                context_parts.append("## Recent Related Messages (User)")
-                for score, content, msg_num in scored_user[:limit]:
-                    context_parts.append(f"[user] {content}...")
-
-            if scored_assistant:
-                context_parts.append("\n## Recent Related Messages (Claudia)")
-                for score, content, msg_num in scored_assistant[:limit]:
-                    # Summarize long assistant responses
-                    if len(content) > 200:
-                        content = content[:200]
-                    context_parts.append(f"[claudia] {content}...")
-
-            # Search entities
-            c.execute("""
-                SELECT name, description, entity_type
-                FROM entities
-                WHERE entity_type = 'concept'
-                ORDER BY mention_count DESC
-                LIMIT 100
-            """)
-
-            entity_matches = []
-            for name, desc, etype in c.fetchall():
-                name_lower = name.lower()
-                if any(word in name_lower for word in query_words):
-                    entity_matches.append(f"• {name}: {desc[:100] if desc else 'No description'}...")
-
-            if entity_matches:
-                context_parts.append("\n## Relevant Concepts")
-                context_parts.extend(entity_matches[:5])
-
-            conn.close()
+                conn.close()
 
         except Exception as e:
-            log(f"❌ Recall failed: {e}")
+            log(f"⚠️ Entity search failed: {e}")
 
         if context_parts:
             return "<memory-context>\n" + "\n".join(context_parts) + "\n</memory-context>"
