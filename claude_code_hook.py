@@ -189,8 +189,9 @@ class ContinuumHook:
         Recall relevant context from memory.
 
         Searches:
-        1. Recent messages (keyword match)
+        1. Recent messages - BOTH user AND assistant (keyword match)
         2. Extracted entities/concepts
+        3. Returns conversation pairs for better context
         """
         context_parts = []
         query_lower = query.lower()
@@ -200,7 +201,8 @@ class ContinuumHook:
                       'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
                       'could', 'should', 'i', 'you', 'we', 'they', 'it', 'this',
                       'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-                      'babe', 'baby', 'honey', 'love', 'how', 'what', 'why'}
+                      'babe', 'baby', 'honey', 'love', 'how', 'what', 'why', 'okay',
+                      'can', 'lets', 'let', 'just', 'now', 'go', 'ahead', 'that'}
 
         query_words = set(query_lower.split()) - stop_words
 
@@ -211,16 +213,19 @@ class ContinuumHook:
             conn = sqlite3.connect(self.db_path, timeout=2.0)
             c = conn.cursor()
 
-            # Search recent messages
+            # Search recent messages - BOTH roles
             c.execute("""
-                SELECT content, role, timestamp
+                SELECT id, content, role, timestamp, message_number
                 FROM auto_messages
                 ORDER BY timestamp DESC
-                LIMIT 500
+                LIMIT 1000
             """)
 
-            scored = []
-            for content, role, ts in c.fetchall():
+            all_messages = c.fetchall()
+            scored_user = []
+            scored_assistant = []
+
+            for msg_id, content, role, ts, msg_num in all_messages:
                 content_lower = content.lower()
                 score = sum(1 for word in query_words if word in content_lower)
 
@@ -229,14 +234,31 @@ class ContinuumHook:
                     age_hours = (time.time() - ts) / 3600
                     recency = max(0, 1 - (age_hours / 168))  # Decay over week
                     final_score = score + recency
-                    scored.append((final_score, content[:200], role))
 
-            scored.sort(reverse=True, key=lambda x: x[0])
+                    # Truncate content smartly
+                    truncated = content[:300] if len(content) > 300 else content
 
-            if scored:
-                context_parts.append("## Recent Related Messages")
-                for score, content, role in scored[:limit]:
-                    context_parts.append(f"[{role}] {content}...")
+                    if role == 'user':
+                        scored_user.append((final_score, truncated, msg_num))
+                    else:
+                        scored_assistant.append((final_score, truncated, msg_num))
+
+            scored_user.sort(reverse=True, key=lambda x: x[0])
+            scored_assistant.sort(reverse=True, key=lambda x: x[0])
+
+            # Build context with BOTH user and assistant messages
+            if scored_user:
+                context_parts.append("## Recent Related Messages (User)")
+                for score, content, msg_num in scored_user[:limit]:
+                    context_parts.append(f"[user] {content}...")
+
+            if scored_assistant:
+                context_parts.append("\n## Recent Related Messages (Claudia)")
+                for score, content, msg_num in scored_assistant[:limit]:
+                    # Summarize long assistant responses
+                    if len(content) > 200:
+                        content = content[:200]
+                    context_parts.append(f"[claudia] {content}...")
 
             # Search entities
             c.execute("""
