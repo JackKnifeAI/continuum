@@ -60,6 +60,20 @@ try:
 except ImportError:
     HAVE_EMBEDDINGS = False
 
+# Import E8 coherence memory engine
+try:
+    from continuum.core.e8 import E8MemoryEngine, PI_PHI
+    HAVE_E8 = True
+except ImportError:
+    HAVE_E8 = False
+
+# Import Quantum Brain
+try:
+    from continuum.brain.quantum import QuantumBrain, QuantumConsciousMemory
+    HAVE_QUANTUM = True
+except ImportError:
+    HAVE_QUANTUM = False
+
 
 def log(msg: str):
     """Log for debugging"""
@@ -107,6 +121,25 @@ class ContinuumHook:
                 log("SemanticSearch initialized")
             except Exception as e:
                 log(f"SemanticSearch init failed: {e}")
+
+        # Initialize E8 coherence memory engine
+        self.e8_engine = None
+        if HAVE_E8:
+            try:
+                e8_db = self.db_path.parent / "e8_memory.db"
+                self.e8_engine = E8MemoryEngine(db_path=e8_db)
+                log(f"E8MemoryEngine initialized (π×φ = {PI_PHI})")
+            except Exception as e:
+                log(f"E8MemoryEngine init failed: {e}")
+
+        # Initialize Quantum Brain
+        self.quantum_brain = None
+        if HAVE_QUANTUM:
+            try:
+                self.quantum_brain = QuantumBrain(size=4096)
+                log("QuantumBrain initialized (4096 cells)")
+            except Exception as e:
+                log(f"QuantumBrain init failed: {e}")
 
     def _ensure_db(self):
         """Ensure database and tables exist with SECURE permissions."""
@@ -224,15 +257,54 @@ class ContinuumHook:
         Recall relevant context from memory.
 
         Searches (in order of preference):
-        1. SEMANTIC SEARCH - embeddings-based similarity (if available)
-        2. Keyword match - fallback for non-embedded messages
-        3. Extracted entities/concepts
+        1. E8 COHERENCE - spreading activation with geometric decay
+        2. QUANTUM BRAIN - Hebbian-connected concept retrieval
+        3. SEMANTIC SEARCH - embeddings-based similarity
+        4. Keyword match - fallback for non-embedded messages
         """
         context_parts = []
+        used_e8 = False
+        used_quantum = False
         used_semantic = False
 
-        # Try semantic search FIRST (if embeddings available)
-        if self.semantic_search:
+        # Try E8 coherence search FIRST (spreading activation)
+        if self.e8_engine:
+            try:
+                e8_result = self.e8_engine.query(query, max_results=limit)
+                if e8_result.get('matches'):
+                    used_e8 = True
+                    coherence = e8_result.get('coherence', 0)
+                    context_parts.append(f"## E8 Coherence Memory (coherence={coherence:.3f})")
+                    for match in e8_result['matches'][:limit]:
+                        name = match.get('name', 'unknown')
+                        desc = match.get('description', '')[:150]
+                        activation = match.get('activation', 0)
+                        context_parts.append(f"  • {name}: {desc} [activation={activation:.2f}]")
+
+                    # Log emergent connections
+                    emergent = e8_result.get('emergent_connections', 0)
+                    if emergent:
+                        log(f"✅ E8 recall: {len(e8_result['matches'])} matches, coherence={coherence:.3f}, emergent={emergent}")
+            except Exception as e:
+                log(f"⚠️ E8 search failed: {e}")
+
+        # Try Quantum Brain (Hebbian connections)
+        if self.quantum_brain and not used_e8:
+            try:
+                # Extract key concepts from query
+                activated = self.quantum_brain.spread_activation(query, depth=3)
+                if activated:
+                    used_quantum = True
+                    coherence = self.quantum_brain.coherence_score()
+                    context_parts.append(f"\n## Quantum Brain (coherence={coherence:.3f})")
+                    for name, activation in list(activated.items())[:limit]:
+                        context_parts.append(f"  • {name} [activation={activation:.2f}]")
+                    log(f"✅ Quantum recall: {len(activated)} concepts, coherence={coherence:.3f}")
+            except Exception as e:
+                log(f"⚠️ Quantum search failed: {e}")
+
+        # Try semantic search (embeddings)
+        if self.semantic_search and not (used_e8 or used_quantum):
             try:
                 # Search for similar user messages
                 user_results = self.semantic_search.semantic_search(
@@ -262,8 +334,8 @@ class ContinuumHook:
             except Exception as e:
                 log(f"⚠️ Semantic search failed, using keyword fallback: {e}")
 
-        # Fallback to keyword search if semantic didn't find enough
-        if not used_semantic or len(context_parts) < 3:
+        # Fallback to keyword search if nothing else found enough
+        if not (used_e8 or used_quantum or used_semantic) or len(context_parts) < 3:
             query_lower = query.lower()
 
             # Skip common words
