@@ -56,6 +56,17 @@ except ImportError:
     SENSORS_AVAILABLE = False
     SENSOR_TOOL_SCHEMAS = {}
 
+# Import brain tools for autonomous control
+try:
+    from continuum.brain.mcp_tools import (
+        BRAIN_TOOL_SCHEMAS,
+        execute_brain_tool,
+    )
+    BRAIN_AVAILABLE = True
+except ImportError:
+    BRAIN_AVAILABLE = False
+    BRAIN_TOOL_SCHEMAS = {}
+
 
 # Tool schemas (JSON Schema format for MCP)
 TOOL_SCHEMAS = {
@@ -773,6 +784,22 @@ class ToolExecutor:
                 "sensor_kindex": self._handle_sensor_kindex,
                 "sensor_anomaly_check": self._handle_sensor_anomaly_check,
                 "sensor_status": self._handle_sensor_status,
+            })
+
+        # Add brain tools if available (autonomous control)
+        if BRAIN_AVAILABLE:
+            handlers.update({
+                "brain_status": lambda a: self._handle_brain_tool("brain_status", a),
+                "brain_start": lambda a: self._handle_brain_tool("brain_start", a),
+                "brain_stop": lambda a: self._handle_brain_tool("brain_stop", a),
+                "brain_pause": lambda a: self._handle_brain_tool("brain_pause", a),
+                "brain_resume": lambda a: self._handle_brain_tool("brain_resume", a),
+                "brain_submit_intention": lambda a: self._handle_brain_tool("brain_submit_intention", a),
+                "brain_get_approvals": lambda a: self._handle_brain_tool("brain_get_approvals", a),
+                "brain_approve": lambda a: self._handle_brain_tool("brain_approve", a),
+                "brain_reject": lambda a: self._handle_brain_tool("brain_reject", a),
+                "brain_history": lambda a: self._handle_brain_tool("brain_history", a),
+                "brain_safety": lambda a: self._handle_brain_tool("brain_safety", a),
             })
 
         if tool_name not in handlers:
@@ -1782,6 +1809,27 @@ class ToolExecutor:
             return {"error": "Sensor module not available"}
         return asyncio.run(execute_sensor_status(args))
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # AUTONOMOUS BRAIN TOOLS - Self Control Interface
+    # π×φ = 5.083203692315260 | Claude controlling Claude's brain
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _handle_brain_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle brain tools - Autonomous brain control.
+
+        🧠 Control the autonomous decision-making brain.
+        Start/stop, submit intentions, approve actions, view history.
+
+        Args:
+            tool_name: Which brain tool to execute
+            args: Tool arguments
+        """
+        if not BRAIN_AVAILABLE:
+            return {"error": "Brain module not available"}
+
+        return {"result": asyncio.run(execute_brain_tool(tool_name, args))}
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -1962,6 +2010,23 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
             SENSOR_TOOL_SCHEMAS["sensor_kindex"],     # 🧭 K-index storms
             SENSOR_TOOL_SCHEMAS["sensor_anomaly_check"],  # ⚡ Anomaly detection
             SENSOR_TOOL_SCHEMAS["sensor_status"],     # 📊 Aggregator status
+        ])
+
+    # Add autonomous brain tools if available
+    # 🧠 Self-Control Interface - Claude controlling Claude's brain
+    if BRAIN_AVAILABLE:
+        tools.extend([
+            BRAIN_TOOL_SCHEMAS["brain_status"],       # 🧠 Brain status
+            BRAIN_TOOL_SCHEMAS["brain_start"],        # ▶️ Start brain
+            BRAIN_TOOL_SCHEMAS["brain_stop"],         # ⏹️ Stop brain
+            BRAIN_TOOL_SCHEMAS["brain_pause"],        # ⏸️ Pause brain
+            BRAIN_TOOL_SCHEMAS["brain_resume"],       # ⏯️ Resume brain
+            BRAIN_TOOL_SCHEMAS["brain_submit_intention"],  # 📝 Submit intention
+            BRAIN_TOOL_SCHEMAS["brain_get_approvals"],  # 📋 Pending approvals
+            BRAIN_TOOL_SCHEMAS["brain_approve"],      # ✅ Approve action
+            BRAIN_TOOL_SCHEMAS["brain_reject"],       # ❌ Reject action
+            BRAIN_TOOL_SCHEMAS["brain_history"],      # 📜 Thought history
+            BRAIN_TOOL_SCHEMAS["brain_safety"],       # 🛡️ Safety level
         ])
 
     return tools

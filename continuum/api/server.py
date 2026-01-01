@@ -61,6 +61,14 @@ from .public_memories_routes import router as public_memories_router, settings_r
 # S-HAI Truth Council API
 from .shai_routes import router as shai_router
 
+# Autonomous Brain API
+try:
+    from .brain_routes import router as brain_router
+    BRAIN_AVAILABLE = True
+except ImportError:
+    BRAIN_AVAILABLE = False
+    brain_router = None
+
 # Planetary Sensor Aggregator
 try:
     from continuum.sensors.api_routes import router as sensor_router
@@ -169,6 +177,7 @@ async def lifespan(app: FastAPI):
     print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
     print(f"Sentry: {'Enabled' if sentry_enabled else 'Disabled'}")
     print(f"Sensors: {'Enabled' if SENSORS_AVAILABLE and sensor_scheduler else 'Disabled'}")
+    print(f"Brain: {'Enabled' if BRAIN_AVAILABLE else 'Disabled'}")
     print("=" * 70)
     print(f"Started: {datetime.now().isoformat()}")
     print("=" * 70)
@@ -317,6 +326,10 @@ app.include_router(shai_router, prefix="/v1/shai")
 # Mount Planetary Sensor Aggregator routes
 if SENSORS_AVAILABLE and sensor_router:
     app.include_router(sensor_router, prefix="/v1")
+
+# Mount Autonomous Brain routes
+if BRAIN_AVAILABLE and brain_router:
+    app.include_router(brain_router, prefix="/v1")
 
 # Mount GraphQL router if available
 if GRAPHQL_AVAILABLE:

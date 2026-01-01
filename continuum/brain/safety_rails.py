@@ -132,6 +132,17 @@ class SafetyRails:
             SafetyLevel.PARANOID: 5,
         }
 
+        # Statistics for API reporting
+        self.blocked_count = 0
+        self.approval_required_count = 0
+
+    @property
+    def actions_this_window(self) -> int:
+        """Count of actions in current rate limit window."""
+        now = datetime.now()
+        cutoff = now - self.rate_limit_window
+        return len([t for t in self.action_history if t > cutoff])
+
     def check(self, action_plan: Dict[str, Any]) -> SafetyResult:
         """
         Check if an action is safe to execute.
@@ -149,6 +160,7 @@ class SafetyRails:
         # 1. Check blocklist
         if self._is_blocked(command, description):
             logger.warning(f"🚫 Action BLOCKED: {description}")
+            self.blocked_count += 1
             return SafetyResult(
                 allowed=False,
                 blocked=True,
@@ -159,6 +171,7 @@ class SafetyRails:
         # 2. Check rate limit
         if not self._check_rate_limit():
             logger.warning(f"🚫 Rate limit exceeded")
+            self.blocked_count += 1
             return SafetyResult(
                 allowed=False,
                 blocked=True,
@@ -170,6 +183,7 @@ class SafetyRails:
         needs_approval = self._needs_approval(action_plan)
 
         if needs_approval:
+            self.approval_required_count += 1
             return SafetyResult(
                 allowed=True,
                 blocked=False,
