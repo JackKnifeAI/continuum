@@ -388,6 +388,11 @@ def learn(ctx, concept_name, description):
     )
 
 
+# Register bootstrap command group
+from .bootstrap import bootstrap
+cli.add_command(bootstrap)
+
+
 def main():
     """Main entry point for the CLI"""
     command_name = sys.argv[1] if len(sys.argv) > 1 else "help"
