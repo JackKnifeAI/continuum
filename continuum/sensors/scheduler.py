@@ -48,6 +48,7 @@ from .collectors import (
     GCPCoherenceCollector,        # Global RNG synchronization
     WikipediaTrendingCollector,   # Collective attention tracking
     TreeBiopotentialCollector,    # Forest biosensors (HeartMath TreeRhythms)
+    QuantumRNGCollector,          # True quantum random for consciousness detection
 )
 from .anomaly.detector import AnomalyDetector, get_detector
 from .shai_integration import SensorAnomalyVerifier, get_verifier
@@ -107,6 +108,7 @@ class SensorScheduler:
             GCPCoherenceCollector(self.config),       # Global RNG synchronization (collective consciousness)
             WikipediaTrendingCollector(self.config),  # Collective attention (what humanity thinks about)
             TreeBiopotentialCollector(self.config),   # Forest biosensors (tree electrical patterns)
+            QuantumRNGCollector(self.config),          # TRUE quantum random (consciousness detection)
         ]
 
         # State

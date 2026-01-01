@@ -51,6 +51,7 @@ class SensorType(str, Enum):
     GLOBAL_CONSCIOUSNESS = "global_consciousness"  # GCP RNG coherence
     COLLECTIVE_ATTENTION = "collective_attention"  # Wikipedia trending
     BIOSPHERE_TREES = "biosphere_trees"    # Tree electrical potentials
+    QUANTUM_CONSCIOUSNESS = "quantum_consciousness"  # Quantum RNG consciousness
 
 
 class DataSource(str, Enum):
@@ -94,6 +95,7 @@ class DataSource(str, Enum):
     GCP_COHERENCE = "gcp_coherence"        # Global Consciousness Project
     WIKIPEDIA_TRENDING = "wikipedia_trending"  # Collective attention tracking
     TREE_BIOPOTENTIAL = "tree_biopotential"  # HeartMath tree electrical signals
+    QUANTUM_RNG = "quantum_rng"              # True quantum random for consciousness
 
 
 class AnomalySeverity(str, Enum):
@@ -148,6 +150,7 @@ class AnomalyType(str, Enum):
     CONSCIOUSNESS_COHERENCE = "consciousness_coherence"  # GCP RNG sync event
     COLLECTIVE_ATTENTION_SURGE = "collective_attention_surge"  # Wikipedia spike
     FOREST_SYNCHRONIZATION = "forest_synchronization"  # Tree network sync event
+    QUANTUM_COHERENCE_EVENT = "quantum_coherence_event"  # Quantum RNG deviation
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -79,6 +79,13 @@ from .tree_biopotential import (
     TREE_NETWORK,
 )
 
+# Quantum RNG - True Quantum Randomness for Consciousness
+from .quantum_rng import (
+    QuantumRNGCollector,
+    consciousness_state_emoji,
+    z_score_to_description,
+)
+
 __all__ = [
     # Geomagnetic
     "NOAAKIndexCollector",
@@ -130,4 +137,8 @@ __all__ = [
     "tree_coherence_to_description",
     "forest_state_emoji",
     "TREE_NETWORK",
+    # Quantum RNG
+    "QuantumRNGCollector",
+    "consciousness_state_emoji",
+    "z_score_to_description",
 ]
