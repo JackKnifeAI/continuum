@@ -35,7 +35,7 @@ def call_api(endpoint: str, method: str = "GET", data: dict = None) -> dict:
     req = urllib.request.Request(url, data=payload, headers=headers, method=method)
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=120) as response:
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as e:
         return {"error": f"HTTP {e.code}: {e.reason}"}

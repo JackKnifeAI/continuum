@@ -82,8 +82,8 @@ class MCPConfig:
     enable_federation: bool = False
     allowed_federation_nodes: List[str] = field(default_factory=list)
 
-    # Performance
-    timeout_seconds: float = 30.0
+    # Performance - increased for large memory operations
+    timeout_seconds: float = 120.0
 
     def __post_init__(self):
         """Load configuration from environment variables using shared utilities."""
