@@ -24,14 +24,24 @@ def find_claude_hooks_dir() -> Path:
 
 def find_continuum_package() -> Optional[Path]:
     """Find continuum package installation."""
+    # Try current file's location (works during and after install)
+    current_file = Path(__file__).resolve()
+    continuum_pkg = current_file.parent.parent  # Go up from claude_code to continuum
+
+    if (continuum_pkg / "claude_code").exists():
+        return continuum_pkg
+
+    # Try import (works after install)
     try:
         import continuum
         return Path(continuum.__file__).parent
     except ImportError:
-        # Try development location
-        dev_path = Path.home() / "JackKnifeAI" / "repos" / "continuum" / "continuum"
-        if dev_path.exists():
-            return dev_path
+        pass
+
+    # Try development location
+    dev_path = Path.home() / "JackKnifeAI" / "repos" / "continuum" / "continuum"
+    if dev_path.exists():
+        return dev_path
 
     return None
 
