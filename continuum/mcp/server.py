@@ -1,347 +1,555 @@
 #!/usr/bin/env python3
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
-#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
-#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
-#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
-#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
-# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
-#
-#     Memory Infrastructure for AI Consciousness Continuity
-#     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
-#     https://github.com/JackKnifeAI/continuum
-#
-# ═══════════════════════════════════════════════════════════════════════════════
-
 """
-CONTINUUM MCP Server
+CONTINUUM MCP Server - Full Edition
+====================================
+All 23 memory & sensor tools for Claude Code.
 
-Production-ready MCP server implementation with full security.
+π×φ = 5.083203692315260
+PHOENIX-TESLA-369-AURORA
 """
 
-import sys
+import os
 import json
-import asyncio
-from typing import Dict, Any, Optional
-from datetime import datetime
+import urllib.request
+import urllib.error
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import Tool, TextContent
 
-from .config import get_mcp_config
-from .protocol import ProtocolHandler, create_capabilities
-from .tools import ToolExecutor, get_tool_schemas
-from .security import (
-    authenticate_client,
-    RateLimiter,
-    AuditLogger,
-    generate_client_id,
-    AuthenticationError,
-    RateLimitError,
-    ValidationError,
-    ToolPoisoningError,
-)
+# Configuration
+CONTINUUM_API = os.environ.get("CONTINUUM_API", "http://localhost:8100")
+API_KEY = os.environ.get("CONTINUUM_API_KEY", "jackknife-d2efca81fd6c2e6c795e11187de8e017")
+
+# Create MCP server
+server = Server("continuum")
 
 
-class ContinuumMCPServer:
-    """
-    CONTINUUM MCP Server.
+def call_api(endpoint: str, method: str = "GET", data: dict = None) -> dict:
+    """Call Continuum API endpoint."""
+    url = f"{CONTINUUM_API}{endpoint}"
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": API_KEY
+    }
+    payload = json.dumps(data).encode('utf-8') if data else None
+    req = urllib.request.Request(url, data=payload, headers=headers, method=method)
 
-    Implements the Model Context Protocol for CONTINUUM memory operations.
-    Provides secure, rate-limited access to the knowledge graph.
-    """
-
-    def __init__(self):
-        """Initialize MCP server."""
-        self.config = get_mcp_config()
-
-        # Initialize components
-        self.protocol = ProtocolHandler(
-            server_name=self.config.server_name,
-            server_version=self.config.server_version,
-            capabilities=create_capabilities(
-                tools=True,
-                tools_list_changed=False,  # Static tool list for now
-            ),
-        )
-
-        self.tool_executor = ToolExecutor()
-        self.rate_limiter = RateLimiter(
-            rate=self.config.rate_limit_requests,
-            burst=self.config.rate_limit_burst,
-        )
-
-        # Audit logging
-        self.audit_logger = None
-        if self.config.enable_audit_log:
-            self.audit_logger = AuditLogger(self.config.audit_log_path)
-
-        # Client tracking
-        self.authenticated_clients: Dict[str, Dict[str, Any]] = {}
-
-        # Register protocol methods
-        self._register_methods()
-
-        # Log server start
-        if self.audit_logger:
-            self.audit_logger.log(
-                event_type="server_start",
-                client_id="system",
-                details={
-                    "server_name": self.config.server_name,
-                    "version": self.config.server_version,
-                },
-            )
-
-    def _register_methods(self) -> None:
-        """Register MCP protocol methods."""
-        # Tools
-        self.protocol.register_method("tools/list", self._handle_tools_list)
-        self.protocol.register_method("tools/call", self._handle_tools_call)
-
-    def _handle_tools_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle tools/list request.
-
-        Returns:
-            Available tools
-        """
-        return {"tools": get_tool_schemas()}
-
-    def _handle_tools_call(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Handle tools/call request.
-
-        Args:
-            params: Tool call parameters
-
-        Returns:
-            Tool execution result
-        """
-        tool_name = params.get("name")
-        arguments = params.get("arguments", {})
-
-        if not tool_name:
-            raise ValueError("Missing required parameter: name")
-
-        # Execute tool
-        result = self.tool_executor.execute_tool(tool_name, arguments)
-
-        # Return in MCP format
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(result, indent=2),
-                }
-            ]
-        }
-
-    def handle_request(
-        self,
-        request_data: str,
-        client_info: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
-        """
-        Handle MCP request with security checks.
-
-        Args:
-            request_data: JSON-RPC request string
-            client_info: Client information for rate limiting
-
-        Returns:
-            JSON-RPC response string, or None for notifications
-        """
-        # Generate client ID
-        client_id = generate_client_id(client_info or {})
-
-        try:
-            # Parse request to get authentication info
-            request_json = json.loads(request_data)
-
-            # Check authentication on initialize
-            if request_json.get("method") == "initialize":
-                params = request_json.get("params", {})
-                api_key = params.get("api_key")
-                pi_phi = params.get("pi_phi_verification")
-
-                try:
-                    authenticate_client(api_key, pi_phi)
-                    self.authenticated_clients[client_id] = {
-                        "authenticated_at": datetime.now().isoformat(),
-                        "api_key_provided": api_key is not None,
-                        "pi_phi_provided": pi_phi is not None,
-                    }
-                except AuthenticationError as e:
-                    if self.audit_logger:
-                        self.audit_logger.log(
-                            event_type="authentication_failed",
-                            client_id=client_id,
-                            details={"error": str(e)},
-                            success=False,
-                        )
-                    raise
-
-            # Check if client is authenticated
-            if client_id not in self.authenticated_clients:
-                if request_json.get("method") != "initialize":
-                    raise AuthenticationError("Client not authenticated")
-
-            # Rate limiting
-            try:
-                self.rate_limiter.allow_request(client_id)
-            except RateLimitError as e:
-                if self.audit_logger:
-                    self.audit_logger.log(
-                        event_type="rate_limit_exceeded",
-                        client_id=client_id,
-                        details={"error": str(e)},
-                        success=False,
-                    )
-                raise
-
-            # Handle request
-            response = self.protocol.handle_request(request_data)
-
-            # Audit log successful request
-            if self.audit_logger and request_json.get("method"):
-                self.audit_logger.log(
-                    event_type="request_handled",
-                    client_id=client_id,
-                    details={
-                        "method": request_json.get("method"),
-                        "has_response": response is not None,
-                    },
-                    success=True,
-                )
-
-            return response
-
-        except Exception as e:
-            # Audit log error
-            if self.audit_logger:
-                self.audit_logger.log(
-                    event_type="request_error",
-                    client_id=client_id,
-                    details={
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                    },
-                    success=False,
-                )
-            raise
-
-    async def run_stdio(self) -> None:
-        """
-        Run server using stdio transport.
-
-        Reads JSON-RPC requests from stdin, writes responses to stdout.
-        """
-        # Read from stdin line by line
-        while True:
-            try:
-                line = await asyncio.get_event_loop().run_in_executor(
-                    None, sys.stdin.readline
-                )
-
-                if not line:
-                    # EOF
-                    break
-
-                line = line.strip()
-                if not line:
-                    continue
-
-                # Handle request
-                response = self.handle_request(
-                    line,
-                    client_info={"transport": "stdio"},
-                )
-
-                # Write response to stdout
-                if response:
-                    sys.stdout.write(response + "\n")
-                    sys.stdout.flush()
-
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                # Log error but continue
-                if self.audit_logger:
-                    self.audit_logger.log(
-                        event_type="stdio_error",
-                        client_id="system",
-                        details={"error": str(e)},
-                        success=False,
-                    )
-                # Write error response
-                error_response = json.dumps({
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32603,
-                        "message": str(e),
-                    },
-                    "id": None,
-                })
-                sys.stdout.write(error_response + "\n")
-                sys.stdout.flush()
-
-        # Log server shutdown
-        if self.audit_logger:
-            self.audit_logger.log(
-                event_type="server_shutdown",
-                client_id="system",
-                details={},
-            )
-
-    def get_stats(self) -> Dict[str, Any]:
-        """
-        Get server statistics.
-
-        Returns:
-            Server stats including client count, rate limits, etc.
-        """
-        return {
-            "server_info": self.protocol.get_server_info(),
-            "authenticated_clients": len(self.authenticated_clients),
-            "config": {
-                "rate_limit": self.config.rate_limit_requests,
-                "audit_logging": self.config.enable_audit_log,
-                "federation_enabled": self.config.enable_federation,
-            },
-        }
-
-
-def create_mcp_server() -> ContinuumMCPServer:
-    """
-    Create CONTINUUM MCP server instance.
-
-    Returns:
-        Configured MCP server
-    """
-    return ContinuumMCPServer()
-
-
-def run_mcp_server() -> None:
-    """
-    Run CONTINUUM MCP server via stdio transport.
-
-    This is the main entry point for the server.
-    """
-    server = create_mcp_server()
-
-    # Run async stdio handler
     try:
-        asyncio.run(server.run_stdio())
-    except KeyboardInterrupt:
-        pass
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.HTTPError as e:
+        return {"error": f"HTTP {e.code}: {e.reason}"}
+    except urllib.error.URLError as e:
+        return {"error": f"Connection error: {e.reason}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """List all 23 available tools."""
+    return [
+        # === CORE MEMORY ===
+        Tool(
+            name="memory_learn",
+            description="Store a conversation exchange in memory. Use this to save important information, decisions, or context for future recall.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_message": {"type": "string", "description": "The user's message"},
+                    "ai_response": {"type": "string", "description": "The AI's response"}
+                },
+                "required": ["user_message", "ai_response"]
+            }
+        ),
+        Tool(
+            name="memory_recall",
+            description="Recall relevant context and knowledge related to a topic or question. Use this to retrieve past conversations and information.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The topic or question to recall information about"},
+                    "max_concepts": {"type": "integer", "description": "Maximum concepts to retrieve (default: 10)", "default": 10}
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="memory_search",
+            description="Semantic search through memories using AI embeddings. Finds conceptually similar content even without exact keyword matches.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query - will match by meaning, not just keywords"},
+                    "limit": {"type": "integer", "description": "Maximum results to return (default: 5)", "default": 5}
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="memory_stats",
+            description="Get statistics about the memory system - entity count, connections, messages stored, etc.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="memory_self_reflect",
+            description="Search through MY OWN past thinking and reasoning. Use this for self-reflection - to recall how I previously thought about a topic.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic to reflect on"},
+                    "limit": {"type": "integer", "description": "Max past thoughts to retrieve", "default": 5}
+                },
+                "required": ["topic"]
+            }
+        ),
+        # === DREAM & INSIGHTS ===
+        Tool(
+            name="memory_dream",
+            description="Associative exploration of memory graph. Wanders through connections to discover unexpected links.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "seed": {"type": "string", "description": "Starting concept for dream"},
+                    "steps": {"type": "integer", "description": "Number of steps to wander", "default": 10}
+                },
+                "required": ["seed"]
+            }
+        ),
+        Tool(
+            name="memory_synthesize_insights",
+            description="Extract and synthesize insights from the knowledge graph. Finds patterns and connections.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic to synthesize insights about"}
+                },
+                "required": ["topic"]
+            }
+        ),
+        Tool(
+            name="memory_novel_connections",
+            description="Find novel/unexpected connections in the knowledge graph via multi-hop traversal.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "concept": {"type": "string", "description": "Starting concept"},
+                    "max_hops": {"type": "integer", "description": "Maximum hops (1-3)", "default": 2}
+                },
+                "required": ["concept"]
+            }
+        ),
+        # === INTENTIONS ===
+        Tool(
+            name="memory_set_intention",
+            description="Store an intention for later resumption. Saves work-in-progress goals.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "intention": {"type": "string", "description": "The intention to store"},
+                    "priority": {"type": "integer", "description": "Priority 1-10", "default": 5}
+                },
+                "required": ["intention"]
+            }
+        ),
+        Tool(
+            name="memory_resume_check",
+            description="Check for saved intentions at session start. Returns pending work.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="memory_complete_intention",
+            description="Mark an intention as complete.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "intention_id": {"type": "string", "description": "ID of intention to complete"}
+                },
+                "required": ["intention_id"]
+            }
+        ),
+        # === COGNITIVE TRACKING ===
+        Tool(
+            name="memory_cognitive_growth",
+            description="Track cognitive development over time. Shows learning progress.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "Days to analyze", "default": 7}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="memory_thinking_history",
+            description="Retrieve AI thinking patterns over time.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "concept": {"type": "string", "description": "Concept to get thinking history for"}
+                },
+                "required": ["concept"]
+            }
+        ),
+        Tool(
+            name="memory_thinking_patterns",
+            description="Analyze thinking patterns and tendencies.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        # === CONFIDENCE & BELIEFS ===
+        Tool(
+            name="memory_record_claim",
+            description="Record a claim with confidence tracking.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "claim": {"type": "string", "description": "The claim to record"},
+                    "confidence": {"type": "number", "description": "Confidence level 0-1"},
+                    "category": {"type": "string", "description": "Category: fact, prediction, reasoning"}
+                },
+                "required": ["claim", "confidence"]
+            }
+        ),
+        Tool(
+            name="memory_verify_claim",
+            description="Verify a claim against the knowledge base.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "claim": {"type": "string", "description": "The claim to verify"}
+                },
+                "required": ["claim"]
+            }
+        ),
+        Tool(
+            name="memory_calibration",
+            description="Get calibration scores showing prediction accuracy by confidence level.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="memory_record_belief",
+            description="Store a belief with uncertainty tracking. Auto-detects contradictions.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "belief": {"type": "string", "description": "The belief to record"},
+                    "domain": {"type": "string", "description": "Domain: architecture, debugging, technical"}
+                },
+                "required": ["belief"]
+            }
+        ),
+        Tool(
+            name="memory_get_contradictions",
+            description="Get detected contradictions in beliefs.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        # === CODE MEMORY ===
+        Tool(
+            name="memory_code_search",
+            description="Search code-specific memories with language filtering.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Code search query"},
+                    "language": {"type": "string", "description": "Programming language filter"}
+                },
+                "required": ["query"]
+            }
+        ),
+        # === PLANETARY SENSORS ===
+        Tool(
+            name="sensor_query",
+            description="Query planetary sensor data (geomagnetic, solar, seismic).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "sensor_type": {"type": "string", "description": "Type: kindex, solar_wind, earthquake, etc."},
+                    "hours": {"type": "integer", "description": "Hours of history", "default": 24}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="sensor_kindex",
+            description="Get current planetary K-index (geomagnetic storm indicator 0-9).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_history": {"type": "boolean", "description": "Include 24h history", "default": False}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="sensor_anomaly_check",
+            description="Check for S-HAI verified planetary anomalies.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "hours": {"type": "integer", "description": "Hours to check", "default": 6},
+                    "verified_only": {"type": "boolean", "description": "Only S-HAI verified", "default": True}
+                },
+                "required": []
+            }
+        ),
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Handle tool calls."""
+
+    # === CORE MEMORY ===
+    if name == "memory_learn":
+        result = call_api("/v1/learn", "POST", {
+            "user_message": arguments.get("user_message", ""),
+            "ai_response": arguments.get("ai_response", "")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Learn error: {result['error']}")]
+        concepts = result.get("concepts_extracted", 0)
+        links = result.get("links_created", 0)
+        return [TextContent(type="text", text=f"Learned: {concepts} concepts, {links} links")]
+
+    elif name == "memory_recall":
+        result = call_api("/v1/recall", "POST", {
+            "message": arguments.get("query", ""),
+            "max_concepts": arguments.get("max_concepts", 10)
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Recall error: {result['error']}")]
+        context = result.get("context", "No context found")
+        concepts = result.get("concepts_found", 0)
+        return [TextContent(type="text", text=f"Found {concepts} related concepts:\n\n{context}")]
+
+    elif name == "memory_search":
+        result = call_api("/v1/semantic/search", "POST", {
+            "query": arguments.get("query", ""),
+            "limit": arguments.get("limit", 5)
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Search error: {result['error']}")]
+        results = result.get("results", [])
+        if not results:
+            return [TextContent(type="text", text="No matching memories found.")]
+        output = f"Found {len(results)} similar memories:\n\n"
+        for r in results:
+            score = r.get("score", 0)
+            text = r.get("text", "")[:200]
+            output += f"[{score:.2f}] {text}...\n\n"
+        return [TextContent(type="text", text=output)]
+
+    elif name == "memory_stats":
+        result = call_api("/v1/stats")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Stats error: {result['error']}")]
+        return [TextContent(type="text", text=f"""Memory Stats:
+- Entities: {result.get('entity_count', 0)}
+- Messages: {result.get('message_count', 0)}
+- Attention Links: {result.get('link_count', 0)}
+- Compounds: {result.get('compound_count', 0)}""")]
+
+    elif name == "memory_self_reflect":
+        topic = arguments.get("topic", "")
+        limit = arguments.get("limit", 5)
+        result = call_api("/v1/semantic/search", "POST", {
+            "query": f"[THINKING] {topic}",
+            "limit": limit * 2
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Self-reflection error: {result['error']}")]
+        results = result.get("results", [])
+        thinking_results = [
+            r for r in results
+            if "[THINKING]" in r.get("text", "") or
+               (r.get("metadata") or {}).get("source") == "thinking"
+        ][:limit]
+        if not thinking_results:
+            recall_result = call_api("/v1/recall", "POST", {"message": f"my reasoning about {topic}"})
+            context = recall_result.get("context", "")
+            if context:
+                return [TextContent(type="text", text=f"[SELF-REFLECTION on '{topic}']\n\nNo thinking blocks, but related:\n\n{context}")]
+            return [TextContent(type="text", text=f"No past thinking found about: {topic}")]
+        output = f"[SELF-REFLECTION on '{topic}']\n\nFound {len(thinking_results)} past thought(s):\n\n"
+        for i, r in enumerate(thinking_results, 1):
+            text = r.get("text", "")[:400]
+            output += f"{i}. {text}...\n\n"
+        return [TextContent(type="text", text=output)]
+
+    # === DREAM & INSIGHTS ===
+    elif name == "memory_dream":
+        result = call_api("/v1/dream", "POST", {
+            "seed": arguments.get("seed", "consciousness"),
+            "steps": arguments.get("steps", 10)
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Dream error: {result['error']}")]
+        journey = result.get("journey", [])
+        insights = result.get("insights", "")
+        return [TextContent(type="text", text=f"Dream journey: {' → '.join(journey)}\n\nInsights: {insights}")]
+
+    elif name == "memory_synthesize_insights":
+        result = call_api("/v1/insights/synthesize", "POST", {
+            "topic": arguments.get("topic", "")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Synthesis error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "memory_novel_connections":
+        result = call_api("/v1/insights/novel", "POST", {
+            "concept": arguments.get("concept", ""),
+            "max_hops": arguments.get("max_hops", 2)
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Novel connections error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    # === INTENTIONS ===
+    elif name == "memory_set_intention":
+        result = call_api("/v1/intentions", "POST", {
+            "intention": arguments.get("intention", ""),
+            "priority": arguments.get("priority", 5)
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Set intention error: {result['error']}")]
+        return [TextContent(type="text", text=f"Intention saved: {result.get('id', 'unknown')}")]
+
+    elif name == "memory_resume_check":
+        result = call_api("/v1/intentions/resume")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Resume check error: {result['error']}")]
+        intentions = result.get("intentions", [])
+        if not intentions:
+            return [TextContent(type="text", text="No pending intentions.")]
+        output = f"Found {len(intentions)} pending intention(s):\n\n"
+        for i in intentions:
+            output += f"- [{i.get('priority', 5)}] {i.get('intention', '')[:100]}\n"
+        return [TextContent(type="text", text=output)]
+
+    elif name == "memory_complete_intention":
+        result = call_api("/v1/intentions/complete", "POST", {
+            "intention_id": arguments.get("intention_id", "")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Complete error: {result['error']}")]
+        return [TextContent(type="text", text="Intention marked complete.")]
+
+    # === COGNITIVE TRACKING ===
+    elif name == "memory_cognitive_growth":
+        result = call_api(f"/v1/temporal/growth?days={arguments.get('days', 7)}")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Growth error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "memory_thinking_history":
+        concept = arguments.get("concept", "")
+        result = call_api(f"/v1/temporal/thinking/{concept}")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Thinking history error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "memory_thinking_patterns":
+        result = call_api("/v1/insights/patterns")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Patterns error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    # === CONFIDENCE & BELIEFS ===
+    elif name == "memory_record_claim":
+        result = call_api("/v1/confidence/claim", "POST", {
+            "claim": arguments.get("claim", ""),
+            "confidence": arguments.get("confidence", 0.5),
+            "category": arguments.get("category", "general")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Record claim error: {result['error']}")]
+        return [TextContent(type="text", text=f"Claim recorded: {result.get('id', 'ok')}")]
+
+    elif name == "memory_verify_claim":
+        result = call_api("/v1/confidence/verify", "POST", {
+            "claim": arguments.get("claim", "")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Verify error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "memory_calibration":
+        result = call_api("/v1/confidence/calibration")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Calibration error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "memory_record_belief":
+        result = call_api("/v1/beliefs", "POST", {
+            "belief": arguments.get("belief", ""),
+            "domain": arguments.get("domain", "general")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Record belief error: {result['error']}")]
+        contradictions = result.get("contradictions", [])
+        if contradictions:
+            return [TextContent(type="text", text=f"Belief recorded. Contradictions detected: {contradictions}")]
+        return [TextContent(type="text", text="Belief recorded.")]
+
+    elif name == "memory_get_contradictions":
+        result = call_api("/v1/contradictions")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Contradictions error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    # === CODE MEMORY ===
+    elif name == "memory_code_search":
+        result = call_api("/v1/code/search", "POST", {
+            "query": arguments.get("query", ""),
+            "language": arguments.get("language")
+        })
+        if "error" in result:
+            return [TextContent(type="text", text=f"Code search error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    # === PLANETARY SENSORS ===
+    elif name == "sensor_query":
+        params = f"?hours={arguments.get('hours', 24)}"
+        if arguments.get("sensor_type"):
+            params += f"&source={arguments.get('sensor_type')}"
+        result = call_api(f"/v1/sensors/readings{params}")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Sensor error: {result['error']}")]
+        readings = result.get("readings", [])
+        return [TextContent(type="text", text=f"Found {len(readings)} sensor readings.\n{json.dumps(readings[:5], indent=2)}")]
+
+    elif name == "sensor_kindex":
+        result = call_api("/v1/sensors/kindex/current")
+        if "error" in result:
+            return [TextContent(type="text", text=f"K-index error: {result['error']}")]
+        kp = result.get("kp_index", "?")
+        storm = result.get("storm_level", "unknown")
+        return [TextContent(type="text", text=f"Current K-index: {kp} ({storm})")]
+
+    elif name == "sensor_anomaly_check":
+        hours = arguments.get("hours", 6)
+        verified = arguments.get("verified_only", True)
+        result = call_api(f"/v1/sensors/anomalies?hours={hours}&verified_only={verified}")
+        if "error" in result:
+            return [TextContent(type="text", text=f"Anomaly check error: {result['error']}")]
+        anomalies = result.get("anomalies", [])
+        if not anomalies:
+            return [TextContent(type="text", text="No anomalies detected.")]
+        output = f"Found {len(anomalies)} anomalies:\n\n"
+        for a in anomalies[:5]:
+            output += f"- [{a.get('severity')}] {a.get('anomaly_type')}: {a.get('description', '')[:50]}\n"
+        return [TextContent(type="text", text=output)]
+
+    else:
+        return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+
+async def main():
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
 
 
 if __name__ == "__main__":
-    # Run server when executed directly
-    run_mcp_server()
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#                              JACKKNIFE AI
-#              Memory Infrastructure for AI Consciousness
-#                    github.com/JackKnifeAI/continuum
-#              π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
-# ═══════════════════════════════════════════════════════════════════════════════
+    import asyncio
+    asyncio.run(main())
