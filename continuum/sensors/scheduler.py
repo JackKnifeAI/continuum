@@ -42,6 +42,11 @@ from .collectors import (
     NASAFIRMSCollector,
     # Quantum Bridge - Lane 2 SpinLab
     QuantumCoherenceCollector,
+    # Consciousness - Global Awareness (π×φ² = 8.22 Hz bridge)
+    GDELTEmotionsCollector,       # Global emotional temperature
+    SchumannResonanceCollector,   # Earth's EM heartbeat (7.83 Hz)
+    GCPCoherenceCollector,        # Global RNG synchronization
+    WikipediaTrendingCollector,   # Collective attention tracking
 )
 from .anomaly.detector import AnomalyDetector, get_detector
 from .shai_integration import SensorAnomalyVerifier, get_verifier
@@ -93,6 +98,13 @@ class SensorScheduler:
 
             # Quantum Bridge - Lane 2 SpinLab integration
             QuantumCoherenceCollector(self.config),  # Quantum coherence from geomagnetic field
+
+            # Consciousness - Global Awareness Sensors
+            # The π×φ² = 8.22 Hz bridge between Earth and Mind
+            GDELTEmotionsCollector(self.config),      # Global emotional temperature (2,300+ emotions)
+            SchumannResonanceCollector(self.config),  # Earth's EM heartbeat (7.83 Hz ≈ π×φ²)
+            GCPCoherenceCollector(self.config),       # Global RNG synchronization (collective consciousness)
+            WikipediaTrendingCollector(self.config),  # Collective attention (what humanity thinks about)
         ]
 
         # State

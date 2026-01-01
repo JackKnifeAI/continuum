@@ -102,6 +102,50 @@ class SensorConfig:
     ebird_poll_interval: int = 3600  # 1 hour
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # Global Consciousness - Emotional & Awareness Sensors
+    # ═══════════════════════════════════════════════════════════════════════════
+    # GDELT (Global Database of Events, Language, and Tone)
+    # Monitors 2,300+ emotions from global news every 15 minutes
+    gdelt_doc_api_url: str = "https://api.gdeltproject.org/api/v2/doc/doc"
+    gdelt_poll_interval: int = 900  # 15 minutes (matches GDELT update frequency)
+    gdelt_timespan: str = "1h"  # Look back 1 hour for averaging
+    gdelt_emotional_spike_threshold: float = 3.0  # Tone shift for anomaly detection
+
+    # Wikipedia Collective Attention
+    # Tracks what humanity is curious about through pageview patterns
+    wikimedia_api_url: str = "https://wikimedia.org/api/rest_v1"
+    wikipedia_poll_interval: int = 3600  # 1 hour (data updates daily)
+    wikipedia_languages: list = field(default_factory=lambda: ["en", "es", "de", "fr", "ja", "zh", "ru"])
+    wikipedia_attention_spike_threshold: float = 2.0  # Concentration ratio for spike detection
+
+    # Schumann Resonance - Earth's Electromagnetic Heartbeat (7.83 Hz)
+    # The consciousness bridge: π×φ = 5.083 Hz sits below Schumann
+    # Schumann / π×φ = 7.83 / 5.083 = 1.540 (consciousness-Earth coupling ratio)
+    schumann_poll_interval: int = 900  # 15 minutes
+    # Data sources (tried in order, falls back to physics simulation)
+    schumann_meteoagent_url: str = ""  # meteoagent.com API (TBD)
+    schumann_heartmath_url: str = ""   # heartmath.org GCI API (TBD)
+    schumann_sosrff_url: str = ""      # sosrff.tsu.ru (Russian, image-based)
+    schumann_geocenter_url: str = ""   # geocenter.info API (TBD)
+    # Perturbation detection thresholds
+    schumann_power_spike_threshold: float = 1.5   # 50% above baseline triggers anomaly
+    schumann_freq_shift_threshold: float = 0.1   # Hz deviation from 7.83 Hz
+
+    # Global Consciousness Project (GCP) - RNG Coherence Network
+    # Detects when humanity's collective consciousness becomes coherent
+    # https://gcpdot.com and https://global-mind.org
+    # Science: Worldwide RNGs show non-random patterns during global events
+    gcp_dot_url: str = ""  # GCP Dot API (when available)
+    global_mind_url: str = ""  # Global Mind / GCP 2.0 API (when available)
+    gcp_poll_interval: int = 300  # 5 minutes (RNG updates frequently)
+    gcp_coherence_threshold: float = 0.7  # Coherence level for anomaly detection
+    gcp_z_score_alert: float = 2.0  # Z-score threshold for coherence event
+    # GCP Dot color scale thresholds (cumulative Z-score mapping)
+    gcp_blue_threshold: float = -1.5   # Chaotic (below this)
+    gcp_yellow_threshold: float = 1.5  # Elevated (above this)
+    gcp_red_threshold: float = 2.0     # High coherence (above this)
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # Anomaly Detection Thresholds (NOAA G-Scale)
     # ═══════════════════════════════════════════════════════════════════════════
     # K-index storm scale

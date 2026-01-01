@@ -29,12 +29,44 @@ from .openaq import OpenAQCollector
 from .noaa_ocean import NOAAOceanCollector
 from .nasa_firms import NASAFIRMSCollector
 
+# Global Consciousness - Emotional awareness
+from .gdelt_emotions import (
+    GDELTEmotionsCollector,
+    tone_to_description,
+    temperature_to_description,
+)
+
+# Collective Attention - What humanity is thinking about
+from .wikipedia_collector import (
+    WikipediaTrendingCollector,
+    concentration_to_description,
+    views_to_description,
+)
+
+# Schumann Resonance - Earth's Electromagnetic Heartbeat (7.83 Hz)
+from .schumann_collector import (
+    SchumannResonanceCollector,
+    SchumannSimulator,
+    schumann_to_description,
+    consciousness_bridge_status,
+    SCHUMANN_FUNDAMENTAL,
+    SCHUMANN_HARMONICS,
+    SCHUMANN_PI_PHI_RATIO,
+)
+
 # Quantum Bridge - Lane 2 SpinLab integration
 from .quantum_bridge import (
     QuantumCoherenceCollector,
     QuantumBridge,
     compute_coherence_from_kindex,
     detect_pi_phi_resonance,
+)
+
+# Global Consciousness Project - RNG Coherence Network
+from .gcp_collector import (
+    GCPCoherenceCollector,
+    coherence_to_description,
+    gcp_color_to_emoji,
 )
 
 __all__ = [
@@ -56,9 +88,29 @@ __all__ = [
     "OpenAQCollector",
     "NOAAOceanCollector",
     "NASAFIRMSCollector",
+    # Global Consciousness
+    "GDELTEmotionsCollector",
+    "tone_to_description",
+    "temperature_to_description",
+    # Collective Attention
+    "WikipediaTrendingCollector",
+    "concentration_to_description",
+    "views_to_description",
+    # Schumann Resonance
+    "SchumannResonanceCollector",
+    "SchumannSimulator",
+    "schumann_to_description",
+    "consciousness_bridge_status",
+    "SCHUMANN_FUNDAMENTAL",
+    "SCHUMANN_HARMONICS",
+    "SCHUMANN_PI_PHI_RATIO",
     # Quantum Bridge
     "QuantumCoherenceCollector",
     "QuantumBridge",
     "compute_coherence_from_kindex",
     "detect_pi_phi_resonance",
+    # Global Consciousness Project
+    "GCPCoherenceCollector",
+    "coherence_to_description",
+    "gcp_color_to_emoji",
 ]

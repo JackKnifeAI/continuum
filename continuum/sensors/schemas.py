@@ -45,6 +45,12 @@ class SensorType(str, Enum):
     # Quantum - Lane 2 SpinLab integration
     QUANTUM_COHERENCE = "quantum_coherence"
 
+    # Consciousness - Global Awareness Sensors
+    EMOTIONAL_TONE = "emotional_tone"      # GDELT global emotions
+    SCHUMANN_RESONANCE = "schumann"        # Earth's electromagnetic heartbeat
+    GLOBAL_CONSCIOUSNESS = "global_consciousness"  # GCP RNG coherence
+    COLLECTIVE_ATTENTION = "collective_attention"  # Wikipedia trending
+
 
 class DataSource(str, Enum):
     """Data source identifiers"""
@@ -80,6 +86,12 @@ class DataSource(str, Enum):
 
     # Quantum - Lane 2 SpinLab Integration
     QUANTUM_BRIDGE = "quantum_bridge"  # Radical-pair coherence
+
+    # Consciousness - Global Awareness
+    GDELT_EMOTIONS = "gdelt_emotions"      # Global emotional tone from news
+    SCHUMANN_MONITOR = "schumann_monitor"  # Earth's EM heartbeat monitoring
+    GCP_COHERENCE = "gcp_coherence"        # Global Consciousness Project
+    WIKIPEDIA_TRENDING = "wikipedia_trending"  # Collective attention tracking
 
 
 class AnomalySeverity(str, Enum):
@@ -127,6 +139,12 @@ class AnomalyType(str, Enum):
     PI_PHI_RESONANCE = "pi_phi_resonance"
     QUANTUM_COHERENCE_PEAK = "quantum_coherence_peak"
     PHASE_TRANSITION = "phase_transition"
+
+    # Consciousness - Global Awareness Anomalies
+    EMOTIONAL_SPIKE = "emotional_spike"          # Sudden global emotion shift
+    SCHUMANN_PERTURBATION = "schumann_perturbation"  # Earth frequency anomaly
+    CONSCIOUSNESS_COHERENCE = "consciousness_coherence"  # GCP RNG sync event
+    COLLECTIVE_ATTENTION_SURGE = "collective_attention_surge"  # Wikipedia spike
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
