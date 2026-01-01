@@ -522,7 +522,10 @@ class QuantumCoherenceCollector(BaseSensorCollector):
         except ImportError:
             pass  # Core module not available
 
-        # Create sensor reading
+        # Create sensor reading (C-2.1: vector B-field support)
+        # Convert scalar to vector [0, 0, Bz] for future compatibility
+        B_vec_tesla = [0.0, 0.0, result.magnetic_field_tesla]
+
         reading = SensorReading(
             timestamp=result.timestamp,
             source=self.source,
@@ -530,6 +533,8 @@ class QuantumCoherenceCollector(BaseSensorCollector):
             values={
                 "kp_index": result.kp_index,
                 "magnetic_field_ut": result.magnetic_field_ut,
+                "B_vec_tesla": B_vec_tesla,  # C-2.1: Vector B for orientation-aware sims
+                "B_mag_ut": result.magnetic_field_ut,  # Magnitude for backwards compat
                 "singlet_yield": result.singlet_yield,
                 "triplet_yield": result.triplet_yield,
                 "l1_coherence": result.l1_coherence,
@@ -539,13 +544,16 @@ class QuantumCoherenceCollector(BaseSensorCollector):
                 "pi_phi_deviation": result.pi_phi_deviation,
             },
             metadata={
-                "quantum_bridge_version": "1.0",
+                "quantum_bridge_version": "2.0",  # C-2.1: Vector B support
                 "spinlab_available": self.bridge.is_available,
                 "phase_label": result.phase_label,
                 "quantum_regime": result.quantum_regime,
                 "pi_phi_detected": result.pi_phi_detected,
                 "pi_phi_constant": PI_PHI,
                 "result_full": result.to_dict(),
+                "B_orientation": "z-aligned",  # Current: scalar B → [0,0,B]
+                "B_theta_deg": 0.0,  # Polar angle (future: real geomagnetic vector)
+                "B_phi_deg": 0.0,    # Azimuthal angle
             },
             tenant_id=self.config.default_tenant_id,
             anomaly_detected=result.pi_phi_detected,  # Flag resonance as anomaly
