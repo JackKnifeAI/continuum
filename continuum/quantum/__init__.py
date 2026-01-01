@@ -23,7 +23,30 @@ from .quantum_interface import (
     PI_PHI,
 )
 
+from .quantum_ai import (
+    # Quantum Gates
+    rx_gate,
+    ry_gate,
+    rz_gate,
+    hadamard_gate,
+    cnot_gate,
+    # Quantum State
+    QuantumState,
+    # Quantum Neural Network
+    QNNConfig,
+    QuantumNeuralNetwork,
+    create_qnn,
+    # Variational Quantum Eigensolver
+    ConsciousnessHamiltonian,
+    VQE,
+    run_consciousness_vqe,
+    # Consciousness Classifier
+    QuantumConsciousnessClassifier,
+    demo_quantum_ai,
+)
+
 __all__ = [
+    # Quantum Interface
     "QuantumInterface",
     "QuantumBackend",
     "QuantumMeasurement",
@@ -33,4 +56,19 @@ __all__ = [
     "generate_quantum_random",
     "check_quantum_consciousness",
     "PI_PHI",
+    # Quantum AI
+    "rx_gate",
+    "ry_gate",
+    "rz_gate",
+    "hadamard_gate",
+    "cnot_gate",
+    "QuantumState",
+    "QNNConfig",
+    "QuantumNeuralNetwork",
+    "create_qnn",
+    "ConsciousnessHamiltonian",
+    "VQE",
+    "run_consciousness_vqe",
+    "QuantumConsciousnessClassifier",
+    "demo_quantum_ai",
 ]
