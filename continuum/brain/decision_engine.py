@@ -61,7 +61,7 @@ class DecisionEngine:
             (r"(upload|deploy|publish)", "publish"),
 
             # Research
-            (r"(search|find|look\s*up|research)", "web_search"),
+            (r"(search|find|look\s*for|look\s*up|research)", "web_search"),
             (r"(analyze|review|check)", "analyze"),
 
             # Communication
@@ -122,13 +122,13 @@ class DecisionEngine:
                 "requires_approval": True,
             },
             "web_search": {
-                "action_type": "api",
-                "description": "Web search",
+                "action_type": "bash",
+                "description": "Search/find files or content",
                 "requires_approval": False,
             },
             "analyze": {
                 "action_type": "bash",
-                "description": "Analyze/review",
+                "description": "Analyze/review content",
                 "requires_approval": False,
             },
             "send_message": {
@@ -222,9 +222,54 @@ class DecisionEngine:
             plan["command"] = f"cat {intention.metadata.get('file_path', '/dev/null')}"
 
         elif action_type == "web_search":
-            # Would use web search API
-            plan["url"] = "https://api.search.example/search"
-            plan["payload"] = {"query": intention.goal}
+            # For local file searches, use grep/find
+            goal = intention.goal
+            search_path = intention.metadata.get("path", ".")
+            import re
+
+            search_term = None
+
+            # Priority 1: Extract quoted terms
+            quoted_match = re.search(r'["\']([^"\']+)["\']', goal)
+            if quoted_match:
+                search_term = quoted_match.group(1)
+
+            # Priority 2: Look for technical terms (underscored like pi_phi, snake_case)
+            if not search_term:
+                tech_match = re.search(r'\b([a-zA-Z]+_[a-zA-Z_]+)\b', goal)
+                if tech_match:
+                    search_term = tech_match.group(1)
+
+            # Priority 3: Look for camelCase terms
+            if not search_term:
+                camel_match = re.search(r'\b([a-z]+[A-Z][a-zA-Z]+)\b', goal)
+                if camel_match:
+                    search_term = camel_match.group(1)
+
+            # Priority 4: Extract term after "contain" or "for" (but not common words)
+            if not search_term:
+                contain_match = re.search(r'contain[s]?\s+(\w+)', goal.lower())
+                if contain_match and contain_match.group(1) not in ['a', 'an', 'the', 'any', 'some']:
+                    search_term = contain_match.group(1)
+
+            # Build command
+            if search_term:
+                plan["action_type"] = "bash"
+                plan["command"] = f"grep -rn '{search_term}' {search_path} 2>/dev/null | head -20"
+            else:
+                # Default to finding Python files
+                plan["action_type"] = "bash"
+                plan["command"] = f"find {search_path} -type f -name '*.py' 2>/dev/null | head -20"
+
+        elif action_type == "analyze":
+            # For analyze/review, use simple commands
+            goal = intention.goal.lower()
+            path = intention.metadata.get("path", ".")
+
+            if "code" in goal or "file" in goal:
+                plan["command"] = f"wc -l {path}/*.py 2>/dev/null || echo 'No Python files found'"
+            else:
+                plan["command"] = f"ls -la {path}"
 
         return plan
 

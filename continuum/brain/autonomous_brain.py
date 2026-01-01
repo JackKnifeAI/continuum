@@ -112,6 +112,9 @@ class AutonomousBrain:
         # Approval queue (for actions that need human OK)
         self.pending_approvals: List[Dict] = []
 
+        # Track executed intentions to prevent re-runs
+        self.executed_intentions: set = set()
+
         logger.info(f"🧠 Autonomous Brain initialized")
         logger.info(f"   Continuum: {continuum_url}")
         logger.info(f"   Safety Level: {safety_level.value}")
@@ -282,8 +285,12 @@ class AutonomousBrain:
                                     created_at=datetime.now(),
                                 ))
 
-                        # Return pending/active intentions (not completed)
-                        return [i for i in intentions if i.status in ["active", "pending"]]
+                        # Return pending/active intentions (not completed, not already executed)
+                        return [
+                            i for i in intentions
+                            if i.status in ["active", "pending"]
+                            and i.id not in self.executed_intentions
+                        ]
 
         except Exception as e:
             logger.error(f"Failed to get intentions: {e}")
@@ -339,6 +346,7 @@ class AutonomousBrain:
             async with aiohttp.ClientSession() as session:
                 headers = {"X-API-Key": self.api_key}
 
+                # Store learning
                 await session.post(
                     f"{self.continuum_url}/v1/learn",
                     headers=headers,
@@ -350,8 +358,36 @@ class AutonomousBrain:
 
                 logger.info(f"📚 Learned from outcome: {result.success}")
 
+                # Mark intention as complete if action succeeded
+                if result.success:
+                    await self._complete_intention(intention, session, headers)
+
         except Exception as e:
             logger.error(f"Failed to store learning: {e}")
+
+    async def _complete_intention(
+        self,
+        intention: Intention,
+        session: "aiohttp.ClientSession",
+        headers: Dict[str, str],
+    ):
+        """Mark an intention as completed in Continuum."""
+        try:
+            # Try to complete via API
+            await session.post(
+                f"{self.continuum_url}/v1/intentions/complete",
+                headers=headers,
+                json={"intention_id": intention.id},
+            )
+
+            # Track locally
+            self.executed_intentions.add(intention.id)
+            logger.info(f"✅ Intention completed: {intention.goal[:50]}...")
+
+        except Exception as e:
+            logger.warning(f"Failed to complete intention: {e}")
+            # Still track locally to prevent re-runs
+            self.executed_intentions.add(intention.id)
 
     async def _queue_for_approval(self, intention: Intention, action_plan: Dict):
         """Queue an action that needs human approval."""
