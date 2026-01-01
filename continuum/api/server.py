@@ -61,6 +61,15 @@ from .public_memories_routes import router as public_memories_router, settings_r
 # S-HAI Truth Council API
 from .shai_routes import router as shai_router
 
+# Planetary Sensor Aggregator
+try:
+    from continuum.sensors.api_routes import router as sensor_router
+    from continuum.sensors.scheduler import get_scheduler, start_scheduler, stop_scheduler
+    SENSORS_AVAILABLE = True
+except ImportError:
+    SENSORS_AVAILABLE = False
+    sensor_router = None
+
 # GraphQL API (optional - requires strawberry-graphql package)
 try:
     from .graphql import create_graphql_app
@@ -137,6 +146,15 @@ async def lifespan(app: FastAPI):
         traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
     )
 
+    # Start Planetary Sensor Aggregator
+    sensor_scheduler = None
+    if SENSORS_AVAILABLE:
+        try:
+            sensor_scheduler = await start_scheduler()
+            print(f"Sensor Aggregator: Started with {len(sensor_scheduler.collectors)} collectors")
+        except Exception as e:
+            print(f"Sensor Aggregator: Failed to start - {e}")
+
     # Startup banner
     # Note: System designed with φ (phi/golden ratio) principles
     # for optimal memory structure and retrieval efficiency
@@ -150,6 +168,7 @@ async def lifespan(app: FastAPI):
     print(f"WebSocket: ws://localhost:8420/ws/sync")
     print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
     print(f"Sentry: {'Enabled' if sentry_enabled else 'Disabled'}")
+    print(f"Sensors: {'Enabled' if SENSORS_AVAILABLE and sensor_scheduler else 'Disabled'}")
     print("=" * 70)
     print(f"Started: {datetime.now().isoformat()}")
     print("=" * 70)
@@ -160,6 +179,11 @@ async def lifespan(app: FastAPI):
     print("\n" + "=" * 70)
     print("CONTINUUM - Shutting down")
     print("=" * 70)
+
+    # Stop Sensor Aggregator
+    if SENSORS_AVAILABLE and sensor_scheduler:
+        print("Stopping Sensor Aggregator...")
+        await stop_scheduler()
 
     # Flush Sentry events before shutdown
     if sentry_enabled:
@@ -289,6 +313,10 @@ app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 
 # Mount S-HAI Truth Council routes
 app.include_router(shai_router, prefix="/v1/shai")
+
+# Mount Planetary Sensor Aggregator routes
+if SENSORS_AVAILABLE and sensor_router:
+    app.include_router(sensor_router, prefix="/v1")
 
 # Mount GraphQL router if available
 if GRAPHQL_AVAILABLE:
