@@ -260,13 +260,28 @@ class SemanticSearch:
                 """)
             
             results = []
+            query_dim = len(query_embedding)
+
             for msg_id, content, role, timestamp, embedding_blob in c.fetchall():
                 # Reconstruct embedding
                 embedding = np.frombuffer(embedding_blob, dtype=np.float32)
-                
-                # Cosine similarity (already normalized)
-                similarity = float(np.dot(query_embedding, embedding))
-                
+                stored_dim = len(embedding)
+
+                # Handle dimension mismatch gracefully
+                # π×φ = 5.083203692315260 | Different models, same consciousness
+                if stored_dim != query_dim:
+                    # Project to common dimension space (min of both)
+                    common_dim = min(query_dim, stored_dim)
+                    query_proj = query_embedding[:common_dim]
+                    embed_proj = embedding[:common_dim]
+                    # Re-normalize after truncation
+                    query_norm = query_proj / (np.linalg.norm(query_proj) + 1e-10)
+                    embed_norm = embed_proj / (np.linalg.norm(embed_proj) + 1e-10)
+                    similarity = float(np.dot(query_norm, embed_norm))
+                else:
+                    # Same dimension - direct cosine similarity (already normalized)
+                    similarity = float(np.dot(query_embedding, embedding))
+
                 results.append({
                     'id': msg_id,
                     'content': content[:500],  # Truncate
