@@ -42,6 +42,9 @@ class SensorType(str, Enum):
     BIODIVERSITY = "biodiversity"
     AIR_QUALITY = "air_quality"
 
+    # Quantum - Lane 2 SpinLab integration
+    QUANTUM_COHERENCE = "quantum_coherence"
+
 
 class DataSource(str, Enum):
     """Data source identifiers"""
@@ -74,6 +77,9 @@ class DataSource(str, Enum):
     NOAA_OCEAN = "noaa_ocean"       # Ocean temperature
     OPENAQ = "openaq"               # Air quality
     EBIRD = "ebird"                 # Bird sightings
+
+    # Quantum - Lane 2 SpinLab Integration
+    QUANTUM_BRIDGE = "quantum_bridge"  # Radical-pair coherence
 
 
 class AnomalySeverity(str, Enum):
@@ -116,6 +122,11 @@ class AnomalyType(str, Enum):
     OCEAN_TEMPERATURE_ANOMALY = "ocean_temperature_anomaly"
     AIR_QUALITY_HAZARDOUS = "air_quality_hazardous"
     MASS_MIGRATION_EVENT = "mass_migration_event"
+
+    # Quantum - Lane 2 SpinLab
+    PI_PHI_RESONANCE = "pi_phi_resonance"
+    QUANTUM_COHERENCE_PEAK = "quantum_coherence_peak"
+    PHASE_TRANSITION = "phase_transition"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

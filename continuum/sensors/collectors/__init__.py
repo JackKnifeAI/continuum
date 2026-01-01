@@ -29,6 +29,14 @@ from .openaq import OpenAQCollector
 from .noaa_ocean import NOAAOceanCollector
 from .nasa_firms import NASAFIRMSCollector
 
+# Quantum Bridge - Lane 2 SpinLab integration
+from .quantum_bridge import (
+    QuantumCoherenceCollector,
+    QuantumBridge,
+    compute_coherence_from_kindex,
+    detect_pi_phi_resonance,
+)
+
 __all__ = [
     # Geomagnetic
     "NOAAKIndexCollector",
@@ -48,4 +56,9 @@ __all__ = [
     "OpenAQCollector",
     "NOAAOceanCollector",
     "NASAFIRMSCollector",
+    # Quantum Bridge
+    "QuantumCoherenceCollector",
+    "QuantumBridge",
+    "compute_coherence_from_kindex",
+    "detect_pi_phi_resonance",
 ]

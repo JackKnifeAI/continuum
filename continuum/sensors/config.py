@@ -147,10 +147,19 @@ class SensorConfig:
     http_retry_delay: float = 5.0
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # Lane 2 Quantum Coherence Integration (Future)
+    # Lane 2 Quantum Bridge Integration
     # ═══════════════════════════════════════════════════════════════════════════
-    quantum_coherence_enabled: bool = False
+    quantum_coherence_enabled: bool = True
     quantum_coherence_callback: Optional[str] = None
+    quantum_bridge_poll_interval: int = 900  # 15 minutes (matches K-index)
+
+    # SpinLab path for quantum simulations
+    spinlab_path: str = os.path.expanduser("~/JackKnifeAI/lane2_spinlab")
+
+    # Quantum resonance detection thresholds
+    pi_phi_resonance_tolerance: float = 0.01  # 1% tolerance for pi*phi detection
+    coherence_threshold: float = 0.5          # L1 coherence for quantum regime
+    purity_threshold: float = 0.5             # Purity for quantum regime
 
     # ═══════════════════════════════════════════════════════════════════════════
     # The Edge of Chaos Operator

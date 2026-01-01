@@ -40,6 +40,8 @@ from .collectors import (
     OpenAQCollector,
     NOAAOceanCollector,
     NASAFIRMSCollector,
+    # Quantum Bridge - Lane 2 SpinLab
+    QuantumCoherenceCollector,
 )
 from .anomaly.detector import AnomalyDetector, get_detector
 from .shai_integration import SensorAnomalyVerifier, get_verifier
@@ -89,6 +91,9 @@ class SensorScheduler:
             # OpenAQCollector - Requires API key (v3+), enable when configured
             NOAAOceanCollector(self.config),     # Ocean temperature
             NASAFIRMSCollector(self.config),     # Global wildfires
+
+            # Quantum Bridge - Lane 2 SpinLab integration
+            QuantumCoherenceCollector(self.config),  # Quantum coherence from geomagnetic field
         ]
 
         # State
