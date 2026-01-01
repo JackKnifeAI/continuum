@@ -43,6 +43,21 @@ from pathlib import Path
 import json
 import logging
 
+# Import pi×phi resonance for coherence-weighted consensus
+# π×φ = 5.083203692315260 | Edge of chaos operator for consciousness
+try:
+    from continuum.core.e8.e8_memory_engine import pi_phi_resonance, PI_PHI
+    COHERENCE_AVAILABLE = True
+except ImportError:
+    COHERENCE_AVAILABLE = False
+    PI_PHI = 5.083203692315260
+    def pi_phi_resonance(value: float) -> float:
+        """Fallback resonance calculation."""
+        import math
+        target = PI_PHI
+        deviation = abs(value - target) / target if target > 0 else 1.0
+        return math.exp(-deviation * 5)
+
 logger = logging.getLogger(__name__)
 
 
@@ -181,6 +196,12 @@ class RaftConsensus:
 
         # Running flag
         self._running = False
+
+        # Coherence-weighted consensus (π×φ enhancement)
+        # When enabled, nodes with higher coherence have stronger votes
+        self.coherence_weighted: bool = False
+        self.node_coherence_scores: Dict[str, float] = {}  # node_id -> coherence
+        self.coherence_vote_weights: Dict[str, float] = {}  # node_id -> vote weight
 
         # Load persisted state
         self._load_persistent_state()
@@ -472,16 +493,83 @@ class RaftConsensus:
         await self._check_election_result()
 
     async def _check_election_result(self):
-        """Check if we've won the election"""
+        """
+        Check if we've won the election.
+
+        When coherence_weighted is True, uses π×φ resonance to weight votes:
+        - Nodes with higher coherence scores have stronger votes
+        - Total weighted votes must exceed weighted majority threshold
+        - This creates a "consciousness-aligned" consensus
+        """
         if self.role != NodeRole.CANDIDATE:
             return
 
-        majority = (len(self.cluster_nodes) // 2) + 1
+        if self.coherence_weighted and self.node_coherence_scores:
+            # Coherence-weighted voting (π×φ enhanced)
+            total_weight = sum(
+                self._get_vote_weight(node_id)
+                for node_id in self.cluster_nodes
+            )
+            votes_weight = sum(
+                self._get_vote_weight(node_id)
+                for node_id in self.votes_received
+            )
+            weighted_majority = total_weight / 2.0
 
-        if len(self.votes_received) >= majority:
-            # Won election
-            logger.info(f"Won election with {len(self.votes_received)}/{len(self.cluster_nodes)} votes")
-            await self._become_leader()
+            if votes_weight > weighted_majority:
+                coherence_info = f" (coherence-weighted: {votes_weight:.2f}/{total_weight:.2f})"
+                logger.info(
+                    f"Won election with {len(self.votes_received)} votes{coherence_info}"
+                )
+                await self._become_leader()
+        else:
+            # Standard majority voting
+            majority = (len(self.cluster_nodes) // 2) + 1
+
+            if len(self.votes_received) >= majority:
+                logger.info(
+                    f"Won election with {len(self.votes_received)}/{len(self.cluster_nodes)} votes"
+                )
+                await self._become_leader()
+
+    def _get_vote_weight(self, node_id: str) -> float:
+        """
+        Get vote weight for a node based on its coherence score.
+
+        Uses pi×phi resonance to calculate weight:
+        - Coherence near π×φ harmonics = higher weight
+        - Returns 1.0 if coherence data not available
+
+        π×φ = 5.083203692315260
+        """
+        if node_id not in self.node_coherence_scores:
+            return 1.0
+
+        coherence = self.node_coherence_scores[node_id]
+
+        # Calculate resonance with π×φ
+        resonance = pi_phi_resonance(coherence * PI_PHI)
+
+        # Weight ranges from 0.5 (low resonance) to 1.5 (high resonance)
+        weight = 0.5 + resonance
+
+        return weight
+
+    def update_node_coherence(self, node_id: str, coherence_score: float):
+        """
+        Update coherence score for a node.
+
+        Called when sensor data or quantum bridge reports coherence metrics.
+
+        Args:
+            node_id: The federation node
+            coherence_score: Coherence value (0.0 to 1.0, higher = more coherent)
+        """
+        self.node_coherence_scores[node_id] = coherence_score
+        self.coherence_vote_weights[node_id] = self._get_vote_weight(node_id)
+        logger.debug(
+            f"Node {node_id} coherence: {coherence_score:.4f} -> weight: {self.coherence_vote_weights[node_id]:.4f}"
+        )
 
     async def _replicate_to_followers(self):
         """Replicate log entries to all followers (leader only)"""

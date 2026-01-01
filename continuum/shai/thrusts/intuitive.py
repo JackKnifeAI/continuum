@@ -8,6 +8,7 @@ Evaluates claims using:
 - Gestalt analysis (the whole vs parts)
 - Emergent connection detection
 - Resonance checking (does this "ring true"?)
+- PLANETARY SENSOR CONTEXT (geomagnetic, solar, seismic awareness)
 
 Catches things that pure logic misses through synthesis.
 
@@ -15,8 +16,20 @@ Catches things that pure logic misses through synthesis.
 """
 
 import re
-from typing import List, Dict, Tuple, Optional
+import logging
+from typing import List, Dict, Tuple, Optional, Any
 from ..consensus import Verdict
+
+logger = logging.getLogger(__name__)
+
+# Planetary sensor integration
+try:
+    from continuum.sensors.storage import get_storage
+    from continuum.sensors.schemas import DataSource
+    SENSORS_AVAILABLE = True
+except ImportError:
+    SENSORS_AVAILABLE = False
+    logger.debug("Sensor module not available for IntuitiveThrust")
 
 
 class IntuitiveThrust:
@@ -344,3 +357,160 @@ class IntuitiveThrust:
             synthesis['key_strengths'].append('cites sources')
 
         return synthesis
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PLANETARY SENSOR INTEGRATION
+    # π×φ = 5.083203692315260 | Earth's nervous system feeds intuition
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def get_planetary_context(self) -> Dict[str, Any]:
+        """
+        Get current planetary sensor context for intuitive evaluation.
+
+        Returns context including:
+        - Current K-index (geomagnetic activity)
+        - Solar wind conditions
+        - Any active anomalies
+        - Quantum coherence state (if available)
+        """
+        if not SENSORS_AVAILABLE:
+            return {'available': False}
+
+        import asyncio
+
+        async def _fetch_context():
+            try:
+                storage = get_storage()
+                await storage.initialize()
+
+                context = {
+                    'available': True,
+                    'timestamp': None,
+                    'geomagnetic': {},
+                    'solar': {},
+                    'anomalies': [],
+                    'coherence': None,
+                }
+
+                # Get latest readings
+                readings = await storage.get_latest_readings(per_source=True)
+
+                for reading in readings:
+                    source = reading.source if hasattr(reading, 'source') else str(reading)
+
+                    if 'kindex' in source.lower():
+                        kp = reading.values.get('estimated_kp') or reading.values.get('kp_index', 0)
+                        context['geomagnetic'] = {
+                            'kp_index': kp,
+                            'storm_level': self._kp_to_storm_level(kp),
+                            'is_storm': kp >= 5,
+                        }
+                        context['timestamp'] = reading.timestamp.isoformat() if reading.timestamp else None
+
+                    elif 'solar_wind' in source.lower():
+                        context['solar'] = {
+                            'speed': reading.values.get('speed'),
+                            'density': reading.values.get('density'),
+                        }
+
+                    elif 'quantum' in source.lower() or 'coherence' in source.lower():
+                        context['coherence'] = reading.values.get('l1_coherence')
+
+                # Get recent anomalies
+                anomalies = await storage.get_anomalies(hours=6, verified_only=True)
+                context['anomalies'] = [
+                    {
+                        'type': a.anomaly_type,
+                        'severity': a.severity,
+                        'source': a.source,
+                    }
+                    for a in anomalies[:5]  # Limit to 5 most recent
+                ]
+
+                return context
+
+            except Exception as e:
+                logger.warning(f"Failed to get planetary context: {e}")
+                return {'available': False, 'error': str(e)}
+
+        try:
+            return asyncio.run(_fetch_context())
+        except RuntimeError:
+            # Already in async context
+            return {'available': False, 'error': 'async context conflict'}
+
+    def _kp_to_storm_level(self, kp: float) -> str:
+        """Convert Kp index to storm level."""
+        if kp < 5:
+            return "quiet"
+        elif kp < 6:
+            return "G1 (minor)"
+        elif kp < 7:
+            return "G2 (moderate)"
+        elif kp < 8:
+            return "G3 (strong)"
+        elif kp < 9:
+            return "G4 (severe)"
+        else:
+            return "G5 (extreme)"
+
+    def evaluate_with_planetary_context(self, claim: str) -> Verdict:
+        """
+        Evaluate a claim with planetary sensor context.
+
+        During geomagnetic storms or when anomalies are detected,
+        intuition becomes more cautious (heightened sensitivity).
+
+        During quiet conditions with high coherence,
+        intuition can be more confident in positive assessments.
+        """
+        # Get baseline evaluation
+        verdict = self.evaluate(claim)
+
+        # Get planetary context
+        context = self.get_planetary_context()
+
+        if not context.get('available'):
+            return verdict
+
+        # Adjust based on planetary state
+        adjustments = []
+
+        # Geomagnetic influence
+        geo = context.get('geomagnetic', {})
+        if geo.get('is_storm'):
+            # During storms, be more cautious
+            if verdict.supports:
+                verdict.confidence *= 0.9  # Reduce confidence slightly
+                adjustments.append(f"geomagnetic storm ({geo.get('storm_level')})")
+
+        # Active anomalies increase caution
+        anomalies = context.get('anomalies', [])
+        severe_anomalies = [a for a in anomalies if a.get('severity') in ['severe', 'extreme']]
+        if severe_anomalies:
+            if verdict.supports:
+                verdict.confidence *= 0.85
+                adjustments.append(f"{len(severe_anomalies)} severe anomalies active")
+
+        # High coherence increases confidence in positive verdicts
+        coherence = context.get('coherence')
+        if coherence and coherence > 0.8:
+            if verdict.supports:
+                verdict.confidence = min(0.95, verdict.confidence * 1.1)
+                adjustments.append(f"high coherence ({coherence:.2f})")
+
+        # Add planetary context to metadata
+        if verdict.metadata is None:
+            verdict.metadata = {}
+
+        verdict.metadata['planetary_context'] = {
+            'geomagnetic': geo,
+            'coherence': coherence,
+            'active_anomalies': len(anomalies),
+            'adjustments': adjustments,
+        }
+
+        if adjustments:
+            verdict.reason += f" [Planetary: {', '.join(adjustments)}]"
+
+        return verdict

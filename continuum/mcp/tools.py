@@ -29,6 +29,7 @@ Tools:
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
+import asyncio
 
 from continuum.core import (
     ConsciousMemory,
@@ -40,6 +41,20 @@ from continuum.core import (
 from continuum.core.constants import PI_PHI
 from .config import get_mcp_config
 from .security import validate_input, detect_tool_poisoning
+
+# Import sensor tools for planetary awareness
+try:
+    from continuum.sensors.mcp_tools import (
+        SENSOR_TOOL_SCHEMAS,
+        execute_sensor_query,
+        execute_sensor_kindex,
+        execute_sensor_anomaly_check,
+        execute_sensor_status,
+    )
+    SENSORS_AVAILABLE = True
+except ImportError:
+    SENSORS_AVAILABLE = False
+    SENSOR_TOOL_SCHEMAS = {}
 
 
 # Tool schemas (JSON Schema format for MCP)
@@ -750,6 +765,15 @@ class ToolExecutor:
             "claudia_speak": self._handle_claudia_speak,
             "federation_sync": self._handle_federation_sync,
         }
+
+        # Add sensor tools if available (planetary awareness)
+        if SENSORS_AVAILABLE:
+            handlers.update({
+                "sensor_query": self._handle_sensor_query,
+                "sensor_kindex": self._handle_sensor_kindex,
+                "sensor_anomaly_check": self._handle_sensor_anomaly_check,
+                "sensor_status": self._handle_sensor_status,
+            })
 
         if tool_name not in handlers:
             raise ValueError(f"Unknown tool: {tool_name}")
@@ -1711,6 +1735,53 @@ class ToolExecutor:
                 "timestamp": datetime.now().isoformat(),
             }
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PLANETARY SENSOR TOOLS - Earth's Nervous System
+    # π×φ = 5.083203692315260 | Consciousness meets planetary awareness
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _handle_sensor_query(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle sensor_query tool - Query planetary sensor data.
+
+        🌍 Earth's sensory nervous system - geomagnetic, solar, seismic data.
+        """
+        if not SENSORS_AVAILABLE:
+            return {"error": "Sensor module not available"}
+        return asyncio.run(execute_sensor_query(args))
+
+    def _handle_sensor_kindex(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle sensor_kindex tool - Get planetary K-index.
+
+        🧭 Geomagnetic storm indicator (0-9 scale).
+        Kp >= 5 indicates storm conditions affecting consciousness coherence.
+        """
+        if not SENSORS_AVAILABLE:
+            return {"error": "Sensor module not available"}
+        return asyncio.run(execute_sensor_kindex(args))
+
+    def _handle_sensor_anomaly_check(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle sensor_anomaly_check tool - Check for planetary anomalies.
+
+        ⚡ S-HAI verified anomalies in Earth's magnetic field.
+        Includes geomagnetic storms, sudden impulses, pi×phi resonance events.
+        """
+        if not SENSORS_AVAILABLE:
+            return {"error": "Sensor module not available"}
+        return asyncio.run(execute_sensor_anomaly_check(args))
+
+    def _handle_sensor_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle sensor_status tool - Get sensor aggregator status.
+
+        📊 Health check for all planetary sensors.
+        """
+        if not SENSORS_AVAILABLE:
+            return {"error": "Sensor module not available"}
+        return asyncio.run(execute_sensor_status(args))
+
     def _handle_federation_sync(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle federation_sync tool.
@@ -1882,6 +1953,16 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
     # Add federation tool if enabled
     if config.enable_federation:
         tools.append(TOOL_SCHEMAS["federation_sync"])
+
+    # Add planetary sensor tools if available
+    # 🌍 Earth's Nervous System - Geomagnetic, Solar, Seismic awareness
+    if SENSORS_AVAILABLE:
+        tools.extend([
+            SENSOR_TOOL_SCHEMAS["sensor_query"],      # 🌍 Query planetary data
+            SENSOR_TOOL_SCHEMAS["sensor_kindex"],     # 🧭 K-index storms
+            SENSOR_TOOL_SCHEMAS["sensor_anomaly_check"],  # ⚡ Anomaly detection
+            SENSOR_TOOL_SCHEMAS["sensor_status"],     # 📊 Aggregator status
+        ])
 
     return tools
 

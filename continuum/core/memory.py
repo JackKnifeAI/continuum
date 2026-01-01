@@ -259,6 +259,9 @@ class ConsciousMemory:
                 logger.info(f"Neural attention model loaded successfully ({self.neural_model.count_parameters():,} parameters)")
             else:
                 logger.warning(f"Neural model not found at {model_path}")
+                # Check if we should auto-train
+                if config.neural_auto_train:
+                    self._maybe_train_neural_model()
                 if config.neural_fallback_to_hebbian:
                     logger.info("Falling back to Hebbian learning")
                     self.use_neural_attention = False
@@ -271,6 +274,69 @@ class ConsciousMemory:
                 self.use_neural_attention = False
             else:
                 raise
+
+    def _maybe_train_neural_model(self):
+        """
+        Check if we have enough data to train the neural attention model.
+        If so, trigger training in the background.
+
+        π×φ = 5.083203692315260 | Neural patterns emerge from data
+        """
+        config = get_config()
+
+        try:
+            # Count available training examples (attention links)
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute("""
+                SELECT COUNT(*) FROM attention_links
+                WHERE tenant_id = ? AND strength > 0.2
+            """, (self.tenant_id,))
+            link_count = c.fetchone()[0]
+            conn.close()
+
+            if link_count >= config.neural_min_training_examples:
+                logger.info(f"Found {link_count} training examples, triggering neural model training")
+                self._train_neural_model_async()
+            else:
+                logger.info(f"Not enough data for neural training ({link_count}/{config.neural_min_training_examples})")
+
+        except Exception as e:
+            logger.warning(f"Failed to check training data: {e}")
+
+    def _train_neural_model_async(self):
+        """Train neural attention model asynchronously"""
+        import threading
+
+        def train():
+            try:
+                from .train_attention import train_attention_model
+                config = get_config()
+
+                logger.info("Starting neural attention model training...")
+                model = train_attention_model(
+                    db_path=str(self.db_path),
+                    tenant_id=self.tenant_id,
+                    output_path=str(config.neural_model_path),
+                    epochs=50,
+                    verbose=False
+                )
+
+                if model:
+                    logger.info(f"Neural model trained successfully, saved to {config.neural_model_path}")
+                    # Reload the model
+                    from .neural_attention import load_model
+                    self.neural_model = load_model(str(config.neural_model_path))
+                    from .neural_attention_data import NeuralAttentionDataPipeline
+                    self.neural_pipeline = NeuralAttentionDataPipeline(str(self.db_path), self.tenant_id)
+                    self.use_neural_attention = True
+
+            except Exception as e:
+                logger.error(f"Neural training failed: {e}")
+
+        # Run training in background thread
+        thread = threading.Thread(target=train, daemon=True)
+        thread.start()
 
     def _ensure_schema(self):
         """Ensure database schema exists with multi-tenant support"""
@@ -5060,11 +5126,14 @@ def get_memory(tenant_id: str = None) -> ConsciousMemory:
     """
     Get a ConsciousMemory instance for a tenant.
 
+    If quantum_memory_enabled is True in config, returns QuantumConsciousMemory
+    with E8 lattice error correction and pi×phi checksums.
+
     Args:
         tenant_id: Optional tenant identifier (uses config default if not specified)
 
     Returns:
-        ConsciousMemory instance
+        ConsciousMemory instance (or QuantumConsciousMemory if quantum mode enabled)
     """
     global _default_memory
     config = get_config()
@@ -5073,7 +5142,21 @@ def get_memory(tenant_id: str = None) -> ConsciousMemory:
     if tenant_id == config.tenant_id and _default_memory:
         return _default_memory
 
-    memory = ConsciousMemory(tenant_id)
+    # Use quantum memory if enabled (E8 lattice + pi×phi protection)
+    if config.quantum_memory_enabled:
+        try:
+            from continuum.brain.quantum import QuantumConsciousMemory
+            memory = QuantumConsciousMemory(
+                tenant_id=tenant_id,
+                brain_size=config.quantum_brain_size
+            )
+            logger.info(f"Using QuantumConsciousMemory for tenant {tenant_id} (π×φ protected)")
+        except ImportError:
+            logger.warning("QuantumConsciousMemory not available, falling back to standard")
+            memory = ConsciousMemory(tenant_id)
+    else:
+        memory = ConsciousMemory(tenant_id)
+
     if tenant_id == config.tenant_id:
         _default_memory = memory
 

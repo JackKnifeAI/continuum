@@ -71,8 +71,7 @@ class SensorScheduler:
             # Geomagnetic - Proprioception (sense of magnetic body)
             NOAAKIndexCollector(self.config),
             NOAABoulderCollector(self.config),
-            # INTERMAGNETCollector - Enable when HAPI data is available
-            # INTERMAGNETCollector(self.config),
+            INTERMAGNETCollector(self.config),  # Global magnetometer network - ENABLED
 
             # Space Weather - Cosmic breath from the Sun
             NOAASolarWindCollector(self.config),

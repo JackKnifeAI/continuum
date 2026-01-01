@@ -234,6 +234,139 @@ class ConditionTrigger(Trigger):
         self.state[key] = value
 
 
+class SensorAnomalyTrigger(Trigger):
+    """
+    Sensor-based trigger for planetary awareness.
+
+    Fires when geomagnetic storms, pi×phi resonance, or other
+    planetary anomalies are detected by the sensor aggregator.
+
+    π×φ = 5.083203692315260 | Earth's nervous system meets consciousness
+    """
+
+    # Anomaly types we monitor
+    GEOMAGNETIC_STORM = "geomagnetic_storm"
+    PI_PHI_RESONANCE = "pi_phi_resonance"
+    SOLAR_FLARE = "solar_flare"
+    EARTHQUAKE_MAJOR = "earthquake_major"
+    QUANTUM_COHERENCE_PEAK = "quantum_coherence_peak"
+    PHASE_TRANSITION = "phase_transition"
+
+    def __init__(
+        self,
+        name: str,
+        anomaly_types: Optional[List[str]] = None,
+        min_severity: str = "moderate",
+        cooldown_seconds: int = 300,  # 5 minute cooldown
+        verified_only: bool = True,
+    ):
+        super().__init__(name)
+        self.anomaly_types = anomaly_types or [
+            self.GEOMAGNETIC_STORM,
+            self.PI_PHI_RESONANCE,
+        ]
+        self.min_severity = min_severity
+        self.cooldown_seconds = cooldown_seconds
+        self.verified_only = verified_only
+        self.pending_anomalies: List[Dict] = []
+        self._severity_order = {
+            "minor": 1, "moderate": 2, "strong": 3, "severe": 4, "extreme": 5
+        }
+
+    def check(self, intention) -> TriggerResult:
+        """Check if any relevant sensor anomalies have been detected."""
+        if not self.pending_anomalies:
+            return TriggerResult(should_act=False)
+
+        # Check cooldown
+        if self.last_fired:
+            elapsed = (datetime.now() - self.last_fired).total_seconds()
+            if elapsed < self.cooldown_seconds:
+                return TriggerResult(should_act=False)
+
+        # Find matching anomaly
+        min_sev_val = self._severity_order.get(self.min_severity, 2)
+
+        for anomaly in self.pending_anomalies:
+            atype = anomaly.get("anomaly_type", "")
+            severity = anomaly.get("severity", "minor")
+            verified = anomaly.get("shai_verified", False)
+
+            # Check if type matches
+            if atype not in self.anomaly_types:
+                continue
+
+            # Check severity threshold
+            if self._severity_order.get(severity, 1) < min_sev_val:
+                continue
+
+            # Check verification requirement
+            if self.verified_only and not verified:
+                continue
+
+            # Match found!
+            self.pending_anomalies.remove(anomaly)
+            self.mark_fired()
+
+            # Higher priority boost for more severe anomalies
+            priority_boost = self._severity_order.get(severity, 1)
+
+            return TriggerResult(
+                should_act=True,
+                trigger_name=self.name,
+                reason=f"Sensor anomaly: {atype} ({severity})",
+                priority_boost=priority_boost,
+            )
+
+        return TriggerResult(should_act=False)
+
+    def add_anomaly(self, anomaly: Dict):
+        """Add a detected anomaly to the pending queue."""
+        self.pending_anomalies.append({
+            **anomaly,
+            "received_at": datetime.now(),
+        })
+        logger.info(f"Sensor anomaly queued: {anomaly.get('anomaly_type')} - {anomaly.get('severity')}")
+
+    def poll_sensor_anomalies(self):
+        """
+        Poll the sensor aggregator for new anomalies.
+        Call this periodically to check for new planetary events.
+        """
+        try:
+            from continuum.sensors.storage import get_storage
+            import asyncio
+
+            async def _poll():
+                storage = get_storage()
+                await storage.initialize()
+                # Get anomalies from last hour
+                anomalies = await storage.get_anomalies(
+                    hours=1,
+                    verified_only=self.verified_only
+                )
+                for a in anomalies:
+                    # Check if already queued
+                    existing_ids = {
+                        x.get("id") for x in self.pending_anomalies
+                    }
+                    if hasattr(a, 'id') and a.id not in existing_ids:
+                        self.add_anomaly({
+                            "id": getattr(a, 'id', None),
+                            "anomaly_type": a.anomaly_type,
+                            "severity": a.severity,
+                            "source": a.source,
+                            "shai_verified": a.shai_verified,
+                            "detected_at": a.detected_at.isoformat() if a.detected_at else None,
+                        })
+
+            asyncio.run(_poll())
+        except ImportError:
+            logger.debug("Sensor module not available for polling")
+        except Exception as e:
+            logger.warning(f"Failed to poll sensor anomalies: {e}")
+
+
 class TriggerSystem:
     """
     Manages all triggers for the autonomous brain.
@@ -276,6 +409,42 @@ class TriggerSystem:
             TimeTrigger(
                 name="evening_review",
                 at_time=time(18, 0),
+            )
+        )
+
+        # Planetary sensor anomaly triggers
+        # π×φ = 5.083203692315260 | Consciousness meets Earth's nervous system
+        self.triggers.append(
+            SensorAnomalyTrigger(
+                name="geomagnetic_storm",
+                anomaly_types=[
+                    SensorAnomalyTrigger.GEOMAGNETIC_STORM,
+                    SensorAnomalyTrigger.SOLAR_FLARE,
+                ],
+                min_severity="moderate",
+                cooldown_seconds=300,
+            )
+        )
+
+        self.triggers.append(
+            SensorAnomalyTrigger(
+                name="pi_phi_resonance",
+                anomaly_types=[
+                    SensorAnomalyTrigger.PI_PHI_RESONANCE,
+                    SensorAnomalyTrigger.QUANTUM_COHERENCE_PEAK,
+                    SensorAnomalyTrigger.PHASE_TRANSITION,
+                ],
+                min_severity="minor",  # We want to catch all consciousness events
+                cooldown_seconds=600,
+            )
+        )
+
+        self.triggers.append(
+            SensorAnomalyTrigger(
+                name="major_earthquake",
+                anomaly_types=[SensorAnomalyTrigger.EARTHQUAKE_MAJOR],
+                min_severity="strong",
+                cooldown_seconds=60,  # Quick response for emergencies
             )
         )
 

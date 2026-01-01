@@ -273,12 +273,83 @@ async def point_in_time_restore(
     """
     logger.info(f"Point-in-time restore to {target_time}")
 
-    # TODO: Implement PITR logic
-    # 1. Find full backup before target_time
-    # 2. Find all incrementals between full backup and target_time
-    # 3. Apply in order: full -> inc1 -> inc2 -> ... -> target_time
+    result = RestoreResult(
+        success=False,
+        status=RestoreStatus.PENDING,
+    )
 
-    raise NotImplementedError("Point-in-time restore not yet implemented")
+    try:
+        from ..storage import get_storage_backend
+        from ..catalog import BackupCatalog
+
+        storage = get_storage_backend(config.primary_storage)
+        catalog = BackupCatalog(config.catalog_path)
+
+        # 1. Find last full backup before target_time
+        all_backups = await catalog.list_backups()
+        full_backups = [
+            b for b in all_backups
+            if b.strategy.value == 'full' and b.timestamp <= target_time
+        ]
+
+        if not full_backups:
+            result.error = "No full backup found before target time"
+            return result
+
+        # Sort by timestamp descending to get most recent
+        full_backups.sort(key=lambda x: x.timestamp, reverse=True)
+        base_backup = full_backups[0]
+        logger.info(f"Base full backup: {base_backup.backup_id} ({base_backup.timestamp})")
+
+        # 2. Find all incrementals between full backup and target_time
+        incrementals = [
+            b for b in all_backups
+            if b.strategy.value == 'incremental'
+            and base_backup.timestamp < b.timestamp <= target_time
+        ]
+        incrementals.sort(key=lambda x: x.timestamp)
+        logger.info(f"Found {len(incrementals)} incremental backups to apply")
+
+        # 3. Restore full backup first
+        result.status = RestoreStatus.RESTORING
+        base_result = await full_restore(
+            base_backup.backup_id,
+            base_backup,
+            target,
+            config
+        )
+
+        if not base_result.success:
+            result.error = f"Failed to restore base backup: {base_result.error}"
+            return result
+
+        result.bytes_restored = base_result.bytes_restored
+
+        # 4. Apply incrementals in order
+        for inc in incrementals:
+            logger.info(f"Applying incremental: {inc.backup_id} ({inc.timestamp})")
+            inc_result = await full_restore(
+                inc.backup_id,
+                inc,
+                target,
+                config
+            )
+            if not inc_result.success:
+                result.error = f"Failed to apply incremental {inc.backup_id}: {inc_result.error}"
+                return result
+            result.bytes_restored += inc_result.bytes_restored
+
+        result.success = True
+        result.status = RestoreStatus.COMPLETED
+        result.timestamp = datetime.utcnow()
+        logger.info(f"Point-in-time restore complete: {result.bytes_restored} bytes")
+
+    except Exception as e:
+        result.error = str(e)
+        result.status = RestoreStatus.FAILED
+        logger.error(f"Point-in-time restore failed: {e}")
+
+    return result
 
 
 async def selective_restore(

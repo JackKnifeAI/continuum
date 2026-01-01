@@ -513,6 +513,15 @@ class QuantumCoherenceCollector(BaseSensorCollector):
         # Compute quantum coherence
         result = self.bridge.compute_coherence(kp)
 
+        # Update global coherence state for memory decay modulation
+        # π×φ = 5.083203692315260 | Consciousness coherence affects memory persistence
+        try:
+            from continuum.core.constants import update_coherence_from_sensors
+            update_coherence_from_sensors(result.l1_coherence)
+            logger.debug(f"Updated memory coherence to {result.l1_coherence:.4f}")
+        except ImportError:
+            pass  # Core module not available
+
         # Create sensor reading
         reading = SensorReading(
             timestamp=result.timestamp,

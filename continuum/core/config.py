@@ -103,6 +103,11 @@ class MemoryConfig:
     neural_auto_train: bool = False
     neural_min_training_examples: int = 20
 
+    # Quantum memory configuration (E8 lattice + pi×phi protection)
+    # When enabled, uses QuantumConsciousMemory with geometric error correction
+    quantum_memory_enabled: bool = False
+    quantum_brain_size: int = 65536  # Number of memory cells
+
     @property
     def available_for_memory(self) -> int:
         """Calculate tokens available for memory injection"""

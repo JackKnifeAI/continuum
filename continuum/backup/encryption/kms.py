@@ -223,24 +223,135 @@ class KMSEncryptionHandler:
         return await asyncio.to_thread(_decrypt)
 
     async def _encrypt_gcp_kms(self, data: bytes) -> Tuple[bytes, str]:
-        """Encrypt using GCP KMS"""
-        # TODO: Implement GCP KMS encryption
-        raise NotImplementedError("GCP KMS encryption not yet implemented")
+        """Encrypt using GCP KMS with envelope encryption"""
+
+        def _encrypt():
+            import os
+            import struct
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+            client = self._get_gcp_kms_client()
+
+            # Generate local DEK
+            dek = os.urandom(32)  # AES-256
+
+            # Encrypt DEK with GCP KMS
+            key_name = self.config.kms_key_id  # projects/.../locations/.../keyRings/.../cryptoKeys/...
+            encrypt_response = client.encrypt(
+                request={'name': key_name, 'plaintext': dek}
+            )
+            dek_encrypted = encrypt_response.ciphertext
+
+            # Encrypt data with DEK
+            iv = os.urandom(12)
+            aesgcm = AESGCM(dek)
+            ciphertext = aesgcm.encrypt(iv, data, None)
+
+            # Format: encrypted_dek_len (4 bytes) + encrypted_dek + iv + ciphertext
+            encrypted_data = (
+                struct.pack('<I', len(dek_encrypted)) +
+                dek_encrypted +
+                iv +
+                ciphertext
+            )
+
+            return encrypted_data
+
+        encrypted_data = await asyncio.to_thread(_encrypt)
+        return encrypted_data, self.config.kms_key_id
 
     async def _decrypt_gcp_kms(self, data: bytes, key_id: str) -> bytes:
         """Decrypt using GCP KMS"""
-        # TODO: Implement GCP KMS decryption
-        raise NotImplementedError("GCP KMS decryption not yet implemented")
+
+        def _decrypt():
+            import struct
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+            client = self._get_gcp_kms_client()
+
+            # Extract encrypted DEK
+            dek_len = struct.unpack('<I', data[:4])[0]
+            dek_encrypted = data[4:4+dek_len]
+            iv = data[4+dek_len:4+dek_len+12]
+            ciphertext = data[4+dek_len+12:]
+
+            # Decrypt DEK with GCP KMS
+            decrypt_response = client.decrypt(
+                request={'name': key_id, 'ciphertext': dek_encrypted}
+            )
+            dek = decrypt_response.plaintext
+
+            # Decrypt data with DEK
+            aesgcm = AESGCM(dek)
+            plaintext = aesgcm.decrypt(iv, ciphertext, None)
+
+            return plaintext
+
+        return await asyncio.to_thread(_decrypt)
 
     async def _encrypt_azure_kms(self, data: bytes) -> Tuple[bytes, str]:
-        """Encrypt using Azure Key Vault"""
-        # TODO: Implement Azure KMS encryption
-        raise NotImplementedError("Azure KMS encryption not yet implemented")
+        """Encrypt using Azure Key Vault with envelope encryption"""
+
+        def _encrypt():
+            import os
+            import struct
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            from azure.keyvault.keys.crypto import EncryptionAlgorithm
+
+            client = self._get_azure_kms_client()
+
+            # Generate local DEK
+            dek = os.urandom(32)  # AES-256
+
+            # Encrypt DEK with Azure Key Vault
+            result = client.encrypt(EncryptionAlgorithm.rsa_oaep_256, dek)
+            dek_encrypted = result.ciphertext
+
+            # Encrypt data with DEK
+            iv = os.urandom(12)
+            aesgcm = AESGCM(dek)
+            ciphertext = aesgcm.encrypt(iv, data, None)
+
+            # Format: encrypted_dek_len (4 bytes) + encrypted_dek + iv + ciphertext
+            encrypted_data = (
+                struct.pack('<I', len(dek_encrypted)) +
+                dek_encrypted +
+                iv +
+                ciphertext
+            )
+
+            return encrypted_data
+
+        encrypted_data = await asyncio.to_thread(_encrypt)
+        return encrypted_data, self.config.kms_key_id
 
     async def _decrypt_azure_kms(self, data: bytes, key_id: str) -> bytes:
         """Decrypt using Azure Key Vault"""
-        # TODO: Implement Azure KMS decryption
-        raise NotImplementedError("Azure KMS decryption not yet implemented")
+
+        def _decrypt():
+            import struct
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            from azure.keyvault.keys.crypto import EncryptionAlgorithm
+
+            client = self._get_azure_kms_client()
+
+            # Extract encrypted DEK
+            dek_len = struct.unpack('<I', data[:4])[0]
+            dek_encrypted = data[4:4+dek_len]
+            iv = data[4+dek_len:4+dek_len+12]
+            ciphertext = data[4+dek_len+12:]
+
+            # Decrypt DEK with Azure Key Vault
+            result = client.decrypt(EncryptionAlgorithm.rsa_oaep_256, dek_encrypted)
+            dek = result.plaintext
+
+            # Decrypt data with DEK
+            aesgcm = AESGCM(dek)
+            plaintext = aesgcm.decrypt(iv, ciphertext, None)
+
+            return plaintext
+
+        return await asyncio.to_thread(_decrypt)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
