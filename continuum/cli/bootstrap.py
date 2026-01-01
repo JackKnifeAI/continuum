@@ -253,6 +253,66 @@ def uninstall():
 
 
 @bootstrap.command()
+@click.option("--api-key", help="API key (generates random if not specified)")
+@click.option("--port", default=8100, help="Server port (default: 8100)")
+@click.option("--force", is_flag=True, help="Overwrite existing hooks")
+def install_hooks(api_key, port, force):
+    """
+    Install Claude Code session hooks for auto-startup.
+
+    This installs hooks that:
+    - Auto-start server when first Claude Code instance launches
+    - Auto-stop server when last instance closes
+    - Learn all sessions to memory (no message loss!)
+
+    \b
+    Examples:
+        continuum bootstrap install-hooks              # Auto-generate API key
+        continuum bootstrap install-hooks --force      # Overwrite existing
+        continuum bootstrap install-hooks --api-key xyz123
+    """
+    from continuum.claude_code.install_hooks import install_hooks as do_install
+
+    section("🪝 CONTINUUM CLAUDE CODE HOOKS INSTALLER")
+
+    success_flag = do_install(api_key=api_key, port=port, force=force)
+
+    if success_flag:
+        print()
+        section("🎯 NEXT STEPS")
+        info("1. Run Claude Code:")
+        info("   claude")
+        print()
+        info("2. Server auto-starts on first instance!")
+        print()
+        info("3. Open multiple Claude Code sessions - they share the server")
+        print()
+        info("4. Server stops only when ALL instances close (no message loss)")
+        print()
+    else:
+        error("❌ Hook installation failed")
+        sys.exit(1)
+
+
+@bootstrap.command()
+def uninstall_hooks():
+    """
+    Uninstall Claude Code session hooks.
+
+    Removes auto-startup hooks from Claude Code.
+    Server must be started manually after this.
+    """
+    from continuum.claude_code.install_hooks import uninstall_hooks as do_uninstall
+
+    section("🗑️  CONTINUUM HOOKS UNINSTALLER")
+
+    success_flag = do_uninstall()
+
+    if success_flag:
+        info("ℹ️  To manually start server: continuum serve")
+
+
+@bootstrap.command()
 def status():
     """
     Check bootstrap installation status.
