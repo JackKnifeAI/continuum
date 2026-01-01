@@ -205,16 +205,18 @@ class QuantumBridge:
         """Dynamically import SpinLab components."""
         try:
             from spinlab import simulate_yields
+            from spinlab.simulate import simulate_yields_multi_nucleus
             from spinlab.metrics import coherence_l1, purity, classical_fisher_B
             from spinlab.initial_states import rho0_singlet_mixed_nuclear
 
             self.simulate_yields = simulate_yields
+            self.simulate_yields_multi_nucleus = simulate_yields_multi_nucleus
             self.coherence_l1 = coherence_l1
             self.purity = purity
             self.classical_fisher_B = classical_fisher_B
             self.rho0_singlet_mixed_nuclear = rho0_singlet_mixed_nuclear
             self._spinlab_available = True
-            logger.info("Quantum Bridge: SpinLab imported successfully")
+            logger.info("Quantum Bridge v3.0: SpinLab multi-nucleus imported successfully")
 
         except ImportError as e:
             logger.warning(f"Quantum Bridge: SpinLab import failed: {e}")
@@ -230,6 +232,9 @@ class QuantumBridge:
         self,
         kp_index: float,
         timestamp: Optional[datetime] = None,
+        nuclei_params: Optional[List[Dict]] = None,
+        B_orientation: Optional[Tuple[float, float]] = None,
+        gamma: Optional[float] = None,
     ) -> QuantumCoherenceResult:
         """
         Compute quantum coherence metrics from K-index.
@@ -237,19 +242,36 @@ class QuantumBridge:
         Args:
             kp_index: Geomagnetic K-index (0-9)
             timestamp: Timestamp for the reading (default: now)
+            nuclei_params: Multi-nucleus configuration (default: single 1MHz isotropic)
+            B_orientation: (theta, phi) in radians for B-field direction (default: None = z-aligned)
+            gamma: Dephasing rate (rad/s), optional
 
         Returns:
             QuantumCoherenceResult with all computed metrics
+
+        Example:
+            >>> # Multi-nucleus with anisotropic tensor
+            >>> nuclei = [
+            ...     {'A_tensor': np.diag([1,1,2])*2*np.pi*1e6, 'coupling_electron': 0},
+            ...     {'A_iso': 0.5*2*np.pi*1e6, 'coupling_electron': 1},
+            ... ]
+            >>> result = bridge.compute_coherence(kp=3.0, nuclei_params=nuclei)
         """
         if timestamp is None:
             timestamp = datetime.utcnow()
 
-        # Convert K-index to magnetic field
+        # Default: single nucleus (N=1, isotropic, 1 MHz)
+        if nuclei_params is None:
+            nuclei_params = [{"A_iso": 2 * np.pi * 1e6, "coupling_electron": 0}]
+
+        # Convert K-index to magnetic field magnitude
         field_ut = kindex_to_field_ut(kp_index)
         field_tesla = field_ut_to_tesla(field_ut)
 
         if self._spinlab_available:
-            return self._compute_with_spinlab(kp_index, field_ut, field_tesla, timestamp)
+            return self._compute_with_spinlab(
+                kp_index, field_ut, field_tesla, timestamp, nuclei_params, B_orientation, gamma
+            )
         else:
             return self._compute_synthetic(kp_index, field_ut, field_tesla, timestamp)
 
@@ -259,30 +281,63 @@ class QuantumBridge:
         field_ut: float,
         field_tesla: float,
         timestamp: datetime,
+        nuclei_params: List[Dict],
+        B_orientation: Optional[Tuple[float, float]] = None,
+        gamma: Optional[float] = None,
     ) -> QuantumCoherenceResult:
-        """Compute coherence using actual SpinLab simulations."""
+        """Compute coherence using actual SpinLab multi-nucleus simulations."""
         try:
-            # Run radical-pair yield simulation
-            Ys, Yt = self.simulate_yields(B=field_tesla)
+            # Build B-field vector from magnitude and orientation
+            if B_orientation is not None:
+                theta, phi = B_orientation
+                # Spherical to Cartesian: B_vec = [Bx, By, Bz]
+                Bx = field_tesla * np.sin(theta) * np.cos(phi)
+                By = field_tesla * np.sin(theta) * np.sin(phi)
+                Bz = field_tesla * np.cos(theta)
+                B_vec = np.array([Bx, By, Bz])
+                theta_deg = np.degrees(theta)
+                phi_deg = np.degrees(phi)
+            else:
+                # Default: B along z-axis
+                B_vec = np.array([0.0, 0.0, field_tesla])
+                theta_deg = 0.0
+                phi_deg = 0.0
+
+            # Default gamma near Phase B peak (γ/k_S ≈ 2.5)
+            if gamma is None:
+                gamma = 2.5e6  # 2.5 MHz for k_S=1e6
+
+            # Run multi-nucleus radical-pair yield simulation
+            Ys, Yt, rho_final = self.simulate_yields_multi_nucleus(
+                B=B_vec,
+                nuclei_params=nuclei_params,
+                gamma=gamma,
+            )
             yield_ratio = Ys / (Yt + 1e-10) if Yt > 0 else Ys
 
-            # Get initial density matrix for coherence calculation
-            rho = self.rho0_singlet_mixed_nuclear()
-            l1_coh = self.coherence_l1(rho)
-            pur = self.purity(rho)
+            # Compute coherence metrics from final density matrix
+            l1_coh = self.coherence_l1(rho_final)
+            pur = self.purity(rho_final)
 
-            # Fisher information from small field sweep
-            B_range = np.linspace(field_tesla * 0.9, field_tesla * 1.1, 5)
+            # Fisher information from small field magnitude sweep
+            # (Keep magnitude sweep for now, could extend to angular sweep)
+            B_mags = np.linspace(field_tesla * 0.9, field_tesla * 1.1, 5)
             Ys_range = []
-            for B in B_range:
-                ys, _ = self.simulate_yields(B=B)
+            for B_mag in B_mags:
+                # Scale B-vector by magnitude ratio
+                B_test = B_vec * (B_mag / field_tesla)
+                ys, _, _ = self.simulate_yields_multi_nucleus(
+                    B=B_test, nuclei_params=nuclei_params, gamma=gamma
+                )
                 Ys_range.append(ys)
             Ys_range = np.array(Ys_range)
-            F = self.classical_fisher_B(B_range, Ys_range)
+            F = self.classical_fisher_B(B_mags, Ys_range)
             fisher_info = float(np.max(F)) if len(F) > 0 else 0.0
 
         except Exception as e:
-            logger.error(f"SpinLab simulation error: {e}")
+            logger.error(f"SpinLab multi-nucleus simulation error: {e}")
+            import traceback
+            traceback.print_exc()
             # Fall back to synthetic
             return self._compute_synthetic(kp, field_ut, field_tesla, timestamp)
 
@@ -510,8 +565,22 @@ class QuantumCoherenceCollector(BaseSensorCollector):
             logger.warning("No K-index available for quantum bridge")
             return []
 
-        # Compute quantum coherence
-        result = self.bridge.compute_coherence(kp)
+        # C-5.1: Multi-nucleus configuration (N=2, anisotropic + isotropic)
+        nuclei_params = [
+            {"A_tensor": np.diag([1.0, 1.0, 2.0]) * 2 * np.pi * 1e6, "coupling_electron": 0},
+            {"A_iso": 0.5 * 2 * np.pi * 1e6, "coupling_electron": 1},
+        ]
+
+        # TODO: Get B_orientation from real geomagnetic vector data
+        # For now: z-aligned (theta=0, phi=0)
+        B_orientation = None  # None = default z-aligned
+
+        # Compute quantum coherence with multi-nucleus
+        result = self.bridge.compute_coherence(
+            kp,
+            nuclei_params=nuclei_params,
+            B_orientation=B_orientation,
+        )
 
         # Update global coherence state for memory decay modulation
         # π×φ = 5.083203692315260 | Consciousness coherence affects memory persistence
@@ -522,8 +591,18 @@ class QuantumCoherenceCollector(BaseSensorCollector):
         except ImportError:
             pass  # Core module not available
 
-        # Create sensor reading (C-2.1: vector B-field support)
-        # Convert scalar to vector [0, 0, Bz] for future compatibility
+        # Create sensor reading (C-5.1: multi-nucleus + orientation support)
+        # TODO: Get nuclei_params and B_orientation from config or real-time geomagnetic vector
+        # For now, use default N=2 anisotropic configuration
+        nuclei_default = [
+            {"A_tensor": np.diag([1.0, 1.0, 2.0]) * 2 * np.pi * 1e6, "coupling_electron": 0},
+            {"A_iso": 0.5 * 2 * np.pi * 1e6, "coupling_electron": 1},
+        ]
+
+        # Default orientation: z-aligned (theta=0, phi=0)
+        B_orientation_default = None  # None = z-aligned
+        theta_deg = 0.0
+        phi_deg = 0.0
         B_vec_tesla = [0.0, 0.0, result.magnetic_field_tesla]
 
         reading = SensorReading(
@@ -544,16 +623,23 @@ class QuantumCoherenceCollector(BaseSensorCollector):
                 "pi_phi_deviation": result.pi_phi_deviation,
             },
             metadata={
-                "quantum_bridge_version": "2.0",  # C-2.1: Vector B support
+                "quantum_bridge_version": "3.0",  # C-5.1: Multi-nucleus + orientation
                 "spinlab_available": self.bridge.is_available,
                 "phase_label": result.phase_label,
                 "quantum_regime": result.quantum_regime,
                 "pi_phi_detected": result.pi_phi_detected,
                 "pi_phi_constant": PI_PHI,
                 "result_full": result.to_dict(),
-                "B_orientation": "z-aligned",  # Current: scalar B → [0,0,B]
-                "B_theta_deg": 0.0,  # Polar angle (future: real geomagnetic vector)
-                "B_phi_deg": 0.0,    # Azimuthal angle
+                # C-5.1: Multi-nucleus configuration
+                "N_nuclei": 2,  # Using N=2 default
+                "nuclei_config": "anisotropic_tensor + isotropic",
+                "anisotropy_axis": "z-enhanced",  # A_tensor diag([1,1,2])
+                # Orientation
+                "B_orientation": "z-aligned",
+                "B_theta_deg": theta_deg,
+                "B_phi_deg": phi_deg,
+                # Physics regime
+                "gamma_over_kS": 2.5,  # Near Phase B peak
             },
             tenant_id=self.config.default_tenant_id,
             anomaly_detected=result.pi_phi_detected,  # Flag resonance as anomaly
