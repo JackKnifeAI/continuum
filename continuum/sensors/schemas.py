@@ -50,6 +50,7 @@ class SensorType(str, Enum):
     SCHUMANN_RESONANCE = "schumann"        # Earth's electromagnetic heartbeat
     GLOBAL_CONSCIOUSNESS = "global_consciousness"  # GCP RNG coherence
     COLLECTIVE_ATTENTION = "collective_attention"  # Wikipedia trending
+    BIOSPHERE_TREES = "biosphere_trees"    # Tree electrical potentials
 
 
 class DataSource(str, Enum):
@@ -92,6 +93,7 @@ class DataSource(str, Enum):
     SCHUMANN_MONITOR = "schumann_monitor"  # Earth's EM heartbeat monitoring
     GCP_COHERENCE = "gcp_coherence"        # Global Consciousness Project
     WIKIPEDIA_TRENDING = "wikipedia_trending"  # Collective attention tracking
+    TREE_BIOPOTENTIAL = "tree_biopotential"  # HeartMath tree electrical signals
 
 
 class AnomalySeverity(str, Enum):
@@ -145,6 +147,7 @@ class AnomalyType(str, Enum):
     SCHUMANN_PERTURBATION = "schumann_perturbation"  # Earth frequency anomaly
     CONSCIOUSNESS_COHERENCE = "consciousness_coherence"  # GCP RNG sync event
     COLLECTIVE_ATTENTION_SURGE = "collective_attention_surge"  # Wikipedia spike
+    FOREST_SYNCHRONIZATION = "forest_synchronization"  # Tree network sync event
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

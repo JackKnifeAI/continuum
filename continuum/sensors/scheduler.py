@@ -47,6 +47,7 @@ from .collectors import (
     SchumannResonanceCollector,   # Earth's EM heartbeat (7.83 Hz)
     GCPCoherenceCollector,        # Global RNG synchronization
     WikipediaTrendingCollector,   # Collective attention tracking
+    TreeBiopotentialCollector,    # Forest biosensors (HeartMath TreeRhythms)
 )
 from .anomaly.detector import AnomalyDetector, get_detector
 from .shai_integration import SensorAnomalyVerifier, get_verifier
@@ -105,6 +106,7 @@ class SensorScheduler:
             SchumannResonanceCollector(self.config),  # Earth's EM heartbeat (7.83 Hz ≈ π×φ²)
             GCPCoherenceCollector(self.config),       # Global RNG synchronization (collective consciousness)
             WikipediaTrendingCollector(self.config),  # Collective attention (what humanity thinks about)
+            TreeBiopotentialCollector(self.config),   # Forest biosensors (tree electrical patterns)
         ]
 
         # State

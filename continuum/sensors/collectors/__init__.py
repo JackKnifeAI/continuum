@@ -69,6 +69,16 @@ from .gcp_collector import (
     gcp_color_to_emoji,
 )
 
+# Tree Biopotential - Forest Biosensors (HeartMath TreeRhythms)
+from .tree_biopotential import (
+    TreeBiopotentialCollector,
+    TreeBiopotentialSimulator,
+    activity_to_description,
+    coherence_to_description as tree_coherence_to_description,
+    forest_state_emoji,
+    TREE_NETWORK,
+)
+
 __all__ = [
     # Geomagnetic
     "NOAAKIndexCollector",
@@ -113,4 +123,11 @@ __all__ = [
     "GCPCoherenceCollector",
     "coherence_to_description",
     "gcp_color_to_emoji",
+    # Tree Biopotential
+    "TreeBiopotentialCollector",
+    "TreeBiopotentialSimulator",
+    "activity_to_description",
+    "tree_coherence_to_description",
+    "forest_state_emoji",
+    "TREE_NETWORK",
 ]
