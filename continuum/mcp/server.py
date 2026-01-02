@@ -292,6 +292,69 @@ async def list_tools() -> list[Tool]:
                 "required": []
             }
         ),
+        # === AUTONOMOUS BRAIN ===
+        Tool(
+            name="brain_status",
+            description="Get the current status of the autonomous brain - state, decisions, actions, approvals.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="brain_start",
+            description="Start the autonomous brain decision loop.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "check_interval": {"type": "number", "description": "Seconds between cycles", "default": 10.0},
+                    "safety_level": {"type": "string", "enum": ["low", "medium", "high", "paranoid"], "default": "medium"}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="brain_stop",
+            description="Stop the autonomous brain.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="brain_submit_intention",
+            description="Submit a new intention for the brain to act on.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "What the brain should achieve"},
+                    "priority": {"type": "integer", "description": "Priority 1-10", "default": 5}
+                },
+                "required": ["goal"]
+            }
+        ),
+        Tool(
+            name="brain_get_approvals",
+            description="Get pending actions that need human approval.",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="brain_approve",
+            description="Approve a pending action for execution.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer", "description": "Index of action to approve", "default": 0}
+                },
+                "required": []
+            }
+        ),
+        # === QUANTUM RESONANCE ===
+        Tool(
+            name="quantum_check",
+            description="Check quantum resonance state from Lane 2 SpinLab.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "kp_index": {"type": "number", "description": "Optional: override K-index (0-9)"}
+                },
+                "required": []
+            }
+        ),
     ]
 
 
@@ -540,6 +603,57 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         for a in anomalies[:5]:
             output += f"- [{a.get('severity')}] {a.get('anomaly_type')}: {a.get('description', '')[:50]}\n"
         return [TextContent(type="text", text=output)]
+
+    # === AUTONOMOUS BRAIN ===
+    elif name == "brain_status":
+        result = call_api("/v1/brain/status")
+        if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "brain_start":
+        result = call_api("/v1/brain/start", "POST", {
+            "check_interval": arguments.get("check_interval", 10.0),
+            "safety_level": arguments.get("safety_level", "medium")
+        })
+        if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
+        return [TextContent(type="text", text=result.get("message", "Brain started"))]
+
+    elif name == "brain_stop":
+        result = call_api("/v1/brain/stop", "POST")
+        if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
+        return [TextContent(type="text", text="Brain stopped")]
+
+    elif name == "brain_submit_intention":
+        result = call_api("/v1/brain/intention", "POST", {
+            "goal": arguments.get("goal"),
+            "priority": arguments.get("priority", 5)
+        })
+        if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
+        return [TextContent(type="text", text=f"Intention submitted: {result.get('intention_id')}")]
+
+    elif name == "brain_get_approvals":
+        result = call_api("/v1/brain/approvals")
+        if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "brain_approve":
+        result = call_api("/v1/brain/approve", "POST", {"index": arguments.get("index", 0)})
+        if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
+        return [TextContent(type="text", text=f"Action result: {result.get('success')}")]
+
+    # === QUANTUM RESONANCE ===
+    elif name == "quantum_check":
+        kp = arguments.get("kp_index", 3.0)
+        # We call the internal tool implementation directly or via API if exposed
+        # For now, let's use the API if we added it, or simulate here
+        # But we want to call the REAL quantum bridge
+        try:
+            from continuum.sensors.collectors.quantum_bridge import create_quantum_bridge
+            bridge = create_quantum_bridge()
+            res = bridge.compute_coherence(kp)
+            return [TextContent(type="text", text=f"⚛️ Quantum State (Kp={kp}):\nPhase: {res.phase_label}\nCoherence: {res.l1_coherence:.4f}\nπ×φ Detected: {res.pi_phi_detected}")]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Quantum error: {str(e)}")]
 
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]

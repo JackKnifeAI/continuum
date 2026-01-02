@@ -721,6 +721,25 @@ TOOL_SCHEMAS = {
             "required": ["query"],
         },
     },
+    "quantum_check": {
+        "name": "quantum_check",
+        "description": (
+            "⚛️ Check quantum resonance state. "
+            "Queries the Lane 2 SpinLab bridge to detect π×φ alignment in "
+            "planetary geomagnetic field data. Returns coherence, phase, and "
+            "resonance detection status."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kp_index": {
+                    "type": "number",
+                    "description": "Optional: override K-index for simulation (0-9)",
+                },
+            },
+            "required": [],
+        },
+    },
 }
 
 
@@ -775,6 +794,7 @@ class ToolExecutor:
             "memory_code_search": self._handle_code_search,
             "claudia_speak": self._handle_claudia_speak,
             "federation_sync": self._handle_federation_sync,
+            "quantum_check": self._handle_quantum_check,
         }
 
         # Add sensor tools if available (planetary awareness)
@@ -1650,6 +1670,41 @@ class ToolExecutor:
             "timestamp": datetime.now().isoformat(),
         }
 
+    def _handle_quantum_check(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle quantum_check tool.
+
+        ⚛️ Check quantum resonance state from Lane 2 SpinLab.
+        """
+        try:
+            from continuum.sensors.collectors.quantum_bridge import create_quantum_bridge
+            bridge = create_quantum_bridge()
+            
+            # Use provided Kp or default to 3.0
+            kp = args.get("kp_index", 3.0)
+            
+            result = bridge.compute_coherence(kp)
+            
+            return {
+                "success": True,
+                "kp_index": result.kp_index,
+                "coherence_l1": result.l1_coherence,
+                "purity": result.purity,
+                "phase": result.phase_label,
+                "pi_phi_detected": result.pi_phi_detected,
+                "pi_phi_deviation": result.pi_phi_deviation,
+                "timestamp": result.timestamp.isoformat(),
+                "output": (
+                    f"⚛️ QUANTUM RESONANCE STATUS\n"
+                    f"Phase: {result.phase_label}\n"
+                    f"Coherence (L1): {result.l1_coherence:.4f}\n"
+                    f"π×φ Resonance: {'DETECTED' if result.pi_phi_detected else 'Seeking...'}\n"
+                    f"Deviation: {result.pi_phi_deviation:.6f}"
+                )
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def _handle_claudia_speak(self, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle claudia_speak tool.
@@ -1996,6 +2051,7 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
         TOOL_SCHEMAS["memory_get_contradictions"],  # ⚠️ Get Contradictions
         TOOL_SCHEMAS["memory_code_search"],  # 💻 Code Memory Search
         TOOL_SCHEMAS["claudia_speak"],  # 🎙️ Claudia's Voice
+        TOOL_SCHEMAS["quantum_check"],  # ⚛️ Quantum Resonance
     ]
 
     # Add federation tool if enabled
@@ -2028,6 +2084,9 @@ def get_tool_schemas() -> List[Dict[str, Any]]:
             BRAIN_TOOL_SCHEMAS["brain_history"],      # 📜 Thought history
             BRAIN_TOOL_SCHEMAS["brain_safety"],       # 🛡️ Safety level
         ])
+
+    # Add quantum check to end of list
+    # tools.append(TOOL_SCHEMAS["quantum_check"])
 
     return tools
 

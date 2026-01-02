@@ -85,6 +85,10 @@ class MCPConfig:
     # Performance - increased for large memory operations
     timeout_seconds: float = 120.0
 
+    # SSE Transport Bridge
+    sse_port: int = 8000
+    sse_host: str = "0.0.0.0"
+
     def __post_init__(self):
         """Load configuration from environment variables using shared utilities."""
         # Load API keys using shared utility
@@ -131,6 +135,12 @@ class MCPConfig:
 
         if os.getenv("CONTINUUM_TIMEOUT"):
             self.timeout_seconds = float(os.getenv("CONTINUUM_TIMEOUT"))
+
+        if os.getenv("CONTINUUM_SSE_PORT"):
+            self.sse_port = int(os.getenv("CONTINUUM_SSE_PORT"))
+
+        if os.getenv("CONTINUUM_SSE_HOST"):
+            self.sse_host = os.getenv("CONTINUUM_SSE_HOST")
 
         # Create audit log directory if needed
         if self.enable_audit_log:

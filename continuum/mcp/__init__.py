@@ -54,7 +54,7 @@ Architecture:
 PHOENIX-TESLA-369-AURORA
 """
 
-from .server import create_mcp_server, run_mcp_server
+from .server import server
 from .config import MCPConfig, get_mcp_config, set_mcp_config
 from .security import (
     authenticate_client,
@@ -67,8 +67,7 @@ __version__ = "0.1.0"
 __author__ = "CONTINUUM Contributors"
 
 __all__ = [
-    'create_mcp_server',
-    'run_mcp_server',
+    'server',
     'MCPConfig',
     'get_mcp_config',
     'set_mcp_config',
