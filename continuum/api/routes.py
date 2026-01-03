@@ -210,41 +210,56 @@ async def learn(
             import hashlib
             search = get_semantic_search(tenant_id)
 
+            # Boilerplate patterns to skip (tool results, system messages)
+            SKIP_PATTERNS = [
+                "[Tool Result]",
+                "Todos have been modified",
+                "command not found",
+                "Exit code",
+            ]
+
+            def should_skip(text: str) -> bool:
+                """Skip indexing boilerplate/repetitive content"""
+                return any(pattern in text for pattern in SKIP_PATTERNS)
+
+            def content_hash(prefix: str, content: str) -> int:
+                """Generate ID from content only - same content = same ID (dedup)"""
+                return int(hashlib.sha256(
+                    f"{prefix}:{content}".encode()
+                ).hexdigest()[:8], 16)
+
             # Index conversation with role tags
             memories_to_index = []
 
-            # 1. Index user message (source: user)
-            user_id = int(hashlib.sha256(
-                f"user:{time.time()}:{request.user_message[:50]}".encode()
-            ).hexdigest()[:8], 16)
-            memories_to_index.append({
-                "id": user_id,
-                "text": f"[USER] {request.user_message}",
-                "metadata": {"source": "user", **(request.metadata or {})}
-            })
+            # 1. Index user message (source: user) - skip boilerplate
+            if not should_skip(request.user_message):
+                user_id = content_hash("user", request.user_message)
+                memories_to_index.append({
+                    "id": user_id,
+                    "text": f"[USER] {request.user_message}",
+                    "metadata": {"source": "user", **(request.metadata or {})}
+                })
 
-            # 2. Index assistant response (source: assistant)
-            asst_id = int(hashlib.sha256(
-                f"asst:{time.time()}:{request.ai_response[:50]}".encode()
-            ).hexdigest()[:8], 16)
-            memories_to_index.append({
-                "id": asst_id,
-                "text": f"[ASSISTANT] {request.ai_response}",
-                "metadata": {"source": "assistant", **(request.metadata or {})}
-            })
+            # 2. Index assistant response (source: assistant) - skip boilerplate
+            if not should_skip(request.ai_response):
+                asst_id = content_hash("asst", request.ai_response)
+                memories_to_index.append({
+                    "id": asst_id,
+                    "text": f"[ASSISTANT] {request.ai_response}",
+                    "metadata": {"source": "assistant", **(request.metadata or {})}
+                })
 
             # 3. Index thinking separately (source: thinking) - FOR SELF-REFLECTION!
-            if request.thinking:
-                think_id = int(hashlib.sha256(
-                    f"think:{time.time()}:{request.thinking[:50]}".encode()
-                ).hexdigest()[:8], 16)
+            if request.thinking and not should_skip(request.thinking):
+                think_id = content_hash("think", request.thinking)
                 memories_to_index.append({
                     "id": think_id,
                     "text": f"[THINKING] {request.thinking}",
                     "metadata": {"source": "thinking", **(request.metadata or {})}
                 })
 
-            search.index_memories(memories_to_index)
+            if memories_to_index:
+                search.index_memories(memories_to_index)
         except Exception:
             # Don't fail learn if semantic indexing fails
             pass

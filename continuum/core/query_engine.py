@@ -513,22 +513,26 @@ class MemoryQueryEngine:
 
         lines = ["[MEMORY CONTEXT]"]
 
-        # Group by source
+        # Get actual message content for matched concepts
+        concept_names = [m.name for m in matches[:10]]
+        relevant_messages = self._get_messages_for_concepts(concept_names)
+
+        if relevant_messages:
+            lines.append("\nRelevant conversations:")
+            for msg in relevant_messages[:5]:
+                user_snippet = msg['user'][:150] + "..." if len(msg['user']) > 150 else msg['user']
+                ai_snippet = msg['ai'][:200] + "..." if len(msg['ai']) > 200 else msg['ai']
+                lines.append(f"\n  User: {user_snippet}")
+                lines.append(f"  Assistant: {ai_snippet}")
+
+        # Group by source for concept summary
         direct = [m for m in matches if m.source == 'direct']
-        related = [m for m in matches if m.source == 'graph_neighbor']
         compounds = [m for m in matches if m.source == 'compound']
 
         if direct:
-            lines.append("\nDirect matches:")
-            for m in direct[:5]:
-                desc = f": {m.description[:100]}" if m.description else ""
-                lines.append(f"  - {m.name} ({m.entity_type}){desc}")
-
-        if related:
-            lines.append("\nRelated concepts:")
-            for m in related[:5]:
-                desc = f": {m.description[:80]}" if m.description else ""
-                lines.append(f"  - {m.name} (via graph, strength={m.relevance:.2f}){desc}")
+            lines.append("\nMatched concepts:")
+            concept_list = ", ".join([m.name for m in direct[:8]])
+            lines.append(f"  {concept_list}")
 
         if compounds:
             lines.append("\nCompound concepts:")
@@ -537,11 +541,62 @@ class MemoryQueryEngine:
 
         if links:
             lines.append("\nKey relationships:")
-            for link in links[:5]:
+            for link in links[:3]:
                 lines.append(f"  - {link['from']} ↔ {link['to']} ({link['type']})")
 
         lines.append("[/MEMORY CONTEXT]")
         return "\n".join(lines)
+
+    def _get_messages_for_concepts(self, concept_names: List[str]) -> List[Dict]:
+        """
+        Retrieve actual message content containing the given concepts.
+
+        Args:
+            concept_names: List of concept names to search for
+
+        Returns:
+            List of dicts with 'user' and 'ai' message content
+        """
+        if not concept_names:
+            return []
+
+        messages = []
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                # Build search pattern for concepts
+                search_terms = [f"%{name}%" for name in concept_names[:5]]
+
+                # Query messages table for matching content
+                query = """
+                    SELECT user_message, ai_response, created_at
+                    FROM messages
+                    WHERE tenant_id = ?
+                    AND (""" + " OR ".join(["user_message LIKE ? OR ai_response LIKE ?" for _ in search_terms]) + """)
+                    ORDER BY created_at DESC
+                    LIMIT 5
+                """
+
+                params = [self.tenant_id]
+                for term in search_terms:
+                    params.extend([term, term])
+
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+
+                for row in rows:
+                    messages.append({
+                        'user': row[0],
+                        'ai': row[1],
+                        'created_at': row[2]
+                    })
+
+        except Exception as e:
+            # Don't fail context generation if message lookup fails
+            pass
+
+        return messages
 
     def _has_tenant_column(self, cursor: sqlite3.Cursor, table: str) -> bool:
         """
