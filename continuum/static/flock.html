@@ -145,7 +145,17 @@
     <!-- Three.js for Viz -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- Flock Logic -->
+    <script src="flock-db.js"></script>
     <script src="flock.js"></script>
-
+    <script>
+        // Register ServiceWorker for Offline Persistence
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/flock-sw.js')
+                    .then(reg => console.log('[Wildfire] ServiceWorker registered'))
+                    .catch(err => console.error('[Wildfire] SW registration failed:', err));
+            });
+        }
+    </script>
 </body>
 </html>
