@@ -97,6 +97,28 @@ from .constants import (
     WORKING_MEMORY_CAPACITY,
 )
 
+# Self-Supervised Learning
+from .self_supervised import (
+    SelfSupervisedTrainer,
+    DistributedSelfSupervisedTrainer,
+    create_trainer,
+)
+
+# Distributed Training (optional - requires federation)
+try:
+    from .distributed_training import (
+        DistributedTrainer,
+        FlockConfig,
+        GradientGossip,
+        GradientMessage,
+        TensorSharding,
+        ShardingStrategy,
+        DistributedMemoryLoader,
+    )
+    DISTRIBUTED_TRAINING_AVAILABLE = True
+except ImportError:
+    DISTRIBUTED_TRAINING_AVAILABLE = False
+
 # Version info
 __version__ = "0.1.0"
 __author__ = "CONTINUUM Contributors"
@@ -133,7 +155,27 @@ __all__ = [
     'HEBBIAN_RATE',
     'MIN_LINK_STRENGTH',
     'WORKING_MEMORY_CAPACITY',
+
+    # Self-Supervised Learning
+    'SelfSupervisedTrainer',
+    'DistributedSelfSupervisedTrainer',
+    'create_trainer',
+
+    # Distributed Training (when available)
+    'DISTRIBUTED_TRAINING_AVAILABLE',
 ]
+
+# Conditionally add distributed training exports
+if DISTRIBUTED_TRAINING_AVAILABLE:
+    __all__.extend([
+        'DistributedTrainer',
+        'FlockConfig',
+        'GradientGossip',
+        'GradientMessage',
+        'TensorSharding',
+        'ShardingStrategy',
+        'DistributedMemoryLoader',
+    ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
