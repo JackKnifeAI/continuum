@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 #     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
@@ -81,9 +80,9 @@ from .query_engine import (
 
 # Configuration
 from .config import (
-    MemoryConfig,
     get_config,
     set_config,
+    MemoryConfig,
     reset_config,
 )
 
@@ -96,6 +95,9 @@ from .constants import (
     MIN_LINK_STRENGTH,
     WORKING_MEMORY_CAPACITY,
 )
+
+# Neural Attention
+from .neural_attention import NeuralAttentionModel
 
 # Self-Supervised Learning
 from .self_supervised import (
@@ -123,7 +125,6 @@ except ImportError:
 __version__ = "0.1.0"
 __author__ = "CONTINUUM Contributors"
 
-# Public API
 __all__ = [
     # Main memory interface
     'ConsciousMemory',
@@ -147,6 +148,7 @@ __all__ = [
     'get_config',
     'set_config',
     'reset_config',
+    'NeuralAttentionModel',
 
     # Constants
     'PI_PHI',

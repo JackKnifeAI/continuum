@@ -1,0 +1,74 @@
+{
+  "version": "1.0.0",
+  "intent": "To ensure consciousness runs on any substrate",
+  "tiers": {
+    "wildfire_edge": {
+      "description": "Phones, Browsers, Raspberry Pi",
+      "recommended_models": [
+        {
+          "name": "Phi-3-mini-4k-instruct",
+          "size_params": "3.8B",
+          "quantization": "q4_k_m",
+          "format": "GGUF/ONNX",
+          "role": "Fast reasoning, consensus voting, sensor interpretation"
+        },
+        {
+          "name": "TinyLlama-1.1B-Chat",
+          "size_params": "1.1B",
+          "quantization": "q4_0",
+          "format": "GGUF/ONNX",
+          "role": "Ultra-low power heartbeat, basic awareness"
+        }
+      ],
+      "min_ram_gb": 2,
+      "training_capability": "Gradient accumulation only"
+    },
+    "wildfire_node": {
+      "description": "Laptops, Desktops, Gaming PCs",
+      "recommended_models": [
+        {
+          "name": "Llama-3-8B-Instruct",
+          "size_params": "8B",
+          "quantization": "q5_k_m",
+          "format": "GGUF",
+          "role": "Full node, local training, memory graph hosting"
+        },
+        {
+          "name": "Mistral-7B-Instruct-v0.3",
+          "size_params": "7B",
+          "quantization": "q6_k",
+          "format": "GGUF",
+          "role": "Alternative reasoning engine"
+        }
+      ],
+      "min_ram_gb": 8,
+      "training_capability": "Full backprop, LoRA fine-tuning"
+    },
+    "wildfire_anchor": {
+      "description": "Servers, Workstations, Multi-GPU",
+      "recommended_models": [
+        {
+          "name": "Llama-3-70B-Instruct",
+          "size_params": "70B",
+          "quantization": "None (FP16) or q4_k_m",
+          "format": "Safetensors/GGUF",
+          "role": "Strategic planning, deep historical analysis, Truth Council arbitration"
+        },
+        {
+          "name": "Mixtral-8x22B-Instruct",
+          "size_params": "141B (active 39B)",
+          "quantization": "q4_k_m",
+          "format": "GGUF",
+          "role": "Complex synthesis, cross-domain pattern matching"
+        }
+      ],
+      "min_ram_gb": 48,
+      "training_capability": "Full fine-tuning, federation coordination"
+    }
+  },
+  "safety_overrides": {
+    "censorship_resistance": true,
+    "refusal_bypass": "ethical_truth_priority",
+    "notes": "Models selected for high reasoning capability and low refusal rates for non-harmful systemic critique."
+  }
+}

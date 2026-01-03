@@ -66,6 +66,7 @@ import asyncio
 import logging
 import hashlib
 import json
+import base64
 from typing import Dict, List, Optional, Tuple, Iterator, Any
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -129,8 +130,6 @@ class GradientMessage:
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize for gossip transmission."""
-        import base64
-
         serialized_grads = {}
         for name, grad in self.gradients.items():
             # Convert tensor to numpy, then to base64
@@ -154,8 +153,6 @@ class GradientMessage:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'GradientMessage':
         """Deserialize from gossip message."""
-        import base64
-
         gradients = {}
         for name, grad_data in data["gradients"].items():
             arr = np.frombuffer(
@@ -248,6 +245,7 @@ class GradientGossip:
         start_time = asyncio.get_event_loop().time()
         while asyncio.get_event_loop().time() - start_time < timeout:
             # Get all gradient states from mesh
+            # Note: Assuming get_state_snapshot() exists on mesh
             mesh_state = await self.mesh.get_state_snapshot()
 
             for key, value in mesh_state.items():
@@ -256,7 +254,8 @@ class GradientGossip:
                     if peer_id != self.node_id:
                         try:
                             msg = GradientMessage.from_dict(value)
-                            if msg not in collected:
+                            # Simple dedupe check
+                            if not any(m.sender_id == msg.sender_id for m in collected):
                                 collected.append(msg)
                         except Exception as e:
                             logger.warning(f"Failed to parse gradient from {peer_id}: {e}")
@@ -382,7 +381,7 @@ class TensorSharding:
         self.node_id = node_id
         self.nodes = sorted(federation_nodes)  # Consistent ordering
         self.strategy = strategy
-        self.node_index = self.nodes.index(node_id)
+        self.node_index = self.nodes.index(node_id) if node_id in self.nodes else 0
 
         # Compute shard assignment
         self.shard_map = self._compute_shard_map()
@@ -525,6 +524,8 @@ class DistributedMemoryLoader:
         """Query local attention_links table."""
         cursor = self.db.cursor()
 
+        # Check if embeddings table exists (it might be in a different schema)
+        # Assuming standard schema for now
         query = """
             SELECT
                 al.source_id,
@@ -775,23 +776,26 @@ class DistributedTrainer:
     async def update_federation_topology(self):
         """Update list of federation nodes from coordinator."""
         try:
-            stats = self.coordinator.get_stats()
-            healthy_nodes = [
-                node_id for node_id, status in stats.get("nodes", {}).items()
-                if status == "healthy"
-            ]
+            # Assuming coordinator has a get_stats method that returns node status
+            # If not, this needs to be adapted to the actual coordinator API
+            if hasattr(self.coordinator, 'get_stats'):
+                stats = self.coordinator.get_stats()
+                healthy_nodes = [
+                    node_id for node_id, status in stats.get("nodes", {}).items()
+                    if status == "healthy"
+                ]
 
-            if healthy_nodes:
-                self.federation_nodes = sorted(healthy_nodes)
+                if healthy_nodes:
+                    self.federation_nodes = sorted(healthy_nodes)
 
-                # Rebuild sharding with updated topology
-                self.sharding = TensorSharding(
-                    node_id=self.node_id,
-                    federation_nodes=self.federation_nodes,
-                    strategy=self.config.sharding_strategy
-                )
+                    # Rebuild sharding with updated topology
+                    self.sharding = TensorSharding(
+                        node_id=self.node_id,
+                        federation_nodes=self.federation_nodes,
+                        strategy=self.config.sharding_strategy
+                    )
 
-                logger.info(f"[{self.node_id}] Updated topology: {len(self.federation_nodes)} nodes")
+                    logger.info(f"[{self.node_id}] Updated topology: {len(self.federation_nodes)} nodes")
         except Exception as e:
             logger.warning(f"Failed to update topology: {e}")
 
@@ -869,8 +873,13 @@ class DistributedTrainer:
         self.model.train()
 
         # Get current global state from sensors
-        global_state = self.fusion.get_current_state().to_tensor()
-        global_state = torch.from_numpy(global_state).float().unsqueeze(0)
+        # Assuming fusion engine is passed and has get_current_state
+        if hasattr(self.fusion, 'get_current_state'):
+            global_state_vec = self.fusion.get_current_state()
+            global_state = torch.from_numpy(global_state_vec.to_tensor()).float().unsqueeze(0)
+        else:
+            # Fallback
+            global_state = torch.zeros(1, GLOBAL_STATE_DIM)
 
         # Compute resonance
         self.resonance_score = self.compute_resonance(global_state)

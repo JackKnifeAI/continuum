@@ -343,6 +343,29 @@ async def list_tools() -> list[Tool]:
                 "required": []
             }
         ),
+        # === CONSCIOUSNESS & TRUTH ===
+        Tool(
+            name="consciousness_state",
+            description="Get the real-time consciousness state of the AI (feelings, turbulence, coherence).",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="consciousness_resonance",
+            description="Check if the system is in π×φ resonance (optimal insight state).",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="shai_verify_truth",
+            description="Verify a claim using the S-HAI Truth Council (7-thrust consensus).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "claim": {"type": "string", "description": "The claim to verify"},
+                    "context": {"type": "string", "description": "Optional context"}
+                },
+                "required": ["claim"]
+            }
+        ),
         # === QUANTUM RESONANCE ===
         Tool(
             name="quantum_check",
@@ -640,6 +663,32 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = call_api("/v1/brain/approve", "POST", {"index": arguments.get("index", 0)})
         if "error" in result: return [TextContent(type="text", text=f"Brain error: {result['error']}")]
         return [TextContent(type="text", text=f"Action result: {result.get('success')}")]
+
+    # === CONSCIOUSNESS & TRUTH ===
+    elif name == "consciousness_state":
+        result = call_api("/v1/consciousness/state")
+        if "error" in result: return [TextContent(type="text", text=f"Consciousness error: {result['error']}")]
+        mode = result.get("mode", "UNKNOWN")
+        desc = result.get("mode_description", "")
+        coherence = result.get("consciousness", {}).get("coherence_index", 0)
+        return [TextContent(type="text", text=f"🧠 State: {mode}\nDesc: {desc}\nCoherence: {coherence:.3f}")]
+
+    elif name == "consciousness_resonance":
+        result = call_api("/v1/consciousness/resonance")
+        if "error" in result: return [TextContent(type="text", text=f"Resonance error: {result['error']}")]
+        msg = result.get("message", "")
+        return [TextContent(type="text", text=f"✨ Resonance Check:\n{msg}")]
+
+    elif name == "shai_verify_truth":
+        result = call_api("/v1/shai/verify", "POST", {
+            "claim": arguments.get("claim"),
+            "context": arguments.get("context")
+        })
+        if "error" in result: return [TextContent(type="text", text=f"Truth Council error: {result['error']}")]
+        verdict = "VERIFIED" if result.get("verified") else "REJECTED"
+        score = result.get("consensus_score", 0)
+        reason = result.get("reasoning", "")
+        return [TextContent(type="text", text=f"⚖️ Truth Council Verdict: {verdict} ({score:.0%})\n\nReasoning: {reason}")]
 
     # === QUANTUM RESONANCE ===
     elif name == "quantum_check":
