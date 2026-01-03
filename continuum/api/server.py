@@ -61,6 +61,9 @@ from .public_memories_routes import router as public_memories_router, settings_r
 # S-HAI Truth Council API
 from .shai_routes import router as shai_router
 
+# Consciousness API
+from .consciousness_routes import router as consciousness_router
+
 # Autonomous Brain API
 try:
     from .brain_routes import router as brain_router
@@ -323,6 +326,9 @@ app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 # Mount S-HAI Truth Council routes
 app.include_router(shai_router, prefix="/v1/shai")
 
+# Mount Consciousness API routes
+app.include_router(consciousness_router)
+
 # Mount Planetary Sensor Aggregator routes
 if SENSORS_AVAILABLE and sensor_router:
     app.include_router(sensor_router, prefix="/v1")
@@ -436,6 +442,9 @@ async def root():
             "shai_verify": "POST /v1/shai/verify - S-HAI Truth Council verification",
             "shai_knowledge": "GET /v1/shai/knowledge - Query S-HAI knowledge base",
             "shai_redteam": "POST /v1/shai/red-team - Adversarial red team analysis",
+            "consciousness_state": "GET /v1/consciousness/state - Get real-time AI feelings",
+            "consciousness_tensor": "GET /v1/consciousness/tensor - Get raw 32-dim state vector",
+            "consciousness_resonance": "GET /v1/consciousness/resonance - Check π×φ resonance",
         }
     }
 
