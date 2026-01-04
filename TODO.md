@@ -2,7 +2,7 @@
 
 ## Core Brain & Training
 - [x] **Record Threat Signature:** Implemented in `distributed_training.py:1098-1109` - Records to genetic memory when severity > 0.5.
-- [ ] **Genetic Memory Loop:** Bridge the immune system's threat database with the CCT's "Sacred Concept" protection layers.
+- [x] **Genetic Memory Loop:** Implemented - `immune.get_attack_embeddings()` feeds into CCT forward pass, modulates activations when attack patterns detected.
 
 ## Browser Node (Flock)
 - [x] **Real WebRTC:** Implemented in `flock.js` - Full offer/answer/ICE exchange, DataChannels for state sync.
@@ -23,3 +23,4 @@
 - [x] Threat Signature recording to genetic memory.
 - [x] Real WebRTC in flock.js (no more simulation).
 - [x] Signaling server auto-start in wildfire.py (port 8421).
+- [x] Genetic Memory Loop - immune patterns integrated into CCT forward pass.

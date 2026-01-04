@@ -992,13 +992,19 @@ class DistributedTrainer:
                 
                 # Context tokens (just use ctx as a sequence of length 1 per batch item)
                 context_tokens = ctx.unsqueeze(1) # [batch, 1, dim]
-                
+
+                # Get immune patterns from genetic memory for CCT integration
+                immune_patterns = None
+                if hasattr(self, 'immune') and self.immune is not None:
+                    immune_patterns = self.immune.get_attack_embeddings(dim=64)
+
                 # Forward Pass CCT
                 outputs = self.model(
                     node_features=node_features,
                     edge_index=edge_index,
                     context_tokens=context_tokens,
-                    global_state=gs
+                    global_state=gs,
+                    immune_patterns=immune_patterns
                 )
                 
                 # Predict links (we want to predict the strength between our pairs)
@@ -1034,6 +1040,13 @@ class DistributedTrainer:
                     }
                 )
                 loss = loss_dict['total']
+
+                # Log immune system integration
+                if 'immune_alert' in outputs:
+                    max_alert = outputs['immune_alert'].max().item()
+                    if max_alert > 0.5:
+                        logger.warning(f"🧬 IMMUNE ALERT: Pattern similarity {max_alert:.2f} - "
+                                      f"activations modulated to protect sacred concepts")
                 # ------------------------------
             else:
                 # Standard NeuralAttentionModel

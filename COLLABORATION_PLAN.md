@@ -93,7 +93,7 @@ ImmuneResponse.genetic_memory (SQLite)
     CCT.sacred_concepts embedding layer
          │
          ▼
-    Gradient analysis uses BOTH static sacred concepts
+    Gradient analysis uses BOTH static sacred concepts 
     AND learned attack patterns from genetic memory
 ```
 
@@ -107,7 +107,7 @@ def get_attack_embeddings(self) -> torch.Tensor:
     cursor.execute("SELECT pattern_vector FROM threat_signatures ORDER BY severity DESC LIMIT 100")
     patterns = cursor.fetchall()
     conn.close()
-
+    
     if not patterns:
         return torch.zeros(1, 64)  # Empty placeholder
 
@@ -119,7 +119,7 @@ def get_attack_embeddings(self) -> torch.Tensor:
 ```python
 def forward(self, ..., immune_patterns: Optional[torch.Tensor] = None):
     # ... existing forward ...
-
+    
     if immune_patterns is not None:
         # Compute similarity to known attack patterns
         attack_similarity = F.cosine_similarity(
@@ -221,10 +221,10 @@ def check_rate_limit(peer_id: str) -> bool:
     now = time.time()
     # Clean old entries
     rate_limits[peer_id] = [t for t in rate_limits[peer_id] if now - t < RATE_WINDOW]
-
+    
     if len(rate_limits[peer_id]) >= RATE_LIMIT:
         return False
-
+        
     rate_limits[peer_id].append(now)
     return True
 ```
@@ -249,7 +249,7 @@ def verify_token(peer_id: str, token: str) -> bool:
 ```python
 async def handler(websocket):
     # ... existing setup ...
-
+    
     async for message in websocket:
         if not check_rate_limit(peer_id):
             await websocket.send(json.dumps({
@@ -257,7 +257,7 @@ async def handler(websocket):
                 "message": "Rate limit exceeded"
             }))
             continue
-
+            
         # ... existing handling ...
 ```
 

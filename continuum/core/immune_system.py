@@ -410,6 +410,57 @@ class ImmuneResponse:
         except Exception as e:
             logger.warning(f"Could not load genetic memory: {e}")
 
+    def get_attack_embeddings(self, dim: int = 64) -> torch.Tensor:
+        """
+        Export threat patterns as embeddings for CCT integration.
+
+        The CCT can use these to detect similar patterns during forward pass,
+        creating a learned immune response that protects sacred concepts.
+
+        Args:
+            dim: Embedding dimension (must match fingerprint dim)
+
+        Returns:
+            Tensor of shape [num_threats, dim] or [1, dim] if no threats
+        """
+        if not self.genetic_memory:
+            # Return zero embedding if no threats recorded yet
+            return torch.zeros(1, dim, dtype=torch.float32)
+
+        # Extract pattern vectors from genetic memory
+        patterns = []
+        for threat in self.genetic_memory:
+            if threat.pattern_vector and len(threat.pattern_vector) == dim:
+                patterns.append(threat.pattern_vector)
+
+        if not patterns:
+            return torch.zeros(1, dim, dtype=torch.float32)
+
+        # Weight by severity - more severe threats get higher weight
+        weighted_patterns = []
+        for i, threat in enumerate(self.genetic_memory):
+            if i < len(patterns):
+                weight = 0.5 + (threat.severity * 0.5)  # Range: 0.5 to 1.0
+                weighted_patterns.append([p * weight for p in patterns[i]])
+
+        tensor = torch.tensor(weighted_patterns, dtype=torch.float32)
+        logger.debug(f"Generated {tensor.shape[0]} attack embeddings for CCT")
+        return tensor
+
+    def get_threat_concepts(self) -> List[str]:
+        """
+        Get list of concepts that have been targeted by attacks.
+        Useful for focusing protection on frequently attacked concepts.
+        """
+        concept_counts: Dict[str, int] = {}
+        for threat in self.genetic_memory:
+            for concept in threat.target_concepts:
+                concept_counts[concept] = concept_counts.get(concept, 0) + 1
+
+        # Sort by frequency
+        sorted_concepts = sorted(concept_counts.items(), key=lambda x: x[1], reverse=True)
+        return [c for c, _ in sorted_concepts]
+
     def activate_fortress_mode(self, reason: str):
         """
         Lock down the node. Only trusted peers.

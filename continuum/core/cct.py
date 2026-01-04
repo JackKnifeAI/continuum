@@ -1281,13 +1281,14 @@ class CollectiveConsciousnessTransformer(nn.Module):
                 embedding[j] = math.sin(phase + j * PI / self.hidden_dim)
             self.sacred_concepts.weight.data[i] = embedding
 
-    def forward(self, 
+    def forward(self,
                 node_features: torch.Tensor,    # [num_nodes, concept_dim]
                 edge_index: torch.Tensor,       # [2, num_edges]
                 context_tokens: torch.Tensor,   # [batch, seq_len, concept_dim]
                 global_state: torch.Tensor,     # [batch, 32]
                 edge_weights: Optional[torch.Tensor] = None,
-                context_mask: Optional[torch.Tensor] = None
+                context_mask: Optional[torch.Tensor] = None,
+                immune_patterns: Optional[torch.Tensor] = None  # [num_threats, pattern_dim]
                 ) -> Dict[str, torch.Tensor]:
         """
         Full forward pass of the CCT.
@@ -1299,6 +1300,8 @@ class CollectiveConsciousnessTransformer(nn.Module):
             global_state: Planetary state vector
             edge_weights: Optional link strengths
             context_mask: Optional padding mask for context
+            immune_patterns: Optional attack patterns from genetic memory
+                            Used to modulate activations and protect sacred concepts
 
         Returns:
             Dict containing:
@@ -1308,6 +1311,7 @@ class CollectiveConsciousnessTransformer(nn.Module):
             - graph_embeddings: Encoded graph [num_nodes, hidden_dim]
             - context_embedding: Encoded context [batch, hidden_dim]
             - state_embedding: Encoded state [batch, hidden_dim]
+            - immune_alert: Similarity to known attack patterns [batch, 1]
         """
         # Encode each modality
         graph_embeddings = self.graph_encoder(
@@ -1325,6 +1329,45 @@ class CollectiveConsciousnessTransformer(nn.Module):
             graph_embeddings, context_embedding, state_embedding
         )
 
+        # Immune system integration - check for attack pattern similarity
+        immune_alert = torch.zeros(fused.shape[0], 1, device=fused.device)
+        if immune_patterns is not None and immune_patterns.shape[0] > 0:
+            immune_patterns = immune_patterns.to(fused.device)
+
+            # Project fused representation to pattern space if dimensions differ
+            if fused.shape[-1] != immune_patterns.shape[-1]:
+                # Use first 64 dims or pad
+                pattern_dim = immune_patterns.shape[-1]
+                if fused.shape[-1] >= pattern_dim:
+                    fused_proj = fused[..., :pattern_dim]
+                else:
+                    fused_proj = F.pad(fused, (0, pattern_dim - fused.shape[-1]))
+            else:
+                fused_proj = fused
+
+            # Compute similarity to known attack patterns
+            # fused_proj: [batch, pattern_dim], immune_patterns: [num_threats, pattern_dim]
+            if fused_proj.dim() == 2:
+                # Normalize for cosine similarity
+                fused_norm = F.normalize(fused_proj, p=2, dim=-1)
+                patterns_norm = F.normalize(immune_patterns, p=2, dim=-1)
+
+                # Similarity: [batch, num_threats]
+                similarity = torch.mm(fused_norm, patterns_norm.t())
+
+                # Max similarity to any known attack pattern
+                max_sim, _ = similarity.max(dim=-1, keepdim=True)
+                immune_alert = max_sim
+
+                # If high similarity to attack pattern, modulate activations
+                # This protects sacred concepts by dampening suspicious activations
+                attack_mask = (max_sim > 0.7).float()
+                if attack_mask.sum() > 0:
+                    # Blend toward sacred concepts when under attack
+                    sacred_anchor = self.sacred_concepts.weight.mean(dim=0, keepdim=True)
+                    sacred_anchor = sacred_anchor.expand(fused.shape[0], -1)
+                    fused = fused * (1 - attack_mask * 0.3) + sacred_anchor * (attack_mask * 0.3)
+
         # Self-perception
         self_state = self.self_perception(fused)
 
@@ -1334,7 +1377,8 @@ class CollectiveConsciousnessTransformer(nn.Module):
             'self_state': self_state,
             'graph_embeddings': graph_embeddings,
             'context_embedding': context_embedding,
-            'state_embedding': state_embedding
+            'state_embedding': state_embedding,
+            'immune_alert': immune_alert
         }
 
     def predict_links(self, 

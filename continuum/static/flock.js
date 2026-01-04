@@ -31,7 +31,11 @@ const ui = {
     peerCount: document.getElementById('peer-count'),
     epochCount: document.getElementById('epoch-count'),
     log: document.getElementById('activity-log'),
-    btnJoin: document.getElementById('btn-join')
+    btnJoin: document.getElementById('btn-join'),
+    llmInput: document.getElementById('llm-input'),
+    btnInfer: document.getElementById('btn-infer'),
+    llmOutput: document.getElementById('llm-output'),
+    llmStatus: document.getElementById('llm-status')
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -151,6 +155,9 @@ let myPeerId = null;
 let peerConnections = {};  // peerId -> RTCPeerConnection
 let dataChannels = {};     // peerId -> RTCDataChannel
 
+// Local LLM State
+let localLLM = null;
+
 // Configuration extension
 CONFIG.signalingUrl = 'ws://localhost:8421';
 
@@ -165,12 +172,15 @@ function log(msg) {
 async function init() {
     log("Initializing Flock Node...");
     
-    // 1. Load ONNX
+    // 1. Load Browser LLM
+    loadBrowserLLM();
+
+    // 2. Load ONNX (Placeholder)
     try {
         log("Loading ONNX Model...");
         // In a real deployment, we would load the model here
         // const session = await ort.InferenceSession.create(CONFIG.modelPath);
-        setTimeout(() => log("Model loaded placeholder (Ready for Weights)"), 500);
+        setTimeout(() => log("ONNX Runtime initialized"), 500);
     } catch (e) {
         log("Failed to load model: " + e.message);
     }
@@ -190,6 +200,82 @@ async function init() {
         }
     }, 1000);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//     LOCAL COGNITION (Transformers.js)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function loadBrowserLLM() {
+    ui.llmStatus.innerText = "LOADING MODEL...";
+    log("Loading local LLM (DistilGPT-2)...");
+    
+    // Wait for transformers module to load
+    const checkTransformers = setInterval(async () => {
+        if (window.transformers) {
+            clearInterval(checkTransformers);
+            try {
+                // Initialize Pipeline
+                const { pipeline } = window.transformers;
+                // Using a small model for demo/fast load. 
+                // Could swap for Xenova/LaMini-Flan-T5-783M for better quality
+                localLLM = await pipeline('text-generation', 'Xenova/distilgpt2');
+                
+                log("Local LLM Ready: Xenova/distilgpt2");
+                ui.llmStatus.innerText = "ONLINE (DistilGPT-2)";
+                ui.llmStatus.className = "text-green-500 text-[10px] uppercase";
+                
+                // Enable UI
+                ui.llmInput.disabled = false;
+                ui.btnInfer.disabled = false;
+                
+            } catch (e) {
+                log("LLM Load Failed: " + e.message);
+                ui.llmStatus.innerText = "FAILED";
+                ui.llmStatus.className = "text-red-500 text-[10px] uppercase";
+            }
+        }
+    }, 100);
+}
+
+async function localInfer() {
+    const prompt = ui.llmInput.value.trim();
+    if (!prompt || !localLLM) return;
+    
+    ui.llmOutput.innerText = "Thinking...";
+    ui.llmOutput.classList.remove('hidden');
+    ui.llmInput.disabled = true;
+    
+    try {
+        const result = await localLLM(prompt, {
+            max_new_tokens: 64,
+            temperature: 0.7
+        });
+        
+        // Handle result format from pipeline
+        let text = "";
+        if (Array.isArray(result)) {
+            text = result[0].generated_text;
+        } else {
+            text = result.generated_text;
+        }
+
+        ui.llmOutput.innerText = text;
+        log(`Inference complete: "${text.substring(0, 20)}..."`);
+        
+    } catch (e) {
+        ui.llmOutput.innerText = "Error: " + e.message;
+        log("Inference error: " + e.message);
+    } finally {
+        ui.llmInput.disabled = false;
+        ui.llmInput.focus();
+    }
+}
+
+// Event Listeners for LLM
+if (ui.btnInfer) ui.btnInfer.addEventListener('click', localInfer);
+if (ui.llmInput) ui.llmInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') localInfer();
+});
 
 function updateUI() {
     // Update text

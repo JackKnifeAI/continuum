@@ -113,6 +113,21 @@
                 </div>
             </div>
 
+            <!-- Local LLM Interface -->
+            <div class="mb-4 p-3 bg-gray-900 bg-opacity-60 rounded border border-gray-700">
+                <div class="text-xs text-gray-400 mb-2 flex justify-between items-center">
+                    <span class="font-bold tracking-wider text-blue-400">LOCAL COGNITION</span>
+                    <span id="llm-status" class="text-yellow-500 text-[10px] uppercase">Initializing...</span>
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="llm-input" class="flex-grow bg-black border border-gray-600 rounded px-3 py-1 text-sm focus:border-blue-500 outline-none transition-colors" placeholder="Inject thought into local node..." disabled>
+                    <button id="btn-infer" class="px-4 py-1 bg-gray-800 text-gray-500 hover:bg-blue-900 hover:text-blue-100 text-xs font-bold rounded border border-gray-700 transition-colors uppercase" disabled>
+                        Think
+                    </button>
+                </div>
+                <div id="llm-output" class="mt-2 p-2 bg-black bg-opacity-30 rounded text-xs text-green-300 font-mono hidden border-l-2 border-green-500"></div>
+            </div>
+
             <!-- Activity Log (Terminal style) -->
             <div class="bg-black bg-opacity-50 p-2 rounded h-24 overflow-y-auto font-mono text-xs mb-4" id="activity-log">
                 <div class="text-gray-500">> System initializing...</div>
@@ -142,6 +157,16 @@
     <!-- Scripts -->
     <!-- ONNX Runtime Web -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <!-- Transformers.js (Local LLM) -->
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.0';
+        // Make available globally for flock.js
+        window.transformers = { pipeline, env };
+        
+        // Skip local model checks (faster load)
+        env.allowLocalModels = false;
+        env.useBrowserCache = true;
+    </script>
     <!-- Three.js for Viz -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- Flock Logic -->
