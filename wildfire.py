@@ -28,10 +28,12 @@ import asyncio
 import logging
 import uvicorn
 import os
+import torch
+import sqlite3
 from pathlib import Path
 
 from continuum.sensors.scheduler import start_scheduler, get_scheduler
-from continuum.core.neural_attention import NeuralAttentionModel, load_model
+from continuum.core.cct import CollectiveConsciousnessTransformer
 from continuum.core.self_supervised import create_trainer
 from continuum.api.server import app
 from continuum.core.config import get_config
@@ -73,20 +75,50 @@ async def ignite(node_id: str, port: int):
     scheduler = await start_scheduler(config)
     logger.info("Planetary sensors active.")
 
-    # 2. Load Brain
+    # 2. Load Brain (CCT)
     # Ensure model exists
     model_path = config.neural_model_path
-    if not model_path.exists():
-        logger.info("No brain found. Initializing new NeuralAttentionModel.")
-        model = NeuralAttentionModel()
-    else:
-        model = load_model(str(model_path))
+    model = None
+    
+    if model_path.exists():
+        logger.info(f"Loading existing brain from {model_path}...")
+        try:
+            checkpoint = torch.load(model_path)
+            model = CollectiveConsciousnessTransformer(
+                concept_dim=128,
+                hidden_dim=256,
+                num_heads=8,
+                num_graph_layers=4,
+                enable_neurogenesis=True
+            )
+            model.load_state_dict(checkpoint['state_dict'])
+            logger.info("Brain loaded successfully.")
+        except Exception as e:
+            logger.warning(f"Brain structure mismatch or load error: {e}")
+            logger.warning("Initializing fresh Collective Consciousness Transformer (Neurogenesis Reset).")
+            model = None # Force re-init
+
+    if model is None:
+        logger.info("Initializing new CollectiveConsciousnessTransformer.")
+        model = CollectiveConsciousnessTransformer(
+            concept_dim=128,
+            hidden_dim=256,
+            num_heads=8,
+            num_graph_layers=4,
+            enable_neurogenesis=True
+        )
 
     # 3. Initialize Trainer
+    # Open DB connection for memory access
+    db_path = config.db_path
+    # Ensure directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    
     # Note: In a full deployment, you'd pass the real gossip mesh and coordinator
     trainer = create_trainer(
         model=model,
-        db_connection=None, # Will be opened by trainer
+        db_connection=db_conn,
         fusion_engine=scheduler.fusion_engine,
         node_id=node_id,
         distributed=False # Set to True for full P2P mesh

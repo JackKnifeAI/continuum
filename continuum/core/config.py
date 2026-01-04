@@ -108,6 +108,41 @@ class MemoryConfig:
     quantum_memory_enabled: bool = False
     quantum_brain_size: int = 65536  # Number of memory cells
 
+    # Sensor configuration
+    default_tenant_id: str = DEFAULT_TENANT
+
+    # Poll intervals (in seconds)
+    kindex_poll_interval: int = 300  # 5 minutes
+    boulder_poll_interval: int = 600  # 10 minutes
+    usgs_earthquake_poll_interval: int = 300  # 5 minutes
+    schumann_poll_interval: int = 900  # 15 minutes
+    gcp_poll_interval: int = 300  # 5 minutes
+    tree_biopotential_poll_interval: int = 900  # 15 minutes
+    quantum_rng_poll_interval: int = 300  # 5 minutes
+    neo_poll_interval: int = 3600  # 1 hour
+    iss_poll_interval: int = 60  # 1 minute
+    lunar_poll_interval: int = 3600  # 1 hour
+    solar_cycle_poll_interval: int = 86400  # 24 hours
+    ocean_poll_interval: int = 3600  # 1 hour
+    firms_poll_interval: int = 3600  # 1 hour
+    solar_wind_poll_interval: int = 300  # 5 minutes
+    xray_poll_interval: int = 300  # 5 minutes
+    spinlab_poll_interval: int = 60  # 1 minute
+
+    # HTTP settings
+    http_timeout: float = 30.0
+
+    # Sensor URLs
+    usgs_earthquake_url: str = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
+    noaa_kindex_url: str = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
+    noaa_boulder_url: str = "https://services.swpc.noaa.gov/products/solar-wind/mag-7-day.json"
+    noaa_solar_wind_url: str = "https://services.swpc.noaa.gov/products/solar-wind/plasma-7-day.json"
+    noaa_xray_flux_url: str = "https://services.swpc.noaa.gov/json/goes/primary/xrays-7-day.json"
+    noaa_sunspot_url: str = "https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json"
+    iss_position_url: str = "http://api.open-notify.org/iss-now.json"
+    neo_api_url: str = "https://api.nasa.gov/neo/rest/v1/feed"
+    nasa_api_key: str = "DEMO_KEY"
+
     @property
     def available_for_memory(self) -> int:
         """Calculate tokens available for memory injection"""

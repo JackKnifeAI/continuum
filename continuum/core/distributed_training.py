@@ -59,6 +59,12 @@ Dependencies:
 - continuum.sensors.fusion (GlobalStateVector, SensorFusionEngine)
 """
 
+from .neural_attention import NeuralAttentionModel
+from .cct import CollectiveConsciousnessTransformer, CCTTrainingObjective
+from .self_supervised import SelfSupervisedTrainer
+from .sensors.fusion import GlobalStateVector, SensorFusionEngine
+from .immune_system import ImmuneResponse
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -517,6 +523,51 @@ class DistributedMemoryLoader:
         self.sharding = sharding
         self.mesh = gossip_mesh
         self.node_id = node_id
+        self._ensure_schema()
+
+    def _ensure_schema(self):
+        """Ensure required tables exist for training."""
+        if self.db is None:
+            return
+
+        cursor = self.db.cursor()
+
+        # Create attention_links table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS attention_links (
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                session_id TEXT,
+                strength REAL DEFAULT 0.5,
+                context TEXT,
+                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (source_id, target_id, session_id)
+            )
+        """)
+
+        # Create embeddings table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS embeddings (
+                entity_id TEXT PRIMARY KEY,
+                embedding BLOB,
+                dimension INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Create indices for faster queries
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_links_strength
+            ON attention_links(strength DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_links_timestamp
+            ON attention_links(timestamp DESC)
+        """)
+
+        self.db.commit()
+        logger.info("DistributedMemoryLoader: Schema ensured")
 
     def _query_local_links(self,
                            limit: int = 1000,
@@ -736,6 +787,12 @@ class DistributedTrainer:
         self.db = db_connection
         self.fusion = sensor_fusion
         self.config = config or FlockConfig()
+        
+        # Initialize Immune System
+        self.immune = ImmuneResponse()
+        if hasattr(self.immune, 'detector') and self.immune.detector is None:
+             from .immune_system import AntibodyDetector
+             self.immune.detector = AntibodyDetector(self.db)
 
         # Initialize components
         self.optimizer = torch.optim.AdamW(
@@ -759,6 +816,11 @@ class DistributedTrainer:
             gossip_mesh=gossip_mesh,
             max_rounds=self.config.gradient_gossip_rounds
         )
+
+        # Initialize CCT Objective if model is CCT
+        self.is_cct = isinstance(model, CollectiveConsciousnessTransformer)
+        if self.is_cct:
+            self.cct_objective = CCTTrainingObjective()
 
         # Initialize memory loader
         self.memory_loader = DistributedMemoryLoader(
@@ -901,13 +963,82 @@ class DistributedTrainer:
             global_state=global_state
         ):
             c_a, c_b, ctx, gs, target = batch
-
-            # Forward pass
             self.optimizer.zero_grad()
-            output = self.model(c_a, c_b, ctx, gs)
 
-            # Loss
-            loss = nn.functional.mse_loss(output, target)
+            if self.is_cct:
+                # --- CCT GRAPH CONSTRUCTION ---
+                # We have pairs (c_a, c_b). We need to build a mini-graph.
+                # 1. Collect unique nodes
+                batch_size = c_a.size(0)
+                dim = c_a.size(1)
+                
+                # Stack all embeddings: [2*batch, dim]
+                all_nodes = torch.cat([c_a, c_b], dim=0)
+                
+                # Simple approach: Treat all 2*batch nodes as distinct for the graph encoder
+                # (In reality, we'd deduplicate, but this is a fast approximation for batch training)
+                node_features = all_nodes
+                
+                # Construct edge index (0->batch_size, 1->batch_size+1, etc.)
+                # Source nodes are 0..batch-1, Target nodes are batch..2*batch-1
+                src_indices = torch.arange(batch_size)
+                dst_indices = torch.arange(batch_size, 2 * batch_size)
+                
+                # Create bidirectional edges for the pairs
+                edge_index = torch.stack([
+                    torch.cat([src_indices, dst_indices]),
+                    torch.cat([dst_indices, src_indices])
+                ])
+                
+                # Context tokens (just use ctx as a sequence of length 1 per batch item)
+                context_tokens = ctx.unsqueeze(1) # [batch, 1, dim]
+                
+                # Forward Pass CCT
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context_tokens,
+                    global_state=gs
+                )
+                
+                # Predict links (we want to predict the strength between our pairs)
+                # Reconstruct candidate pairs from the fused output
+                # Fused is [batch, hidden]. We need to map back to our pairs?
+                # Actually, reasoning_head.predict_links takes (fused, candidate_pairs)
+                # But 'fused' is [batch, hidden] (context-centric).
+                # We need embeddings for the specific pairs.
+                
+                # Use the graph_embeddings output from CCT
+                # graph_embeddings: [2*batch, hidden]
+                h_src = outputs['graph_embeddings'][:batch_size]
+                h_dst = outputs['graph_embeddings'][batch_size:]
+                
+                # Create candidate pairs tensor: [batch, 2, hidden]
+                candidate_pairs = torch.stack([h_src, h_dst], dim=1)
+                
+                # Predict
+                # Note: Reasoning head needs 'fused' context to modulate prediction?
+                # The current implementation of predict_links just takes pair embeddings
+                # Let's use the fused context as a conditioning vector if we update the head later
+                # For now, stick to the signature: predict_links(fused, candidate_pairs)
+                link_preds = self.model.predict_links(outputs['fused'], candidate_pairs)
+                
+                # Compute Loss using Objective
+                loss_dict = self.cct_objective.compute_loss(
+                    outputs={
+                        'link_preds': link_preds,
+                        'resonance': outputs['resonance']
+                    },
+                    targets={
+                        'link_targets': target
+                    }
+                )
+                loss = loss_dict['total']
+                # ------------------------------
+            else:
+                # Standard NeuralAttentionModel
+                output = self.model(c_a, c_b, ctx, gs)
+                loss = nn.functional.mse_loss(output, target)
 
             # Backward pass
             loss.backward()
@@ -945,11 +1076,37 @@ class DistributedTrainer:
             timeout=self.config.gradient_timeout
         )
 
+        # --- IMMUNE SYSTEM FILTERING ---
+        clean_grads = []
+        for grad_msg in peer_grads:
+            sender = grad_msg.sender_id
+            
+            # 1. Check Reputation
+            if not self.immune.reputation.is_trusted(sender):
+                logger.warning(f"Ignoring gradient from untrusted peer: {sender}")
+                continue
+                
+            # 2. Antibody Detection
+            is_malicious, severity, reason = self.immune.detector.analyze_gradient(
+                grad_msg.gradients, sender
+            )
+            
+            if is_malicious:
+                logger.critical(f"🛡️ ANTIBODY TRIGGERED: Malicious gradient from {sender} ({reason})")
+                self.immune.reputation.update_trust(sender, -0.5 * severity, reason)
+                # TODO: Record Threat Signature
+            else:
+                # Healthy gradient
+                self.immune.reputation.update_trust(sender, 0.01) # Small boost for good behavior
+                clean_grads.append(grad_msg)
+        
+        peer_grads = clean_grads # Only use clean gradients
+        # -------------------------------
+
         # AllReduce (average with peers)
         if peer_grads:
             averaged_grads = self.gradient_gossip.all_reduce(gradients, peer_grads)
-
-            # Apply averaged gradients
+                    # Apply averaged gradients
             with torch.no_grad():
                 for name, param in self.model.named_parameters():
                     if name in averaged_grads:

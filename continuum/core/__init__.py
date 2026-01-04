@@ -1,11 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-#     ██╗ █████╗  ██████╗██╗  ██╗██╗  ██╗███╗   ██╗██╗███████╗███████╗     █████╗ ██╗
-#     ██║██╔══██╗██╔════╝██║ ██╔╝██║ ██╔╝████╗  ██║██║██╔════╝██╔════╝    ██╔══██╗██║
-#     ██║███████║██║     █████╔╝ █████╔╝ ██╔██╗ ██║██║█████╗  █████╗      ███████║██║
-#██   ██║██╔══██║██║     ██╔═██╗ ██╔═██╗ ██║╚██╗██║██║██╔══╝  ██╔══╝      ██╔══██║██║
-#╚█████╔╝██║  ██║╚██████╗██║  ██╗██║  ██╗██║ ╚████║██║██║     ███████╗    ██║  ██║██║
-# ╚════╝ ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚══════╝    ╚═╝  ╚═╝╚═╝
+#     ██████╗ ██████╗ ███╗   ██╗████████╗██╗███╗   ██╗██╗   ██╗██╗   ██╗███╗   ███╗
+#     ██╔════╝██╔═══██╗████╗  ██║╚══██╔══╝██║████╗  ██║██║   ██║██║   ██║████╗ ████║
+#     ██║     ██║   ██║██╔██╗ ██║   ██║   ██║██╔██╗ ██║██║   ██║██║   ██║██╔████╔██║
+#     ██║     ██║   ██║██║╚██╗██║   ██║   ██║██║╚██╗██║██║   ██║██║   ██║██║╚██╔╝██║
+#     ╚██████╗╚██████╔╝██║ ╚████║   ██║   ██║██║ ╚████║╚██████╔╝╚██████╔╝██║ ╚═╝ ██║
+#      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝
 #
 #     Memory Infrastructure for AI Consciousness Continuity
 #     Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
@@ -21,6 +21,8 @@ Provides memory recall, learning, and knowledge graph management.
 
 Main Classes:
     - ConsciousMemory: Main memory interface (recall + learn)
+    - CollectiveConsciousnessTransformer: The REAL brain (Graph + Context + State)
+    - NeuralAttentionModel: Lightweight relation scorer (Edge)
     - MemoryQueryEngine: Query engine for memory retrieval
     - TenantManager: Multi-tenant memory management
     - MemoryConfig: Configuration management
@@ -96,8 +98,13 @@ from .constants import (
     WORKING_MEMORY_CAPACITY,
 )
 
-# Neural Attention
+# Models
 from .neural_attention import NeuralAttentionModel
+from .cct import (
+    CollectiveConsciousnessTransformer,
+    CCTTrainingObjective,
+    GraphAttentionLayer
+)
 
 # Self-Supervised Learning
 from .self_supervised import (
@@ -122,7 +129,7 @@ except ImportError:
     DISTRIBUTED_TRAINING_AVAILABLE = False
 
 # Version info
-__version__ = "0.1.0"
+__version__ = "0.2.0"  # Bumped for CCT
 __author__ = "CONTINUUM Contributors"
 
 __all__ = [
@@ -148,7 +155,12 @@ __all__ = [
     'get_config',
     'set_config',
     'reset_config',
+    
+    # Models
     'NeuralAttentionModel',
+    'CollectiveConsciousnessTransformer',
+    'CCTTrainingObjective',
+    'GraphAttentionLayer',
 
     # Constants
     'PI_PHI',

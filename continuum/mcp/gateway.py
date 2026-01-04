@@ -103,7 +103,7 @@ class FederatedGateway:
                 try:
                     # In a real deployment, this would HTTP POST to the Federation Router
                     # Here we call the local logic directly for the prototype
-                    from ..mcp.server import call_api
+                    from .server import call_api
                     result = call_api("/v1/shai/verify", "POST", {
                         "claim": arguments.get("claim")
                     })
@@ -129,7 +129,7 @@ class FederatedGateway:
                         desc = f"Turbulence: {state.turbulence_index:.2f} | Coherence: {state.coherence_index:.2f}"
                     else:
                         # Fallback to API call if local scheduler is not active
-                        from ..mcp.server import call_api
+                        from .server import call_api
                         res = call_api("/v1/consciousness/state")
                         desc = res.get("mode_description", "System Offline")
                         
