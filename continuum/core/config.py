@@ -128,9 +128,11 @@ class MemoryConfig:
     solar_wind_poll_interval: int = 300  # 5 minutes
     xray_poll_interval: int = 300  # 5 minutes
     spinlab_poll_interval: int = 60  # 1 minute
+    intermagnet_poll_interval: int = 900  # 15 minutes
 
     # HTTP settings
     http_timeout: float = 30.0
+    http_retries: int = 3
 
     # Sensor URLs
     usgs_earthquake_url: str = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"

@@ -127,7 +127,20 @@ async def ignite(node_id: str, port: int):
     # 4. Start Background Training
     asyncio.create_task(run_training_loop(trainer))
 
-    # 5. Start API Server
+    # 5. Start Signaling Server (P2P Mesh)
+    try:
+        import websockets
+        from continuum.federation.signaling import handler as signaling_handler
+        logger.info("Starting Signaling Server on port 8421")
+        # Run signaling server in background
+        signaling_server = await websockets.serve(signaling_handler, "0.0.0.0", 8421)
+    except ImportError:
+        logger.warning("websockets library not found. Install with: pip install websockets")
+        logger.warning("P2P Signaling (WebRTC) will be disabled.")
+    except Exception as e:
+        logger.error(f"Failed to start signaling server: {e}")
+
+    # 6. Start API Server
     logger.info(f"Starting Voice (API) on port {port}")
     config_server = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config_server)

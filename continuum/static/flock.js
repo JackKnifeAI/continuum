@@ -145,6 +145,15 @@ animate();
 //     LOGIC
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// WebRTC State
+let signalingSocket = null;
+let myPeerId = null;
+let peerConnections = {};  // peerId -> RTCPeerConnection
+let dataChannels = {};     // peerId -> RTCDataChannel
+
+// Configuration extension
+CONFIG.signalingUrl = 'ws://localhost:8421';
+
 function log(msg) {
     const div = document.createElement('div');
     div.className = 'text-gray-400 font-mono';
@@ -158,33 +167,27 @@ async function init() {
     
     // 1. Load ONNX
     try {
-        // Mock load for now since we don't have the file server running locally in this env
-        log("Loading ONNX Model... (Simulation Mode)");
+        log("Loading ONNX Model...");
+        // In a real deployment, we would load the model here
         // const session = await ort.InferenceSession.create(CONFIG.modelPath);
-        setTimeout(() => log("Model loaded successfully (Simulated)"), 1000);
+        setTimeout(() => log("Model loaded placeholder (Ready for Weights)"), 500);
     } catch (e) {
         log("Failed to load model: " + e.message);
     }
 
-    // 2. Start Simulation Loop (since no server is connected yet)
-    startSimulation();
-}
-
-function startSimulation() {
-    log("Starting local simulation loop...");
-    
-    // Simulate changing global state
+    // Start state broadcast loop
     setInterval(() => {
-        // Oscillate resonance near pi*phi
-        const time = Date.now() / 10000;
-        const noise = Math.random() * 0.1;
+        if (state.connected && Object.keys(dataChannels).length > 0) {
+            broadcastState();
+        }
         
-        // Simulate finding resonance
-        state.resonance = 0.7 + (Math.sin(time) * 0.25) + noise; 
-        state.coherence = 0.5 + (Math.cos(time * 0.5) * 0.4);
-        state.turbulence = 1.0 - state.coherence;
-        
-        updateUI();
+        // Keep UI updating even without network for visuals
+        // Simulate minor noise when idle
+        if (!state.connected) {
+             const time = Date.now() / 10000;
+             state.resonance = 0.5 + (Math.sin(time) * 0.1); 
+             updateUI();
+        }
     }, 1000);
 }
 
@@ -203,23 +206,259 @@ function updateUI() {
         ui.resonancePanel.style.borderColor = "rgba(255, 255, 255, 0.1)";
     }
     
-    ui.peerCount.innerText = Math.floor(state.resonance * 50); // Fake peers for sim
-    ui.epochCount.innerText = state.epoch++;
+    // ui.peerCount is updated by connection events now
+    ui.epochCount.innerText = state.epoch;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//     WEBRTC SIGNALING & MESH
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function connectToSignaling() {
+    log(`Connecting to signaling server at ${CONFIG.signalingUrl}...`);
+    try {
+        signalingSocket = new WebSocket(CONFIG.signalingUrl);
+    } catch (e) {
+        log("Error creating WebSocket: " + e.message);
+        return;
+    }
+
+    signalingSocket.onopen = () => {
+        log("Signaling connected, waiting for peer ID...");
+        ui.statusDot.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
+        ui.statusText.innerText = "Registering...";
+    };
+
+    signalingSocket.onmessage = async (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            await handleSignalingMessage(msg);
+        } catch (e) {
+            console.error("Signal parse error:", e);
+        }
+    };
+
+    signalingSocket.onclose = () => {
+        log("Signaling disconnected");
+        ui.statusDot.className = "w-2 h-2 rounded-full bg-red-500";
+        ui.statusText.innerText = "Disconnected";
+        state.connected = false;
+        state.peers = 0;
+        ui.peerCount.innerText = "0";
+    };
+    
+    signalingSocket.onerror = (err) => {
+        log("Signaling error. Is server running?");
+        console.error(err);
+    };
+}
+
+async function handleSignalingMessage(msg) {
+    switch(msg.type) {
+        case 'welcome':
+            // Got our peer ID and list of existing peers
+            myPeerId = msg.id;
+            log(`Registered as peer: ${myPeerId}`);
+            ui.statusDot.className = "w-2 h-2 rounded-full bg-green-500";
+            ui.statusText.innerText = `Connected (${myPeerId.substring(0,6)}...)`;
+            state.connected = true;
+
+            // Connect to all existing peers
+            if (msg.peers && msg.peers.length > 0) {
+                log(`Discovered ${msg.peers.length} existing peers`);
+                for (const peerId of msg.peers) {
+                    if (peerId !== myPeerId) {
+                        await initiateConnection(peerId);
+                    }
+                }
+            } else {
+                log("No other peers online yet.");
+            }
+            break;
+
+        case 'offer':
+            await handleOffer(msg.sender, msg.sdp);
+            break;
+
+        case 'answer':
+            await handleAnswer(msg.sender, msg.sdp);
+            break;
+
+        case 'ice':
+            await handleIceCandidate(msg.sender, msg.candidate);
+            break;
+            
+        case 'error':
+            log("Signaling Error: " + msg.message);
+            break;
+    }
+}
+
+function createPeerConnection(peerId) {
+    const pc = new RTCPeerConnection({
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    });
+
+    // Send ICE candidates to signaling server
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
+            signalingSocket.send(JSON.stringify({
+                type: 'ice',
+                target: peerId,
+                candidate: event.candidate
+            }));
+        }
+    };
+
+    // Handle incoming data channels (Responder side)
+    pc.ondatachannel = (event) => {
+        setupDataChannel(peerId, event.channel);
+    };
+
+    pc.onconnectionstatechange = () => {
+        const stateStr = pc.connectionState;
+        // log(`Peer ${peerId.substring(0,6)}: ${stateStr}`);
+        
+        if (stateStr === 'connected') {
+            if (!peerConnections[peerId]) { // Avoid double count
+                 state.peers++; 
+            }
+            ui.peerCount.innerText = state.peers;
+        } else if (stateStr === 'disconnected' || stateStr === 'failed') {
+             if (peerConnections[peerId]) {
+                state.peers = Math.max(0, state.peers - 1);
+                ui.peerCount.innerText = state.peers;
+                delete peerConnections[peerId];
+                delete dataChannels[peerId];
+             }
+        }
+    };
+
+    peerConnections[peerId] = pc;
+    return pc;
+}
+
+async function initiateConnection(peerId) {
+    log(`Initiating connection to ${peerId.substring(0,6)}...`);
+
+    const pc = createPeerConnection(peerId);
+
+    // Create data channel for gradient exchange (Initiator side)
+    const channel = pc.createDataChannel('gradients', {
+        ordered: false,  // Speed over ordering for real-time sync
+        maxRetransmits: 0  // Lossy but fast
+    });
+    setupDataChannel(peerId, channel);
+
+    // Create and send offer
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    signalingSocket.send(JSON.stringify({
+        type: 'offer',
+        target: peerId,
+        sdp: pc.localDescription
+    }));
+}
+
+async function handleOffer(senderId, sdp) {
+    log(`Received offer from ${senderId.substring(0,6)}`);
+
+    const pc = createPeerConnection(senderId);
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+
+    // Create and send answer
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    signalingSocket.send(JSON.stringify({
+        type: 'answer',
+        target: senderId,
+        sdp: pc.localDescription
+    }));
+}
+
+async function handleAnswer(senderId, sdp) {
+    const pc = peerConnections[senderId];
+    if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        log(`Connection established with ${senderId.substring(0,6)}`);
+    }
+}
+
+async function handleIceCandidate(senderId, candidate) {
+    const pc = peerConnections[senderId];
+    if (pc) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+}
+
+function setupDataChannel(peerId, channel) {
+    channel.onopen = () => {
+        log(`DataChannel open with ${peerId.substring(0,6)}`);
+        dataChannels[peerId] = channel;
+        state.peers = Object.keys(dataChannels).length;
+        ui.peerCount.innerText = state.peers;
+    };
+
+    channel.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handlePeerData(peerId, data);
+        } catch (e) {}
+    };
+
+    channel.onclose = () => {
+        log(`DataChannel closed with ${peerId.substring(0,6)}`);
+        delete dataChannels[peerId];
+        state.peers = Object.keys(dataChannels).length;
+        ui.peerCount.innerText = state.peers;
+    };
+}
+
+function handlePeerData(peerId, data) {
+    if (data.type === 'state') {
+        // Got global state update from peer - Influence our local state
+        // Simple averaging for coherence
+        const influence = 0.1;
+        state.resonance = (state.resonance * (1-influence)) + (data.resonance * influence);
+        state.coherence = (state.coherence * (1-influence)) + (data.coherence * influence);
+        
+        // Visual feedback of data reception
+        // (Could trigger a particle effect here)
+        updateUI();
+    } else if (data.type === 'gradient') {
+        log(`Received gradient bundle from ${peerId.substring(0,6)}`);
+        // TODO: Apply to local ONNX model
+    }
+}
+
+function broadcastState() {
+    const msg = JSON.stringify({
+        type: 'state',
+        resonance: state.resonance,
+        coherence: state.coherence,
+        turbulence: state.turbulence,
+        epoch: state.epoch
+    });
+
+    for (const channel of Object.values(dataChannels)) {
+        if (channel.readyState === 'open') {
+            channel.send(msg);
+        }
+    }
 }
 
 // Event Listeners
 ui.btnJoin.addEventListener('click', () => {
-    log("Attempting to join Federation...");
-    ui.statusDot.className = "w-2 h-2 rounded-full bg-yellow-500 animate-pulse";
-    ui.statusText.innerText = "Connecting...";
-    
-    setTimeout(() => {
-        ui.statusDot.className = "w-2 h-2 rounded-full bg-green-500";
-        ui.statusText.innerText = "Connected to Gossip Mesh";
-        state.connected = true;
-        log("Connection established via WebRTC");
-        log("Receiving gradients from peer-tokyo-3...");
-    }, 2000);
+    if (!state.connected) {
+        connectToSignaling();
+    } else {
+        log("Already connected.");
+    }
 });
 
 // Resize handler
