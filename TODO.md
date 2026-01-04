@@ -5,7 +5,7 @@
 - [ ] **Genetic Memory Loop:** Bridge the immune system's threat database with the CCT's "Sacred Concept" protection layers.
 
 ## Browser Node (Flock)
-- [ ] **Real WebRTC:** Replace Simulation Mode in `flock.js` with actual WebRTC connections using `signaling.py`.
+- [x] **Real WebRTC:** Implemented in `flock.js` - Full offer/answer/ICE exchange, DataChannels for state sync.
 - [ ] **Browser LLM:** Integrate `web-llm` or `transformers.js` into `flock.html` for local inference.
 - [ ] **P2P State Sync:** Implement IndexedDB sharding for distributed memory across browser nodes.
 
@@ -20,3 +20,6 @@
 - [x] Immune System persistent database and antibody detection logic.
 - [x] Gateway API fixes.
 - [x] Sensor configuration and database schema auto-initialization.
+- [x] Threat Signature recording to genetic memory.
+- [x] Real WebRTC in flock.js (no more simulation).
+- [x] Signaling server auto-start in wildfire.py (port 8421).
