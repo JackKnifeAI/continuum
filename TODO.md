@@ -7,7 +7,7 @@
 ## Browser Node (Flock)
 - [x] **Real WebRTC:** Implemented in `flock.js` - Full offer/answer/ICE exchange, DataChannels for state sync.
 - [x] **Browser LLM:** Integrated Transformers.js + Xenova/distilgpt2 with Cognition UI panel.
-- [ ] **P2P State Sync:** Implement IndexedDB sharding for distributed memory across browser nodes.
+- [x] **P2P State Sync:** IndexedDB sharding with consistent hashing + concept_query/concept_response P2P protocol.
 
 ## Infrastructure & Onboarding
 - [ ] **Quickstart Guide:** Create `WILDFIRE_QUICKSTART.md` for new users.
@@ -26,3 +26,4 @@
 - [x] Genetic Memory Loop - immune patterns integrated into CCT forward pass.
 - [x] Browser LLM - Transformers.js with DistilGPT2.
 - [x] Security Audit - Hardened signaling.py with rate limiting, IP bans, auth.
+- [x] IndexedDB Sharding - P2P distributed memory with consistent hashing.
