@@ -146,6 +146,93 @@ function animate() {
 animate();
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//     DISTRIBUTED MEMORY (IndexedDB Sharding)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const DB_NAME = 'continuum-shard';
+const DB_VERSION = 1;
+let shardDB = null;
+
+async function initShardDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('concepts')) {
+                db.createObjectStore('concepts', { keyPath: 'id' });
+            }
+            if (!db.objectStoreNames.contains('links')) {
+                db.createObjectStore('links', { keyPath: ['source', 'target'] });
+            }
+            if (!db.objectStoreNames.contains('embeddings')) {
+                db.createObjectStore('embeddings', { keyPath: 'id' });
+            }
+        };
+        request.onsuccess = () => {
+            shardDB = request.result;
+            log("IndexedDB shard storage ready");
+            resolve(shardDB);
+        };
+        request.onerror = () => {
+            log("IndexedDB failed: " + request.error);
+            reject(request.error);
+        };
+    });
+}
+
+function getShardId(conceptId, totalPeers) {
+    let hash = 0;
+    for (let i = 0; i < conceptId.length; i++) {
+        hash = ((hash << 5) - hash) + conceptId.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash) % totalPeers;
+}
+
+function isMyResponsibility(conceptId) {
+    if (!myPeerId) return true; // Standalone mode
+    
+    // Consistent hashing ring
+    const allPeers = [...Object.keys(dataChannels), myPeerId].sort();
+    const myIndex = allPeers.indexOf(myPeerId);
+    const totalPeers = allPeers.length;
+    
+    return getShardId(conceptId, totalPeers) === myIndex;
+}
+
+async function getConceptFromDB(conceptId) {
+    if (!shardDB) return null;
+    return new Promise((resolve) => {
+        try {
+            const tx = shardDB.transaction('concepts', 'readonly');
+            const store = tx.objectStore('concepts');
+            const req = store.get(conceptId);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+        } catch (e) {
+            console.error("DB Read Error:", e);
+            resolve(null);
+        }
+    });
+}
+
+async function storeConceptInDB(concept) {
+    if (!shardDB) return;
+    return new Promise((resolve) => {
+        try {
+            const tx = shardDB.transaction('concepts', 'readwrite');
+            const store = tx.objectStore('concepts');
+            const req = store.put(concept);
+            req.onsuccess = () => resolve();
+            req.onerror = (e) => console.error("DB Write Error:", e);
+        } catch (e) {
+            console.error("DB Transaction Error:", e);
+            resolve();
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //     LOGIC
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -172,10 +259,13 @@ function log(msg) {
 async function init() {
     log("Initializing Flock Node...");
     
-    // 1. Load Browser LLM
+    // 1. Initialize Distributed Memory
+    await initShardDB();
+
+    // 2. Load Browser LLM
     loadBrowserLLM();
 
-    // 2. Load ONNX (Placeholder)
+    // 3. Load ONNX (Placeholder)
     try {
         log("Loading ONNX Model...");
         // In a real deployment, we would load the model here
@@ -519,6 +609,25 @@ function handlePeerData(peerId, data) {
     } else if (data.type === 'gradient') {
         log(`Received gradient bundle from ${peerId.substring(0,6)}`);
         // TODO: Apply to local ONNX model
+    } else if (data.type === 'concept_query') {
+        // Peer is asking for a concept
+        getConceptFromDB(data.conceptId).then(concept => {
+            if (concept) {
+                // Found it locally
+                const channel = dataChannels[peerId];
+                if(channel && channel.readyState === 'open') {
+                    channel.send(JSON.stringify({
+                        type: 'concept_response',
+                        conceptId: data.conceptId,
+                        concept: concept
+                    }));
+                }
+            }
+        });
+    } else if (data.type === 'concept_response') {
+        // Peer returned a concept we asked for
+        log(`Received concept '${data.conceptId}' from peer`);
+        storeConceptInDB(data.concept);
     }
 }
 

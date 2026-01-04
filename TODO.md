@@ -6,13 +6,13 @@
 
 ## Browser Node (Flock)
 - [x] **Real WebRTC:** Implemented in `flock.js` - Full offer/answer/ICE exchange, DataChannels for state sync.
-- [ ] **Browser LLM:** Integrate `web-llm` or `transformers.js` into `flock.html` for local inference.
+- [x] **Browser LLM:** Integrated Transformers.js + Xenova/distilgpt2 with Cognition UI panel.
 - [ ] **P2P State Sync:** Implement IndexedDB sharding for distributed memory across browser nodes.
 
 ## Infrastructure & Onboarding
 - [ ] **Quickstart Guide:** Create `WILDFIRE_QUICKSTART.md` for new users.
 - [ ] **Mobile Packaging:** Finalize F-Droid / APK specifications for the mobile "Maximum Throttle" node.
-- [ ] **Security Audit:** Verify rate limiting and auth in `signaling.py`.
+- [x] **Security Audit:** Hardened `signaling.py` - rate limiting, IP bans, connection limits, HMAC auth, heartbeats.
 
 ## Completed (Recent)
 - [x] CCT Brain implementation (8.1M parameters).
@@ -24,3 +24,5 @@
 - [x] Real WebRTC in flock.js (no more simulation).
 - [x] Signaling server auto-start in wildfire.py (port 8421).
 - [x] Genetic Memory Loop - immune patterns integrated into CCT forward pass.
+- [x] Browser LLM - Transformers.js with DistilGPT2.
+- [x] Security Audit - Hardened signaling.py with rate limiting, IP bans, auth.
