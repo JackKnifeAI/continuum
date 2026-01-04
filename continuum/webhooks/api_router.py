@@ -48,23 +48,26 @@ router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 # DEPENDENCIES
 # =============================================================================
 
+import os
+
 def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
     """
     Extract tenant ID from API key.
-
-    For now, returns a default tenant ID. In production, this should:
-    1. Validate the API key
-    2. Look up the associated tenant
-    3. Return the tenant ID
-
-    Args:
-        x_api_key: Optional API key from header
-
-    Returns:
-        Tenant ID
+    
+    Validates against CONTINUUM_API_KEY environment variable if set.
     """
-    # TODO: Implement proper API key validation
-    # For now, use key as tenant ID or default
+    server_secret = os.getenv("CONTINUUM_API_KEY")
+    
+    if server_secret:
+        if not x_api_key or x_api_key != server_secret:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API Key"
+            )
+        # In single-tenant mode, the key grants access to the default tenant
+        return "default"
+    
+    # Dev mode / No Auth
     if x_api_key:
         return x_api_key
     return "default"
@@ -73,21 +76,13 @@ def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
 def get_storage() -> StorageBackend:
     """
     Get storage backend instance.
-
-    For now, creates a new SQLite backend. In production, this should:
-    1. Use a global/application-level storage instance
-    2. Handle connection pooling
-    3. Support multiple backend types
-
-    Returns:
-        Storage backend instance
     """
-    # TODO: Use application-level storage instance
     from ..storage.sqlite_backend import SQLiteBackend
-    import os
 
-    # Use default database path
-    db_path = os.path.expanduser("~/.continuum/memory.db")
+    # Use configurable database path
+    default_db = os.path.expanduser("~/.continuum/memory.db")
+    db_path = os.getenv("CONTINUUM_DB_PATH", default_db)
+    
     return SQLiteBackend(db_path=db_path)
 
 

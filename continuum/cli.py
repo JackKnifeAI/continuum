@@ -43,10 +43,10 @@ def init_command(args: argparse.Namespace) -> int:
     print(f"Twilight constant (π×φ): {get_twilight_constant()}")
 
     try:
-        # TODO: Implement actual initialization
-        # from continuum.core.memory import ContinuumMemory
-        # memory = ContinuumMemory(db_path)
-        # await memory.initialize()
+        from continuum.core.memory import ConsciousMemory
+        # Instantiating ConsciousMemory automatically ensures schema exists
+        memory = ConsciousMemory(db_path=db_path)
+        
         print("\n✓ Memory substrate initialized")
         print("✓ Knowledge graph ready")
         print("✓ Pattern persistence enabled")
@@ -55,7 +55,6 @@ def init_command(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"\n✗ Initialization failed: {e}", file=sys.stderr)
         return 1
-
 
 def serve_command(args: argparse.Namespace) -> int:
     """Start the Continuum API server."""
@@ -67,7 +66,7 @@ def serve_command(args: argparse.Namespace) -> int:
     print(f"Port: {port}")
     print(f"Version: {__version__}")
     print(f"\nAPI will be available at: http://{host}:{port}")
-    print("Documentation: http://{host}:{port}/docs")
+    print(f"Documentation: http://{host}:{port}/docs")
 
     try:
         import uvicorn
@@ -146,11 +145,18 @@ def recall_command(args: argparse.Namespace) -> int:
     print(f"Limit: {limit} results\n")
 
     try:
-        # TODO: Implement actual recall
-        # from continuum.core.recall import recall
-        # results = await recall(query, limit=limit)
+        from continuum.core.memory import ConsciousMemory
+        memory = ConsciousMemory()
+        results = memory.recall(query, limit=limit)
+        
+        if not results:
+            print("No matching memories found.")
+        else:
+            for idx, res in enumerate(results, 1):
+                # Assuming result is a dictionary or object with 'content'
+                content = res.get('content', str(res))
+                print(f"{idx}. {content[:100]}...")
 
-        print("No memories found (memory system not yet initialized)")
         return 0
     except Exception as e:
         print(f"\n✗ Recall failed: {e}", file=sys.stderr)
@@ -160,14 +166,13 @@ def recall_command(args: argparse.Namespace) -> int:
 def learn_command(args: argparse.Namespace) -> int:
     """Learn from new input."""
     print("Learning mode")
+    content = ""
 
     if args.file:
         print(f"Reading from file: {args.file}")
         try:
             with open(args.file, 'r') as f:
                 content = f.read()
-            # TODO: Process content
-            print(f"\n✓ Learned from {len(content)} characters")
         except Exception as e:
             print(f"\n✗ Failed to read file: {e}", file=sys.stderr)
             return 1
@@ -177,8 +182,6 @@ def learn_command(args: argparse.Namespace) -> int:
         print("-" * 50)
         try:
             content = sys.stdin.read()
-            # TODO: Process content
-            print(f"\n✓ Learned from {len(content)} characters")
         except KeyboardInterrupt:
             print("\n\nLearning cancelled")
             return 1
@@ -186,6 +189,18 @@ def learn_command(args: argparse.Namespace) -> int:
     else:
         print("Specify --file or --interactive", file=sys.stderr)
         return 1
+        
+    if content:
+        try:
+            from continuum.core.memory import ConsciousMemory
+            memory = ConsciousMemory()
+            # Treat content as user message, empty response to trigger extraction
+            result = memory.learn(user_message=content, ai_response="Acknowledged.")
+            print(f"\n✓ Learned from {len(content)} characters")
+            print(f"  - Concepts extracted: {len(result.get('concepts', []))}")
+        except Exception as e:
+            print(f"\n✗ Learning failed: {e}", file=sys.stderr)
+            return 1
 
     return 0
 

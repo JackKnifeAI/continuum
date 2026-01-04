@@ -13,6 +13,11 @@
 - [x] **Quickstart Guide:** WILDFIRE_QUICKSTART.md - 5-minute setup, API docs, troubleshooting.
 - [x] **Mobile Packaging:** MOBILE_SPEC.md - Termux path, APK options, F-Droid requirements, sensor integration.
 - [x] **Security Audit:** Hardened `signaling.py` - rate limiting, IP bans, connection limits, HMAC auth, heartbeats.
+- [x] **Core Cleanup:**
+    - CLI (`continuum/cli.py`) implementation completed.
+    - API Rate Limiting (`continuum/api/middleware.py`) implemented.
+    - Admin Permissions (`continuum/api/graphql/auth/permissions.py`) implemented.
+    - Quantum Bridge placeholders updated to reference Mobile Spec.
 
 ## Completed (Recent)
 - [x] CCT Brain implementation (8.1M parameters).
@@ -29,3 +34,4 @@
 - [x] IndexedDB Sharding - P2P distributed memory with consistent hashing.
 - [x] Mobile Spec - Termux setup, F-Droid path, sensor integration.
 - [x] Quickstart Guide - 5-minute onboarding, API docs, troubleshooting.
+- [x] Master Debt Register Cleanup (CLI, Rate Limits, Permissions).

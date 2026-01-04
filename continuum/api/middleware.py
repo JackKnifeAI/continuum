@@ -253,15 +253,17 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
 
 # =============================================================================
-# RATE LIMITING (STUB)
+# RATE LIMITING
 # =============================================================================
+
+import time
+from collections import defaultdict
 
 class RateLimiter:
     """
-    Rate limiting stub for future implementation.
-
-    TODO: Implement token bucket or sliding window rate limiting
-    per tenant/API key. Consider using Redis for distributed rate limiting.
+    In-memory rate limiter using sliding window.
+    
+    For production clusters, use Redis.
     """
 
     def __init__(self, requests_per_minute: int = 60):
@@ -272,7 +274,9 @@ class RateLimiter:
             requests_per_minute: Maximum requests allowed per minute
         """
         self.requests_per_minute = requests_per_minute
-        # Stub: actual implementation would track request counts
+        self.window_size = 60  # seconds
+        # Stores list of timestamps per tenant
+        self.requests = defaultdict(list)
 
     async def check_rate_limit(self, tenant_id: str) -> bool:
         """
@@ -287,13 +291,23 @@ class RateLimiter:
         Raises:
             HTTPException: If rate limit exceeded
         """
-        # Stub: always allow for now
-        # TODO: Implement actual rate limiting logic
+        now = time.time()
+        # Filter out requests older than window
+        self.requests[tenant_id] = [t for t in self.requests[tenant_id] if now - t < self.window_size]
+        
+        if len(self.requests[tenant_id]) >= self.requests_per_minute:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": "60"}
+            )
+            
+        self.requests[tenant_id].append(now)
         return True
 
 
-# Global rate limiter instance (currently a stub)
-rate_limiter = RateLimiter(requests_per_minute=60)
+# Global rate limiter instance
+rate_limiter = RateLimiter(requests_per_minute=600)  # 10 req/sec generous default
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

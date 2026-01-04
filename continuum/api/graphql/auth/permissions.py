@@ -41,9 +41,7 @@ class IsAdmin(BasePermission):
 
     def has_permission(self, source: Any, info: Info, **kwargs) -> bool:
         """Check if user is admin"""
-        # TODO: Implement proper role checking
-        # For now, check if user_id is authenticated
-        return info.context.user_id is not None
+        return info.context.is_admin
 
 
 # Decorator for authenticated access
@@ -87,12 +85,8 @@ def admin_only(func):
         if not info:
             info = kwargs.get("info")
 
-        if not info or not info.context.user_id:
-            raise Exception("Authentication required")
-
-        # TODO: Check admin role properly
-        # For now, allow all authenticated users
-        # In production, would check user.role == UserRole.ADMIN
+        if not info or not info.context.is_admin:
+            raise Exception("Admin access required")
 
         return await func(*args, **kwargs)
 

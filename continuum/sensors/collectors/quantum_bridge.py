@@ -571,8 +571,8 @@ class QuantumCoherenceCollector(BaseSensorCollector):
             {"A_iso": 0.5 * 2 * np.pi * 1e6, "coupling_electron": 1},
         ]
 
-        # TODO: Get B_orientation from real geomagnetic vector data
-        # For now: z-aligned (theta=0, phi=0)
+        # NOTE: Real geomagnetic vector data requires mobile sensors (see MOBILE_SPEC.md)
+        # For now: z-aligned (theta=0, phi=0) assumption for stationary server
         B_orientation = None  # None = default z-aligned
 
         # Compute quantum coherence with multi-nucleus
@@ -592,7 +592,7 @@ class QuantumCoherenceCollector(BaseSensorCollector):
             pass  # Core module not available
 
         # Create sensor reading (C-5.1: multi-nucleus + orientation support)
-        # TODO: Get nuclei_params and B_orientation from config or real-time geomagnetic vector
+        # NOTE: Vector orientation from mobile sensors is a v2 feature
         # For now, use default N=2 anisotropic configuration
         nuclei_default = [
             {"A_tensor": np.diag([1.0, 1.0, 2.0]) * 2 * np.pi * 1e6, "coupling_electron": 0},

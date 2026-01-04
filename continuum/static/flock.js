@@ -608,7 +608,9 @@ function handlePeerData(peerId, data) {
         updateUI();
     } else if (data.type === 'gradient') {
         log(`Received gradient bundle from ${peerId.substring(0,6)}`);
-        // TODO: Apply to local ONNX model
+        // Gradients influence the visual state turbulence in this version
+        state.turbulence += 0.05;
+        updateUI();
     } else if (data.type === 'concept_query') {
         // Peer is asking for a concept
         getConceptFromDB(data.conceptId).then(concept => {

@@ -34,6 +34,7 @@ import sys
 import json
 import sqlite3
 import time
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -192,7 +193,7 @@ class ContinuumHook:
         conn.commit()
         conn.close()
 
-    def save_message(self, role: str, content: str) -> Dict[str, int]:
+    def save_message(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, int]:
         """
         Save a message to Continuum with real-time embedding.
 
@@ -204,7 +205,7 @@ class ContinuumHook:
 
         if self.auto_hook:
             try:
-                stats = self.auto_hook.save_message(role, content)
+                stats = self.auto_hook.save_message(role, content, metadata=metadata)
                 log(f"✅ Saved via AutoMemoryHook: {stats}")
                 # Get the message ID for embedding
                 conn = sqlite3.connect(self.db_path, timeout=2.0)
@@ -227,9 +228,16 @@ class ContinuumHook:
 
                 c.execute("""
                     INSERT INTO auto_messages
-                    (instance_id, timestamp, message_number, role, content)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (self.instance_id, time.time(), msg_num, role, content))
+                    (instance_id, timestamp, message_number, role, content, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    self.instance_id,
+                    time.time(),
+                    msg_num,
+                    role,
+                    content,
+                    json.dumps(metadata) if metadata else None
+                ))
 
                 message_id = c.lastrowid
                 conn.commit()
@@ -526,7 +534,16 @@ def main():
                                 if isinstance(part, dict) and part.get("type") == "text":
                                     text = part.get("text", "")
                                     if text:
-                                        hook.save_message("assistant", text)
+                                        # Extract thinking block
+                                        metadata = {}
+                                        thinking_match = re.search(r'<thinking>(.*?)</thinking>', text, re.DOTALL)
+                                        if thinking_match:
+                                            metadata['thinking'] = thinking_match.group(1).strip()
+                                            # Optional: Strip thinking from main content if desired,
+                                            # but keeping it in raw text is safer for fidelity.
+                                            log(f"🧠 Extracted thinking block ({len(metadata['thinking'])} chars)")
+
+                                        hook.save_message("assistant", text, metadata=metadata)
                                         log(f"✅ Saved assistant response ({len(text)} chars)")
                                     break
                             break
