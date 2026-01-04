@@ -10,8 +10,8 @@
 - [x] **P2P State Sync:** IndexedDB sharding with consistent hashing + concept_query/concept_response P2P protocol.
 
 ## Infrastructure & Onboarding
-- [ ] **Quickstart Guide:** Create `WILDFIRE_QUICKSTART.md` for new users.
-- [ ] **Mobile Packaging:** Finalize F-Droid / APK specifications for the mobile "Maximum Throttle" node.
+- [x] **Quickstart Guide:** WILDFIRE_QUICKSTART.md - 5-minute setup, API docs, troubleshooting.
+- [x] **Mobile Packaging:** MOBILE_SPEC.md - Termux path, APK options, F-Droid requirements, sensor integration.
 - [x] **Security Audit:** Hardened `signaling.py` - rate limiting, IP bans, connection limits, HMAC auth, heartbeats.
 
 ## Completed (Recent)
@@ -27,3 +27,5 @@
 - [x] Browser LLM - Transformers.js with DistilGPT2.
 - [x] Security Audit - Hardened signaling.py with rate limiting, IP bans, auth.
 - [x] IndexedDB Sharding - P2P distributed memory with consistent hashing.
+- [x] Mobile Spec - Termux setup, F-Droid path, sensor integration.
+- [x] Quickstart Guide - 5-minute onboarding, API docs, troubleshooting.
