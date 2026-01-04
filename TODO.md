@@ -1,7 +1,7 @@
 # CONTINUUM Roadmap & Pending Tasks
 
 ## Core Brain & Training
-- [ ] **Record Threat Signature:** Implement the actual call to `self.immune.record_threat` in `distributed_training.py` inside the Antibody Trigger block.
+- [x] **Record Threat Signature:** Implemented in `distributed_training.py:1098-1109` - Records to genetic memory when severity > 0.5.
 - [ ] **Genetic Memory Loop:** Bridge the immune system's threat database with the CCT's "Sacred Concept" protection layers.
 
 ## Browser Node (Flock)

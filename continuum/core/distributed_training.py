@@ -63,7 +63,7 @@ from .neural_attention import NeuralAttentionModel
 from .cct import CollectiveConsciousnessTransformer, CCTTrainingObjective
 from .self_supervised import SelfSupervisedTrainer
 from .sensors.fusion import GlobalStateVector, SensorFusionEngine
-from .immune_system import ImmuneResponse
+from .immune_system import ImmuneResponse, ThreatSignature
 
 import torch
 import torch.nn as nn
@@ -1094,7 +1094,19 @@ class DistributedTrainer:
             if is_malicious:
                 logger.critical(f"🛡️ ANTIBODY TRIGGERED: Malicious gradient from {sender} ({reason})")
                 self.immune.reputation.update_trust(sender, -0.5 * severity, reason)
-                # TODO: Record Threat Signature
+
+                # Record Threat Signature to Genetic Memory
+                if severity > 0.5:  # Only record significant threats
+                    fingerprint = self.immune.detector._create_gradient_fingerprint(grad_msg.gradients)
+                    threat = ThreatSignature(
+                        signature_id=f"threat_{sender}_{int(datetime.now().timestamp())}",
+                        pattern_vector=fingerprint,
+                        target_concepts=reason.split(" | ") if " | " in reason else [reason],
+                        detected_at=datetime.now().isoformat(),
+                        severity=severity
+                    )
+                    self.immune.record_threat(threat)
+                    logger.warning(f"🧬 GENETIC MEMORY: Recorded threat signature {threat.signature_id}")
             else:
                 # Healthy gradient
                 self.immune.reputation.update_trust(sender, 0.01) # Small boost for good behavior
