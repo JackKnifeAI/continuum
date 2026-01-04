@@ -35,3 +35,11 @@
 - [x] Mobile Spec - Termux setup, F-Droid path, sensor integration.
 - [x] Quickstart Guide - 5-minute onboarding, API docs, troubleshooting.
 - [x] Master Debt Register Cleanup (CLI, Rate Limits, Permissions).
+
+## Edge Computing & Federation Economics (NEW)
+- [x] **LEAF_NODE_SPEC.md:** Complete specification for tiered federation nodes.
+- [ ] **Leaf Node Implementation:** Sensors, memory sharding, P2P relay.
+- [ ] **Edge Node Implementation:** GPU detection, work scheduler, inference API.
+- [ ] **Crypto Mining Integration:** XMRig (CPU), nbminer/teamredminer (GPU).
+- [ ] **Revenue Distribution:** Work attestations, node rewards, payouts.
+- [ ] **Federated Learning:** Gradient gossip, immune validation, memory-based training.
