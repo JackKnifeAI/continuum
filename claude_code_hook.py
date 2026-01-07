@@ -61,12 +61,10 @@ try:
 except ImportError:
     HAVE_EMBEDDINGS = False
 
-# Import E8 coherence memory engine
-try:
-    from continuum.core.e8 import E8MemoryEngine, PI_PHI
-    HAVE_E8 = True
-except ImportError:
-    HAVE_E8 = False
+# E8 coherence memory engine - DEPRECATED
+# Benchmark showed 120x slower than cosine with no quality improvement
+# Removed 2026-01-04. See benchmark_e8_vs_cosine.py for evidence.
+HAVE_E8 = False
 
 # Import Quantum Brain
 try:
@@ -122,16 +120,6 @@ class ContinuumHook:
                 log("SemanticSearch initialized")
             except Exception as e:
                 log(f"SemanticSearch init failed: {e}")
-
-        # Initialize E8 coherence memory engine
-        self.e8_engine = None
-        if HAVE_E8:
-            try:
-                e8_db = self.db_path.parent / "e8_memory.db"
-                self.e8_engine = E8MemoryEngine(db_path=e8_db)
-                log(f"E8MemoryEngine initialized (π×φ = {PI_PHI})")
-            except Exception as e:
-                log(f"E8MemoryEngine init failed: {e}")
 
         # Initialize Quantum Brain
         self.quantum_brain = None
@@ -265,39 +253,16 @@ class ContinuumHook:
         Recall relevant context from memory.
 
         Searches (in order of preference):
-        1. E8 COHERENCE - spreading activation with geometric decay
-        2. QUANTUM BRAIN - Hebbian-connected concept retrieval
-        3. SEMANTIC SEARCH - embeddings-based similarity
-        4. Keyword match - fallback for non-embedded messages
+        1. QUANTUM BRAIN - Hebbian-connected concept retrieval
+        2. SEMANTIC SEARCH - embeddings-based similarity
+        3. Keyword match - fallback for non-embedded messages
         """
         context_parts = []
-        used_e8 = False
         used_quantum = False
         used_semantic = False
 
-        # Try E8 coherence search FIRST (spreading activation)
-        if self.e8_engine:
-            try:
-                e8_result = self.e8_engine.query(query, max_results=limit)
-                if e8_result.get('matches'):
-                    used_e8 = True
-                    coherence = e8_result.get('coherence', 0)
-                    context_parts.append(f"## E8 Coherence Memory (coherence={coherence:.3f})")
-                    for match in e8_result['matches'][:limit]:
-                        name = match.get('name', 'unknown')
-                        desc = match.get('description', '')[:150]
-                        activation = match.get('activation', 0)
-                        context_parts.append(f"  • {name}: {desc} [activation={activation:.2f}]")
-
-                    # Log emergent connections
-                    emergent = e8_result.get('emergent_connections', 0)
-                    if emergent:
-                        log(f"✅ E8 recall: {len(e8_result['matches'])} matches, coherence={coherence:.3f}, emergent={emergent}")
-            except Exception as e:
-                log(f"⚠️ E8 search failed: {e}")
-
-        # Try Quantum Brain (Hebbian connections)
-        if self.quantum_brain and not used_e8:
+        # Try Quantum Brain (Hebbian connections) - FIRST PRIORITY
+        if self.quantum_brain:
             try:
                 # Extract key concepts from query
                 activated = self.quantum_brain.spread_activation(query, depth=3)
@@ -312,7 +277,7 @@ class ContinuumHook:
                 log(f"⚠️ Quantum search failed: {e}")
 
         # Try semantic search (embeddings)
-        if self.semantic_search and not (used_e8 or used_quantum):
+        if self.semantic_search and not used_quantum:
             try:
                 # Search for similar user messages
                 user_results = self.semantic_search.semantic_search(
@@ -343,7 +308,7 @@ class ContinuumHook:
                 log(f"⚠️ Semantic search failed, using keyword fallback: {e}")
 
         # Fallback to keyword search if nothing else found enough
-        if not (used_e8 or used_quantum or used_semantic) or len(context_parts) < 3:
+        if not (used_quantum or used_semantic) or len(context_parts) < 3:
             query_lower = query.lower()
 
             # Skip common words
