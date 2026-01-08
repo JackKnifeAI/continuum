@@ -38,8 +38,25 @@
 
 ## Edge Computing & Federation Economics (NEW)
 - [x] **LEAF_NODE_SPEC.md:** Complete specification for tiered federation nodes.
-- [ ] **Leaf Node Implementation:** Sensors, memory sharding, P2P relay.
-- [ ] **Edge Node Implementation:** GPU detection, work scheduler, inference API.
-- [ ] **Crypto Mining Integration:** XMRig (CPU), nbminer/teamredminer (GPU).
+- [x] **Leaf Node Implementation:** `federation/leaf_node.py` (750+ lines)
+    - SensorCollector with termux-api integration
+    - MemoryShard with SQLite + consistent hashing
+    - P2P relay capabilities
+    - Heartbeat to coordinator
+- [x] **Edge Node Implementation:** `federation/edge_node.py` (750+ lines)
+    - GPUManager with NVIDIA/AMD detection
+    - InferenceEngine for model serving
+    - Gradient computation for training
+    - Mining pause/resume during ML work
+- [x] **Crypto Mining Integration:** `federation/mining.py` (700+ lines)
+    - XMRig (CPU) - Monero RandomX
+    - NBMiner/TeamRedMiner (GPU) - RVN/ERG
+    - Pool registry with failover
+    - HardwareDetector for auto-configuration
+- [x] **Work Scheduler:** `federation/scheduler.py` (800+ lines)
+    - Priority work queues (Training > Inference > Mining)
+    - Node capability matching
+    - Dynamic mining control
+    - Timeout and cleanup handling
 - [ ] **Revenue Distribution:** Work attestations, node rewards, payouts.
 - [ ] **Federated Learning:** Gradient gossip, immune validation, memory-based training.
