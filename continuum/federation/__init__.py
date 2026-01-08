@@ -121,6 +121,17 @@ from continuum.federation.scheduler import (
     create_scheduler,
 )
 
+# Gradient gossip (federated learning)
+from continuum.federation.gradient_gossip import (
+    GradientGossipProtocol,
+    GradientMessage,
+    GradientStatus,
+    GradientAggregation,
+    GossipConfig,
+    GradientSerializer,
+    GradientValidator,
+)
+
 __all__ = [
     # Core
     "FederatedNode",
@@ -172,6 +183,15 @@ __all__ = [
     "NodeCapabilities",
     "SchedulerStats",
     "create_scheduler",
+
+    # Gradient Gossip (Federated Learning)
+    "GradientGossipProtocol",
+    "GradientMessage",
+    "GradientStatus",
+    "GradientAggregation",
+    "GossipConfig",
+    "GradientSerializer",
+    "GradientValidator",
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
