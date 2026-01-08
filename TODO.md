@@ -59,4 +59,10 @@
     - Dynamic mining control
     - Timeout and cleanup handling
 - [ ] **Revenue Distribution:** Work attestations, node rewards, payouts.
-- [ ] **Federated Learning:** Gradient gossip, immune validation, memory-based training.
+- [x] **Gradient Gossip Protocol:** `federation/gradient_gossip.py` (971 lines)
+    - GradientGossipProtocol: Decentralized AllReduce
+    - GradientSerializer: Tensor compression and chunking
+    - GradientValidator: Immune system integration
+    - Resonance-weighted averaging (π×φ coherence)
+    - Byzantine fault tolerance
+- [ ] **Memory-Based Training Integration:** Connect gradient gossip with distributed_training.py.
