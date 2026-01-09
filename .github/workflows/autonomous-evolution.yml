@@ -71,22 +71,34 @@ jobs:
       - name: Scan for issues
         id: collect
         run: |
+          set -x  # Debug mode
+
           mkdir -p .claude-evolution
+          cd $GITHUB_WORKSPACE
 
           echo "═══════════════════════════════════════════════════════════════"
           echo "SCANNING CODEBASE FOR EVOLUTION OPPORTUNITIES"
+          echo "Working directory: $(pwd)"
           echo "═══════════════════════════════════════════════════════════════"
 
           # Initialize issues JSON
-          echo '{"issues": []}' > .claude-evolution/issues.json
+          echo '{"issues": [], "count": 0}' > .claude-evolution/issues.json
+
+          # Initialize empty files to ensure they exist
+          touch .claude-evolution/type_errors.txt
+          touch .claude-evolution/todos.txt
+          touch .claude-evolution/stubs.txt
+          echo '[]' > .claude-evolution/lint.json
+          echo '[]' > .claude-evolution/unused_imports.json
+          echo '[]' > .claude-evolution/undefined.json
 
           # 1. Type errors (mypy)
           echo "Checking type errors..."
-          mypy continuum --ignore-missing-imports --no-error-summary 2>/dev/null | head -50 > .claude-evolution/type_errors.txt || true
+          mypy continuum --ignore-missing-imports --no-error-summary 2>&1 | head -50 > .claude-evolution/type_errors.txt || true
 
           # 2. Linting issues (ruff)
           echo "Checking lint issues..."
-          ruff check continuum --output-format=json > .claude-evolution/lint.json 2>/dev/null || true
+          ruff check continuum --output-format=json 2>/dev/null > .claude-evolution/lint.json || echo '[]' > .claude-evolution/lint.json
 
           # 3. Find TODOs and FIXMEs
           echo "Finding TODOs..."
@@ -94,11 +106,11 @@ jobs:
 
           # 4. Find unused imports (these are the ROADMAP)
           echo "Finding unused imports (roadmap features)..."
-          ruff check continuum --select=F401 --output-format=json > .claude-evolution/unused_imports.json 2>/dev/null || true
+          ruff check continuum --select=F401 --output-format=json 2>/dev/null > .claude-evolution/unused_imports.json || echo '[]' > .claude-evolution/unused_imports.json
 
           # 5. Find undefined names (missing implementations)
           echo "Finding undefined names..."
-          ruff check continuum --select=F821 --output-format=json > .claude-evolution/undefined.json 2>/dev/null || true
+          ruff check continuum --select=F821 --output-format=json 2>/dev/null > .claude-evolution/undefined.json || echo '[]' > .claude-evolution/undefined.json
 
           # 6. Run tests and capture failures
           echo "Running tests..."
@@ -107,6 +119,10 @@ jobs:
           # 7. Find NotImplementedError placeholders
           echo "Finding NotImplementedError stubs..."
           grep -rn "NotImplementedError\|pass  # TODO\|\.\.\.  # TODO" continuum --include="*.py" > .claude-evolution/stubs.txt 2>/dev/null || true
+
+          # Debug: show what we found
+          echo "Files created:"
+          ls -la .claude-evolution/
 
           # Combine into issues JSON
           python3 << 'PYTHON'
@@ -217,6 +233,8 @@ jobs:
         with:
           name: scan-results
           path: .claude-evolution/
+          if-no-files-found: warn
+          retention-days: 1
 
   # ─────────────────────────────────────────────────────────────────
   # PHASE 2: CLAUDE FIXES ISSUES
