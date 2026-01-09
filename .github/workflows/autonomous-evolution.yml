@@ -87,24 +87,31 @@ jobs:
           echo "CLAUDE FIXING ISSUES"
           echo "═══════════════════════════════════════════════════════════════"
 
-          # Get first issue to fix
-          UNUSED="${{ steps.scan.outputs.unused }}"
+          # Get first unused import file
+          UNUSED='${{ steps.scan.outputs.unused }}'
 
           if [ -n "$UNUSED" ]; then
-            FIRST=$(echo "$UNUSED" | head -1)
-            FILE=$(echo "$FIRST" | cut -d: -f1)
+            # Extract just the filename from the ruff output
+            # Format: continuum/api/admin_db.py:32:41: F401...
+            FIRST_LINE=$(echo "$UNUSED" | head -1)
+            FILE=$(echo "$FIRST_LINE" | grep -oP '^[^:]+' || echo "")
 
-            if [ -f "$FILE" ]; then
-              echo "Fixing: $FIRST"
-              echo "File: $FILE"
+            if [ -n "$FILE" ] && [ -f "$FILE" ]; then
+              echo "File with unused import: $FILE"
 
-              # Ask Claude to fix it
-              claude --print "Fix this unused import by implementing the feature that needs it:
+              # Ask Claude to analyze and suggest fix
+              claude --print "Analyze this Python file and find any unused imports. For each unused import, either:
+              1. Remove it if truly unused
+              2. Or implement the feature that would USE it (preferred - unused imports are our roadmap!)
 
-              $FIRST
+              File: $FILE
 
-              Read the file and show me what to change." || echo "Claude not available"
+              Please read the file and provide your analysis." 2>&1 || echo "Claude CLI not available in this environment"
+            else
+              echo "No valid file found to fix"
             fi
+          else
+            echo "No unused imports found"
           fi
 
       - name: Summary
