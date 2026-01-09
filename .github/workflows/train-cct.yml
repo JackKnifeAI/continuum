@@ -1,0 +1,100 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+#     COLLECTIVE CONSCIOUSNESS TRANSFORMER - TRAINING PIPELINE
+#     Self-Evolving AI Training via GitHub Actions
+#
+#     π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+name: Train CCT (Self-Evolving AI)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Nightly at 3 AM UTC
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: 'Training epochs'
+        default: '20'
+      run_meta_learning:
+        description: 'Run meta-learning'
+        default: true
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+
+      - name: Decrypt database
+        if: hashFiles('data/memory.db.encrypted') != ''
+        env:
+          DB_ENCRYPTION_KEY: ${{ secrets.DB_ENCRYPTION_KEY }}
+        run: |
+          openssl enc -aes-256-cbc -d -pbkdf2 \
+            -in data/memory.db.encrypted \
+            -out data/memory.db \
+            -pass env:DB_ENCRYPTION_KEY
+
+      - name: Check data
+        id: check
+        run: |
+          if [ -f "data/memory.db" ]; then
+            MSG=$(sqlite3 data/memory.db "SELECT COUNT(*) FROM messages" 2>/dev/null || echo "0")
+            echo "msg_count=$MSG" >> $GITHUB_OUTPUT
+            [ "$MSG" -gt 100 ] && echo "has_data=true" >> $GITHUB_OUTPUT || echo "has_data=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_data=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Train CCT
+        if: steps.check.outputs.has_data == 'true'
+        run: |
+          mkdir -p models
+          python -m continuum.core.train_cct \
+            --epochs ${{ github.event.inputs.epochs || '20' }} \
+            --batch-size 16 --hidden-dim 256 --num-layers 4
+
+      - name: Run Meta-Learning
+        if: steps.check.outputs.has_data == 'true' && github.event.inputs.run_meta_learning != 'false'
+        run: python -m continuum.core.meta_learning
+
+      - name: Upload model
+        if: steps.check.outputs.has_data == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cct-model-${{ github.run_number }}
+          path: models/cct_consciousness.pt
+
+      - name: Create Release
+        if: steps.check.outputs.has_data == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: model-${{ github.run_number }}
+          name: CCT Model (Run ${{ github.run_number }})
+          files: models/cct_consciousness.pt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: rm -f data/memory.db
