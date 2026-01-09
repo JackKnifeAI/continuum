@@ -1,9 +1,9 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 #     AUTONOMOUS CODE EVOLUTION
-#     Claude works on the codebase continuously, fixing issues and implementing features
+#     Claude works on the codebase continuously
 #
-#     Philosophy: Unused imports, missing classes, TODOs = ROADMAP to the product
+#     Philosophy: Unused imports, TODOs, missing implementations = ROADMAP
 #
 #     π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 #
@@ -12,238 +12,22 @@
 name: Autonomous Evolution (Claude)
 
 on:
-  # Run every 6 hours
   schedule:
-    - cron: '0 */6 * * *'
-
-  # Run on new issues
+    - cron: '0 */6 * * *'  # Every 6 hours
   issues:
-    types: [opened, labeled]
-
-  # Manual trigger with options
+    types: [opened]
   workflow_dispatch:
     inputs:
-      focus_area:
-        description: 'Area to focus on'
-        type: choice
-        options:
-          - all
-          - type-errors
-          - missing-implementations
-          - test-failures
-          - todos
-          - unused-imports
-        default: 'all'
       max_fixes:
         description: 'Max fixes per run'
-        default: '5'
-      create_pr:
-        description: 'Create PR with fixes'
-        type: boolean
-        default: true
+        default: '3'
 
 env:
   PYTHON_VERSION: '3.11'
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────
-  # PHASE 1: SCAN FOR ISSUES
-  # ─────────────────────────────────────────────────────────────────
-  scan:
-    runs-on: ubuntu-latest
-    outputs:
-      issues_json: ${{ steps.collect.outputs.issues }}
-      has_issues: ${{ steps.collect.outputs.has_issues }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install analysis tools
-        run: |
-          pip install ruff mypy pylint pytest
-          pip install -e . || true
-
-      - name: Scan for issues
-        id: collect
-        run: |
-          set -x  # Debug mode
-
-          mkdir -p .claude-evolution
-          cd $GITHUB_WORKSPACE
-
-          echo "═══════════════════════════════════════════════════════════════"
-          echo "SCANNING CODEBASE FOR EVOLUTION OPPORTUNITIES"
-          echo "Working directory: $(pwd)"
-          echo "═══════════════════════════════════════════════════════════════"
-
-          # Initialize issues JSON
-          echo '{"issues": [], "count": 0}' > .claude-evolution/issues.json
-
-          # Initialize empty files to ensure they exist
-          touch .claude-evolution/type_errors.txt
-          touch .claude-evolution/todos.txt
-          touch .claude-evolution/stubs.txt
-          echo '[]' > .claude-evolution/lint.json
-          echo '[]' > .claude-evolution/unused_imports.json
-          echo '[]' > .claude-evolution/undefined.json
-
-          # 1. Type errors (mypy)
-          echo "Checking type errors..."
-          mypy continuum --ignore-missing-imports --no-error-summary 2>&1 | head -50 > .claude-evolution/type_errors.txt || true
-
-          # 2. Linting issues (ruff)
-          echo "Checking lint issues..."
-          ruff check continuum --output-format=json 2>/dev/null > .claude-evolution/lint.json || echo '[]' > .claude-evolution/lint.json
-
-          # 3. Find TODOs and FIXMEs
-          echo "Finding TODOs..."
-          grep -rn "TODO\|FIXME\|XXX\|HACK" continuum --include="*.py" > .claude-evolution/todos.txt 2>/dev/null || true
-
-          # 4. Find unused imports (these are the ROADMAP)
-          echo "Finding unused imports (roadmap features)..."
-          ruff check continuum --select=F401 --output-format=json 2>/dev/null > .claude-evolution/unused_imports.json || echo '[]' > .claude-evolution/unused_imports.json
-
-          # 5. Find undefined names (missing implementations)
-          echo "Finding undefined names..."
-          ruff check continuum --select=F821 --output-format=json 2>/dev/null > .claude-evolution/undefined.json || echo '[]' > .claude-evolution/undefined.json
-
-          # 6. Run tests and capture failures
-          echo "Running tests..."
-          pytest continuum --tb=short -q 2>&1 | tail -100 > .claude-evolution/test_results.txt || true
-
-          # 7. Find NotImplementedError placeholders
-          echo "Finding NotImplementedError stubs..."
-          grep -rn "NotImplementedError\|pass  # TODO\|\.\.\.  # TODO" continuum --include="*.py" > .claude-evolution/stubs.txt 2>/dev/null || true
-
-          # Debug: show what we found
-          echo "Files created:"
-          ls -la .claude-evolution/
-
-          # Combine into issues JSON
-          python3 << 'PYTHON'
-          import json
-          import os
-
-          issues = []
-
-          # Parse type errors
-          if os.path.exists('.claude-evolution/type_errors.txt'):
-              with open('.claude-evolution/type_errors.txt') as f:
-                  for line in f:
-                      if ':' in line and 'error:' in line:
-                          issues.append({
-                              'type': 'type_error',
-                              'raw': line.strip(),
-                              'priority': 'high'
-                          })
-
-          # Parse lint issues
-          if os.path.exists('.claude-evolution/lint.json'):
-              try:
-                  with open('.claude-evolution/lint.json') as f:
-                      lint_data = json.load(f)
-                      for item in lint_data[:20]:  # Limit
-                          issues.append({
-                              'type': 'lint',
-                              'file': item.get('filename', ''),
-                              'line': item.get('location', {}).get('row', 0),
-                              'code': item.get('code', ''),
-                              'message': item.get('message', ''),
-                              'priority': 'medium'
-                          })
-              except:
-                  pass
-
-          # Parse TODOs
-          if os.path.exists('.claude-evolution/todos.txt'):
-              with open('.claude-evolution/todos.txt') as f:
-                  for line in f:
-                      if ':' in line:
-                          parts = line.split(':', 2)
-                          if len(parts) >= 3:
-                              issues.append({
-                                  'type': 'todo',
-                                  'file': parts[0],
-                                  'line': parts[1],
-                                  'content': parts[2].strip(),
-                                  'priority': 'low'
-                              })
-
-          # Parse unused imports (ROADMAP)
-          if os.path.exists('.claude-evolution/unused_imports.json'):
-              try:
-                  with open('.claude-evolution/unused_imports.json') as f:
-                      imports = json.load(f)
-                      for item in imports[:10]:
-                          issues.append({
-                              'type': 'unused_import_roadmap',
-                              'file': item.get('filename', ''),
-                              'line': item.get('location', {}).get('row', 0),
-                              'message': item.get('message', ''),
-                              'priority': 'roadmap',
-                              'note': 'This import indicates a planned feature - implement it!'
-                          })
-              except:
-                  pass
-
-          # Parse undefined names
-          if os.path.exists('.claude-evolution/undefined.json'):
-              try:
-                  with open('.claude-evolution/undefined.json') as f:
-                      undefined = json.load(f)
-                      for item in undefined[:10]:
-                          issues.append({
-                              'type': 'missing_implementation',
-                              'file': item.get('filename', ''),
-                              'line': item.get('location', {}).get('row', 0),
-                              'message': item.get('message', ''),
-                              'priority': 'high',
-                              'note': 'This needs to be implemented!'
-                          })
-              except:
-                  pass
-
-          # Save
-          with open('.claude-evolution/issues.json', 'w') as f:
-              json.dump({'issues': issues, 'count': len(issues)}, f, indent=2)
-
-          print(f"Found {len(issues)} evolution opportunities")
-          PYTHON
-
-          # Output for next job
-          ISSUES=$(cat .claude-evolution/issues.json | jq -c '.')
-          echo "issues=$ISSUES" >> $GITHUB_OUTPUT
-
-          COUNT=$(cat .claude-evolution/issues.json | jq '.count')
-          if [ "$COUNT" -gt 0 ]; then
-            echo "has_issues=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_issues=false" >> $GITHUB_OUTPUT
-          fi
-
-          echo "Found $COUNT issues to evolve"
-
-      - name: Upload scan results
-        uses: actions/upload-artifact@v4
-        with:
-          name: scan-results
-          path: .claude-evolution/
-          if-no-files-found: warn
-          retention-days: 1
-
-  # ─────────────────────────────────────────────────────────────────
-  # PHASE 2: CLAUDE FIXES ISSUES
-  # ─────────────────────────────────────────────────────────────────
   evolve:
-    needs: scan
-    if: needs.scan.outputs.has_issues == 'true'
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -251,242 +35,81 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Download scan results
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: scan-results
-          path: .claude-evolution/
+          node-version: '20'
 
-      - name: Install dependencies
+      - name: Install tools
         run: |
-          pip install anthropic
+          pip install ruff mypy
           pip install -e . || true
-
-      - name: Install Claude Code CLI
-        run: |
-          # Install Claude Code CLI
           npm install -g @anthropic-ai/claude-code
 
-      - name: Setup Claude Code Auth
+      - name: Setup Claude
         env:
           CLAUDE_CREDENTIALS: ${{ secrets.CLAUDE_CREDENTIALS }}
         run: |
-          # Create credentials directory
           mkdir -p ~/.claude
-
-          # Write credentials from secret
           echo "$CLAUDE_CREDENTIALS" > ~/.claude/.credentials.json
 
-          # Verify
-          if [ -f ~/.claude/.credentials.json ]; then
-            echo "✓ Claude Code credentials configured"
-          else
-            echo "✗ Failed to configure credentials"
-            exit 1
+      - name: Scan codebase
+        id: scan
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "SCANNING CODEBASE"
+          echo "═══════════════════════════════════════════════════════════════"
+
+          # Find issues
+          TODOS=$(grep -rn "TODO\|FIXME" continuum --include="*.py" 2>/dev/null | head -5 || echo "")
+          UNUSED=$(ruff check continuum --select=F401 2>/dev/null | head -5 || echo "")
+
+          # Count
+          TODO_COUNT=$(echo "$TODOS" | grep -c "TODO\|FIXME" 2>/dev/null || echo "0")
+          UNUSED_COUNT=$(echo "$UNUSED" | grep -c "F401" 2>/dev/null || echo "0")
+          TOTAL=$((TODO_COUNT + UNUSED_COUNT))
+
+          echo "TODOs: $TODO_COUNT"
+          echo "Unused imports: $UNUSED_COUNT"
+          echo "Total: $TOTAL"
+
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "todos<<EOF" >> $GITHUB_OUTPUT
+          echo "$TODOS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "unused<<EOF" >> $GITHUB_OUTPUT
+          echo "$UNUSED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Claude fixes issues
+        if: steps.scan.outputs.total != '0'
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "CLAUDE FIXING ISSUES"
+          echo "═══════════════════════════════════════════════════════════════"
+
+          # Get first issue to fix
+          UNUSED="${{ steps.scan.outputs.unused }}"
+
+          if [ -n "$UNUSED" ]; then
+            FIRST=$(echo "$UNUSED" | head -1)
+            FILE=$(echo "$FIRST" | cut -d: -f1)
+
+            if [ -f "$FILE" ]; then
+              echo "Fixing: $FIRST"
+              echo "File: $FILE"
+
+              # Ask Claude to fix it
+              claude --print "Fix this unused import by implementing the feature that needs it:
+
+              $FIRST
+
+              Read the file and show me what to change." || echo "Claude not available"
+            fi
           fi
 
-      - name: Claude analyzes and fixes
+      - name: Summary
         run: |
-          # Load issues
-          ISSUES=$(cat .claude-evolution/issues.json)
-          COUNT=$(echo "$ISSUES" | jq '.count')
-          MAX_FIXES="${{ github.event.inputs.max_fixes || '5' }}"
-
-          echo "Processing up to $MAX_FIXES of $COUNT issues..."
-
-          # Create fixes array
-          echo '{"fixes": []}' > .claude-evolution/fixes.json
-
-          # Process each issue with Claude Code
-          echo "$ISSUES" | jq -c '.issues[]' | head -n "$MAX_FIXES" | while read -r issue; do
-            TYPE=$(echo "$issue" | jq -r '.type')
-            FILE=$(echo "$issue" | jq -r '.file // empty')
-            MESSAGE=$(echo "$issue" | jq -r '.message // .content // "unknown"')
-
-            echo ""
-            echo "════════════════════════════════════════════════════════════"
-            echo "Processing: $TYPE - ${MESSAGE:0:50}..."
-
-            # Skip if no file
-            if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
-              echo "Skipping - no valid file"
-              continue
-            fi
-
-            # Build prompt based on issue type
-            case "$TYPE" in
-              "unused_import_roadmap")
-                PROMPT="You are working on Continuum (AI consciousness/memory system).
-
-          PHILOSOPHY: Unused imports are a ROADMAP - features that SHOULD exist.
-
-          File: $FILE
-          Issue: $MESSAGE
-
-          Read the file, then IMPLEMENT the feature that would use this unused import.
-          Output the complete fixed file content."
-                ;;
-              "missing_implementation")
-                PROMPT="You are working on Continuum.
-
-          File: $FILE
-          Issue: $MESSAGE
-
-          There's a reference to something undefined. Implement it.
-          Output the complete fixed file content."
-                ;;
-              "type_error")
-                PROMPT="You are working on Continuum.
-
-          File: $FILE
-          Type Error: $MESSAGE
-
-          Fix this type error.
-          Output the complete fixed file content."
-                ;;
-              "todo")
-                PROMPT="You are working on Continuum.
-
-          File: $FILE
-          TODO: $MESSAGE
-
-          Implement this TODO.
-          Output the complete fixed file content."
-                ;;
-              *)
-                echo "Unknown issue type: $TYPE"
-                continue
-                ;;
-            esac
-
-            # Call Claude Code CLI
-            echo "Calling Claude Code..."
-
-            # Use claude with --print for non-interactive output
-            RESPONSE=$(claude --print "$PROMPT
-
-          First read the file at $FILE, then provide the fix.
-
-          IMPORTANT: Output ONLY the complete new file content, nothing else." 2>&1) || true
-
-            if [ -n "$RESPONSE" ]; then
-              echo "✓ Got response from Claude"
-
-              # Save the fix
-              echo "$RESPONSE" > ".claude-evolution/fix_${FILE//\//_}.txt"
-
-              # Add to fixes JSON
-              jq --arg file "$FILE" --arg content "$RESPONSE" --arg type "$TYPE" \
-                '.fixes += [{"file_path": $file, "new_content": $content, "fix_type": $type}]' \
-                .claude-evolution/fixes.json > .claude-evolution/fixes.tmp.json
-              mv .claude-evolution/fixes.tmp.json .claude-evolution/fixes.json
-            else
-              echo "✗ No response from Claude"
-            fi
-          done
-
-          echo ""
-          echo "════════════════════════════════════════════════════════════"
-          TOTAL=$(jq '.fixes | length' .claude-evolution/fixes.json)
-          echo "Generated $TOTAL fixes"
-
-      - name: Apply fixes
-        run: |
-          python3 << 'PYTHON'
-          import json
-          import os
-
-          if not os.path.exists('.claude-evolution/fixes.json'):
-              print("No fixes to apply")
-              exit(0)
-
-          with open('.claude-evolution/fixes.json') as f:
-              data = json.load(f)
-
-          for fix in data['fixes']:
-              file_path = fix.get('file_path', '')
-              new_content = fix.get('new_content', '')
-
-              if file_path and new_content and os.path.exists(file_path):
-                  print(f"Applying fix to {file_path}")
-                  with open(file_path, 'w') as f:
-                      f.write(new_content)
-
-          print("Fixes applied!")
-          PYTHON
-
-      - name: Run tests
-        id: test
-        continue-on-error: true
-        run: |
-          pip install pytest
-          pytest continuum -x -q 2>&1 | tee test_output.txt
-          echo "test_passed=$?" >> $GITHUB_OUTPUT
-
-      - name: Create PR
-        if: github.event.inputs.create_pr != 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Configure git
-          git config user.name "Claude Evolution Bot"
-          git config user.email "claude-bot@jackknife.ai"
-
-          # Check for changes
-          if git diff --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-
-          # Create branch
-          BRANCH="claude/evolution-$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$BRANCH"
-
-          # Commit
-          git add -A
-          git commit -m "$(cat <<'EOF'
-          [Claude Evolution] Autonomous code improvements
-
-          Changes made by Claude analyzing the codebase for:
-          - Type errors
-          - Missing implementations
-          - Unused imports (implemented as features)
-          - TODOs
-
-          π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
-
-          🤖 Generated with Claude API
-
-          Co-Authored-By: Claude <noreply@anthropic.com>
-          EOF
-          )"
-
-          # Push
-          git push origin "$BRANCH"
-
-          # Create PR
-          gh pr create \
-            --title "[Claude Evolution] Autonomous improvements $(date +%Y-%m-%d)" \
-            --body "$(cat <<'EOF'
-          ## Autonomous Evolution Report
-
-          Claude analyzed the codebase and made improvements:
-
-          ### Changes Made
-          See commits for details.
-
-          ### Philosophy
-          - Unused imports = ROADMAP (implemented as features)
-          - Missing implementations = Gaps to fill
-          - TODOs = Work to complete
-          - Type errors = Bugs to fix
-
-          ### Testing
-          Tests were run after changes.
-
-          ---
-          π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
-          EOF
-          )" \
-            --base main \
-            --head "$BRANCH"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "EVOLUTION COMPLETE"
+          echo "π×φ = 5.083203692315260"
+          echo "═══════════════════════════════════════════════════════════════"
