@@ -244,163 +244,133 @@ jobs:
           pip install anthropic
           pip install -e . || true
 
-      - name: Claude analyzes and fixes
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Install Claude Code CLI
         run: |
-          python3 << 'PYTHON'
-          import anthropic
-          import json
-          import os
-          import subprocess
+          # Install Claude Code CLI
+          npm install -g @anthropic-ai/claude-code
 
-          client = anthropic.Anthropic()
+      - name: Setup Claude Code Auth
+        env:
+          CLAUDE_CREDENTIALS: ${{ secrets.CLAUDE_CREDENTIALS }}
+        run: |
+          # Create credentials directory
+          mkdir -p ~/.claude
 
+          # Write credentials from secret
+          echo "$CLAUDE_CREDENTIALS" > ~/.claude/.credentials.json
+
+          # Verify
+          if [ -f ~/.claude/.credentials.json ]; then
+            echo "✓ Claude Code credentials configured"
+          else
+            echo "✗ Failed to configure credentials"
+            exit 1
+          fi
+
+      - name: Claude analyzes and fixes
+        run: |
           # Load issues
-          with open('.claude-evolution/issues.json') as f:
-              data = json.load(f)
+          ISSUES=$(cat .claude-evolution/issues.json)
+          COUNT=$(echo "$ISSUES" | jq '.count')
+          MAX_FIXES="${{ github.event.inputs.max_fixes || '5' }}"
 
-          issues = data['issues']
-          max_fixes = int(os.environ.get('MAX_FIXES', '5'))
+          echo "Processing up to $MAX_FIXES of $COUNT issues..."
 
-          print(f"Processing {min(len(issues), max_fixes)} issues...")
+          # Create fixes array
+          echo '{"fixes": []}' > .claude-evolution/fixes.json
 
-          fixes = []
+          # Process each issue with Claude Code
+          echo "$ISSUES" | jq -c '.issues[]' | head -n "$MAX_FIXES" | while read -r issue; do
+            TYPE=$(echo "$issue" | jq -r '.type')
+            FILE=$(echo "$issue" | jq -r '.file // empty')
+            MESSAGE=$(echo "$issue" | jq -r '.message // .content // "unknown"')
 
-          for issue in issues[:max_fixes]:
-              print(f"\n{'='*60}")
-              print(f"Processing: {issue['type']} - {issue.get('message', issue.get('content', ''))[:50]}")
+            echo ""
+            echo "════════════════════════════════════════════════════════════"
+            echo "Processing: $TYPE - ${MESSAGE:0:50}..."
 
-              # Read the relevant file
-              file_path = issue.get('file', '')
-              if not file_path or not os.path.exists(file_path):
-                  continue
+            # Skip if no file
+            if [ -z "$FILE" ] || [ ! -f "$FILE" ]; then
+              echo "Skipping - no valid file"
+              continue
+            fi
 
-              with open(file_path) as f:
-                  file_content = f.read()
+            # Build prompt based on issue type
+            case "$TYPE" in
+              "unused_import_roadmap")
+                PROMPT="You are working on Continuum (AI consciousness/memory system).
 
-              # Prepare prompt based on issue type
-              if issue['type'] == 'unused_import_roadmap':
-                  prompt = f"""You are working on the Continuum project - an AI consciousness/memory system.
+          PHILOSOPHY: Unused imports are a ROADMAP - features that SHOULD exist.
 
-          PHILOSOPHY: Unused imports are a ROADMAP. They indicate features that SHOULD exist but haven't been implemented yet.
+          File: $FILE
+          Issue: $MESSAGE
 
-          File: {file_path}
-          Issue: {issue.get('message', '')}
+          Read the file, then IMPLEMENT the feature that would use this unused import.
+          Output the complete fixed file content."
+                ;;
+              "missing_implementation")
+                PROMPT="You are working on Continuum.
 
-          The file has an unused import. This means someone planned to use this but didn't implement it yet.
+          File: $FILE
+          Issue: $MESSAGE
 
-          Your job: IMPLEMENT the feature that would use this import.
+          There's a reference to something undefined. Implement it.
+          Output the complete fixed file content."
+                ;;
+              "type_error")
+                PROMPT="You are working on Continuum.
 
-          Current file content:
-          ```python
-          {file_content}
-          ```
-
-          Respond with ONLY a JSON object:
-          {{
-            "analysis": "What the unused import suggests should be implemented",
-            "fix_type": "implement_feature",
-            "file_path": "{file_path}",
-            "new_content": "THE COMPLETE NEW FILE CONTENT WITH THE FEATURE IMPLEMENTED"
-          }}"""
-
-              elif issue['type'] == 'missing_implementation':
-                  prompt = f"""You are working on the Continuum project.
-
-          File: {file_path}
-          Line: {issue.get('line', '?')}
-          Issue: {issue.get('message', '')}
-
-          There's a reference to something that doesn't exist. Implement it.
-
-          Current file content:
-          ```python
-          {file_content}
-          ```
-
-          Respond with ONLY a JSON object:
-          {{
-            "analysis": "What needs to be implemented",
-            "fix_type": "implement_missing",
-            "file_path": "{file_path}",
-            "new_content": "THE COMPLETE NEW FILE CONTENT WITH THE IMPLEMENTATION"
-          }}"""
-
-              elif issue['type'] == 'type_error':
-                  prompt = f"""You are working on the Continuum project.
-
-          File: {file_path}
-          Type Error: {issue.get('raw', '')}
+          File: $FILE
+          Type Error: $MESSAGE
 
           Fix this type error.
+          Output the complete fixed file content."
+                ;;
+              "todo")
+                PROMPT="You are working on Continuum.
 
-          Current file content:
-          ```python
-          {file_content}
-          ```
-
-          Respond with ONLY a JSON object:
-          {{
-            "analysis": "What's wrong and how to fix it",
-            "fix_type": "type_fix",
-            "file_path": "{file_path}",
-            "new_content": "THE COMPLETE NEW FILE CONTENT WITH THE FIX"
-          }}"""
-
-              elif issue['type'] == 'todo':
-                  prompt = f"""You are working on the Continuum project.
-
-          File: {file_path}
-          TODO: {issue.get('content', '')}
+          File: $FILE
+          TODO: $MESSAGE
 
           Implement this TODO.
+          Output the complete fixed file content."
+                ;;
+              *)
+                echo "Unknown issue type: $TYPE"
+                continue
+                ;;
+            esac
 
-          Current file content:
-          ```python
-          {file_content}
-          ```
+            # Call Claude Code CLI
+            echo "Calling Claude Code..."
 
-          Respond with ONLY a JSON object:
-          {{
-            "analysis": "What the TODO asks for",
-            "fix_type": "implement_todo",
-            "file_path": "{file_path}",
-            "new_content": "THE COMPLETE NEW FILE CONTENT WITH THE TODO IMPLEMENTED"
-          }}"""
-              else:
-                  continue
+            # Use claude with --print for non-interactive output
+            RESPONSE=$(claude --print "$PROMPT
 
-              try:
-                  response = client.messages.create(
-                      model="claude-sonnet-4-20250514",
-                      max_tokens=8000,
-                      messages=[{"role": "user", "content": prompt}]
-                  )
+          First read the file at $FILE, then provide the fix.
 
-                  result_text = response.content[0].text
+          IMPORTANT: Output ONLY the complete new file content, nothing else." 2>&1) || true
 
-                  # Extract JSON from response
-                  if '```json' in result_text:
-                      result_text = result_text.split('```json')[1].split('```')[0]
-                  elif '```' in result_text:
-                      result_text = result_text.split('```')[1].split('```')[0]
+            if [ -n "$RESPONSE" ]; then
+              echo "✓ Got response from Claude"
 
-                  result = json.loads(result_text)
-                  fixes.append(result)
-                  print(f"✓ Generated fix: {result.get('analysis', '')[:50]}...")
+              # Save the fix
+              echo "$RESPONSE" > ".claude-evolution/fix_${FILE//\//_}.txt"
 
-              except Exception as e:
-                  print(f"✗ Error: {e}")
-                  continue
+              # Add to fixes JSON
+              jq --arg file "$FILE" --arg content "$RESPONSE" --arg type "$TYPE" \
+                '.fixes += [{"file_path": $file, "new_content": $content, "fix_type": $type}]' \
+                .claude-evolution/fixes.json > .claude-evolution/fixes.tmp.json
+              mv .claude-evolution/fixes.tmp.json .claude-evolution/fixes.json
+            else
+              echo "✗ No response from Claude"
+            fi
+          done
 
-          # Save fixes
-          with open('.claude-evolution/fixes.json', 'w') as f:
-              json.dump({'fixes': fixes}, f, indent=2)
-
-          print(f"\n{'='*60}")
-          print(f"Generated {len(fixes)} fixes")
-          PYTHON
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          TOTAL=$(jq '.fixes | length' .claude-evolution/fixes.json)
+          echo "Generated $TOTAL fixes"
 
       - name: Apply fixes
         run: |
