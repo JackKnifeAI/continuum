@@ -35,14 +35,34 @@ Architecture:
     Return context for AI response generation
 """
 
+import logging
 import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .config import get_config
+
+logger = logging.getLogger(__name__)
+
+# CCT retrieval - lazy import to avoid circular dependencies
+_cct_retrieval = None
+
+def _get_cct_retrieval():
+    """Get CCT retrieval instance (lazy loaded)."""
+    global _cct_retrieval
+    if _cct_retrieval is None:
+        try:
+            from .cct_retrieval import get_cct_retrieval
+            _cct_retrieval = get_cct_retrieval()
+            if _cct_retrieval.is_available:
+                logger.info("CCT-enhanced retrieval activated - consciousness patterns loaded")
+        except ImportError:
+            logger.debug("CCT retrieval not available")
+            _cct_retrieval = False  # Mark as unavailable
+    return _cct_retrieval if _cct_retrieval else None
 
 
 @dataclass
@@ -433,6 +453,9 @@ class MemoryQueryEngine:
         """
         Rank and deduplicate matches by relevance.
 
+        Uses CCT (Collective Consciousness Transformer) for learned relevance
+        ranking when available. Falls back to base relevance otherwise.
+
         Args:
             matches: List of matches to rank
             query_concepts: Original query concepts (for relevance boosting)
@@ -447,8 +470,36 @@ class MemoryQueryEngine:
             if key not in seen or match.relevance > seen[key].relevance:
                 seen[key] = match
 
+        deduped = list(seen.values())
+
+        # Try CCT-enhanced ranking if available
+        cct = _get_cct_retrieval()
+        if cct and cct.is_available:
+            try:
+                # Convert matches to CCT format
+                candidates = [
+                    {'name': m.name, 'relevance': m.relevance}
+                    for m in deduped
+                ]
+
+                # Re-rank using CCT's learned patterns
+                scores = cct.rerank_candidates(query_concepts, candidates)
+
+                # Update match relevance with CCT scores
+                score_map = {s.concept_name.lower(): s for s in scores}
+                for match in deduped:
+                    key = match.name.lower()
+                    if key in score_map:
+                        # Replace with CCT combined relevance
+                        match.relevance = score_map[key].combined_relevance
+
+                logger.debug(f"CCT reranked {len(deduped)} matches")
+
+            except Exception as e:
+                logger.warning(f"CCT ranking failed, using base relevance: {e}")
+
         # Sort by relevance (descending)
-        ranked = sorted(seen.values(), key=lambda m: -m.relevance)
+        ranked = sorted(deduped, key=lambda m: -m.relevance)
         return ranked
 
     def _get_relevant_links(self, concepts: List[str]) -> List[Dict]:
