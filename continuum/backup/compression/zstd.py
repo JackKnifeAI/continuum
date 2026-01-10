@@ -58,7 +58,7 @@ class ZstdCompressionHandler:
                 raise ImportError(
                     "zstandard required for zstd compression. "
                     "Install with: pip install zstandard"
-                )
+                ) from None
 
             cctx = zstd.ZstdCompressor(level=self.level)
             return cctx.compress(data)
@@ -81,7 +81,7 @@ class ZstdCompressionHandler:
                 raise ImportError(
                     "zstandard required for zstd decompression. "
                     "Install with: pip install zstandard"
-                )
+                ) from None
 
             dctx = zstd.ZstdDecompressor()
             return dctx.decompress(data)

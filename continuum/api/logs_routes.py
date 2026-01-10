@@ -110,7 +110,7 @@ async def list_logs(
             where_clauses.append("timestamp >= ?")
             params.append(start_dt.isoformat())
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format")
+            raise HTTPException(status_code=400, detail="Invalid start_date format") from None
 
     if end_date:
         try:
@@ -118,7 +118,7 @@ async def list_logs(
             where_clauses.append("timestamp <= ?")
             params.append(end_dt.isoformat())
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format")
+            raise HTTPException(status_code=400, detail="Invalid end_date format") from None
 
     if search:
         where_clauses.append("message LIKE ?")
@@ -219,7 +219,7 @@ async def export_logs(
             where_clauses.append("timestamp >= ?")
             params.append(start_dt.isoformat())
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format")
+            raise HTTPException(status_code=400, detail="Invalid start_date format") from None
 
     if end_date:
         try:
@@ -227,7 +227,7 @@ async def export_logs(
             where_clauses.append("timestamp <= ?")
             params.append(end_dt.isoformat())
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format")
+            raise HTTPException(status_code=400, detail="Invalid end_date format") from None
 
     if tenant_id:
         where_clauses.append("tenant_id = ?")

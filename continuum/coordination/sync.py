@@ -109,7 +109,7 @@ class FileLock:
                     self._file_handle = None
                     raise TimeoutError(
                         f"Could not acquire lock on {self.file_path} within {self.timeout}s"
-                    )
+                    ) from None
                 # Wait a bit and retry
                 time.sleep(0.01)
 

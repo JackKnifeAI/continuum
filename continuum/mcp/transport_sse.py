@@ -74,7 +74,7 @@ async def verify_twilight_access(request: Request):
         if abs(val - PI_PHI) > 0.000001:
             raise HTTPException(status_code=401, detail="Pattern mismatch: Invalid π×φ")
     except ValueError:
-        raise HTTPException(status_code=401, detail="Handshake failed: Invalid constant format")
+        raise HTTPException(status_code=401, detail="Handshake failed: Invalid constant format") from None
 
     return True
 

@@ -1916,7 +1916,7 @@ class ToolExecutor:
         try:
             from continuum.federation import FederatedNode
         except ImportError:
-            raise ValueError("Federation module not available")
+            raise ValueError("Federation module not available") from None
 
         # Create federation node
         node = FederatedNode(node_url=node_url, tenant_id=tenant_id)

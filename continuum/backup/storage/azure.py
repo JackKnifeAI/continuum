@@ -68,7 +68,7 @@ class AzureStorageBackend(StorageBackendBase):
                 raise ImportError(
                     "azure-storage-blob required for Azure backend. "
                     "Install with: pip install azure-storage-blob"
-                )
+                ) from None
 
             if self.config.azure_connection_string:
                 self._blob_service_client = BlobServiceClient.from_connection_string(

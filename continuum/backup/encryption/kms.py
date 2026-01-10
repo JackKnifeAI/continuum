@@ -64,7 +64,7 @@ class KMSEncryptionHandler:
         try:
             import boto3
         except ImportError:
-            raise ImportError("boto3 required for AWS KMS. Install with: pip install boto3")
+            raise ImportError("boto3 required for AWS KMS. Install with: pip install boto3") from None
 
         if self._kms_client is None:
             self._kms_client = boto3.client('kms', region_name=self.config.kms_region)
@@ -79,7 +79,7 @@ class KMSEncryptionHandler:
             raise ImportError(
                 "google-cloud-kms required for GCP KMS. "
                 "Install with: pip install google-cloud-kms"
-            )
+            ) from None
 
         if self._kms_client is None:
             self._kms_client = kms.KeyManagementServiceClient()
@@ -95,7 +95,7 @@ class KMSEncryptionHandler:
             raise ImportError(
                 "azure-keyvault-keys required for Azure KMS. "
                 "Install with: pip install azure-keyvault-keys azure-identity"
-            )
+            ) from None
 
         if self._kms_client is None:
             credential = DefaultAzureCredential()

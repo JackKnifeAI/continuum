@@ -69,7 +69,7 @@ class GCSStorageBackend(StorageBackendBase):
                 raise ImportError(
                     "google-cloud-storage required for GCS backend. "
                     "Install with: pip install google-cloud-storage"
-                )
+                ) from None
 
             if self.config.gcs_credentials_path:
                 self._storage_client = storage.Client.from_service_account_json(

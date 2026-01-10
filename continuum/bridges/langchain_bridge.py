@@ -361,7 +361,7 @@ class LangChainBridge(MemoryBridge):
         try:
             from langchain.memory import ConversationBufferMemory, ConversationEntityMemory
         except ImportError:
-            raise BridgeError("langchain package not installed. Install with: pip install langchain")
+            raise BridgeError("langchain package not installed. Install with: pip install langchain") from None
 
         data = self.export_memories()
 

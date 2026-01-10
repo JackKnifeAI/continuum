@@ -55,7 +55,7 @@ class LZ4CompressionHandler:
             except ImportError:
                 raise ImportError(
                     "lz4 required for LZ4 compression. Install with: pip install lz4"
-                )
+                ) from None
 
             if self.high_compression:
                 return lz4.frame.compress(data, compression_level=lz4.frame.COMPRESSIONLEVEL_MAX)
@@ -79,7 +79,7 @@ class LZ4CompressionHandler:
             except ImportError:
                 raise ImportError(
                     "lz4 required for LZ4 decompression. Install with: pip install lz4"
-                )
+                ) from None
 
             return lz4.frame.decompress(data)
 

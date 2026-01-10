@@ -715,7 +715,7 @@ async def search_messages(
         try:
             start_timestamp = dt.fromisoformat(request.start_date.replace('Z', '+00:00')).timestamp()
         except ValueError:
-            raise HTTPException(status_code=400, detail="start_date must be ISO 8601 format")
+            raise HTTPException(status_code=400, detail="start_date must be ISO 8601 format") from None
     else:
         start_timestamp = None
 
@@ -723,7 +723,7 @@ async def search_messages(
         try:
             end_timestamp = dt.fromisoformat(request.end_date.replace('Z', '+00:00')).timestamp()
         except ValueError:
-            raise HTTPException(status_code=400, detail="end_date must be ISO 8601 format")
+            raise HTTPException(status_code=400, detail="end_date must be ISO 8601 format") from None
     else:
         end_timestamp = None
 

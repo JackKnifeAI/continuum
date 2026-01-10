@@ -89,7 +89,7 @@ class AESEncryptionHandler:
                 raise ImportError(
                     "cryptography required for encryption. "
                     "Install with: pip install cryptography"
-                )
+                ) from None
 
             # Get encryption key
             key = self._get_key()
@@ -136,7 +136,7 @@ class AESEncryptionHandler:
                 raise ImportError(
                     "cryptography required for decryption. "
                     "Install with: pip install cryptography"
-                )
+                ) from None
 
             # Extract IV and ciphertext
             iv = data[:12]

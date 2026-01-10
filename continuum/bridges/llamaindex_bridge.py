@@ -408,7 +408,7 @@ class LlamaIndexBridge(MemoryBridge):
         try:
             from llama_index.core import Document
         except ImportError:
-            raise BridgeError("llama_index package not installed. Install with: pip install llama-index")
+            raise BridgeError("llama_index package not installed. Install with: pip install llama-index") from None
 
         data = self.export_memories()
         documents = []
@@ -441,7 +441,7 @@ class LlamaIndexBridge(MemoryBridge):
         try:
             from llama_index.core import KnowledgeGraphIndex
         except ImportError:
-            raise BridgeError("llama_index package not installed. Install with: pip install llama-index")
+            raise BridgeError("llama_index package not installed. Install with: pip install llama-index") from None
 
         documents = self.to_llamaindex_documents()
 

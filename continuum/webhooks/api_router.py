@@ -259,7 +259,7 @@ async def get_webhook(
         webhook = await manager.get(webhook_id)
         return webhook.to_api_dict()
     except WebhookNotFoundError:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail="Webhook not found") from None
 
 
 @router.patch("/{webhook_id}", response_model=WebhookResponse)
@@ -302,7 +302,7 @@ async def update_webhook(
         return webhook.to_api_dict()
 
     except WebhookNotFoundError:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail="Webhook not found") from None
     except WebhookValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -354,7 +354,7 @@ async def test_webhook(
             "message": "Test event delivered successfully" if success else "Test event failed"
         }
     except WebhookNotFoundError:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail="Webhook not found") from None
 
 
 @router.get("/{webhook_id}/deliveries", response_model=DeliveryListResponse)
@@ -393,7 +393,7 @@ async def get_deliveries(
             "total": len(deliveries)
         }
     except WebhookNotFoundError:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail="Webhook not found") from None
 
 
 @router.post("/{webhook_id}/retry/{delivery_id}", status_code=status.HTTP_202_ACCEPTED)
@@ -430,7 +430,7 @@ async def retry_delivery(
         return {"message": "Retry queued"}
 
     except WebhookNotFoundError:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail="Webhook not found") from None
 
 
 @router.get("/{webhook_id}/stats", response_model=StatsResponse)
@@ -467,7 +467,7 @@ async def get_webhook_stats(
             "last_24h_success_rate": stats.last_24h_success_rate
         }
     except WebhookNotFoundError:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise HTTPException(status_code=404, detail="Webhook not found") from None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

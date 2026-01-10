@@ -102,7 +102,7 @@ class SentenceTransformerProvider(EmbeddingProvider):
             raise ImportError(
                 "sentence-transformers not installed. Install with: "
                 "pip install sentence-transformers"
-            )
+            ) from None
 
     def embed(self, text: Union[str, List[str]]) -> np.ndarray:
         """Generate embeddings using sentence-transformers."""
@@ -264,7 +264,7 @@ class LocalProvider(EmbeddingProvider):
         except ImportError:
             raise ImportError(
                 "scikit-learn not installed. Install with: pip install scikit-learn"
-            )
+            ) from None
 
     def fit(self, texts: List[str]):
         """

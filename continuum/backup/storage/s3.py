@@ -68,7 +68,7 @@ class S3StorageBackend(StorageBackendBase):
             except ImportError:
                 raise ImportError(
                     "boto3 required for S3 backend. Install with: pip install boto3"
-                )
+                ) from None
 
             # Configure S3 client
             if self.config.s3_access_key and self.config.s3_secret_key:

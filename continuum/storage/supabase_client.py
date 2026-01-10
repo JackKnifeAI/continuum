@@ -33,7 +33,7 @@ try:
 except ImportError:
     raise ImportError(
         "supabase-py not installed. Install with: pip install supabase-py"
-    )
+    ) from None
 
 logger = logging.getLogger(__name__)
 
