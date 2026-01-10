@@ -15,74 +15,49 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-Public Dashboard Routes
+Global Metering Context
 
-No authentication required - these are for the customer-facing dashboard.
+Provides singleton access to the UsageMetering instance for the entire API.
+This allows routes to access usage tracking without dependency injection.
 """
+
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from continuum.billing.metering import UsageMetering
 
-from continuum.billing.tiers import PricingTier, get_tier_limits
-from continuum.core.memory import TenantManager
-
-from .metering_context import get_metering
-
-router = APIRouter()
-tenant_manager = TenantManager()
+# Global metering instance (set by server.py on startup)
+_metering_instance: Optional[UsageMetering] = None
 
 
-@router.get("/stats")
-async def get_dashboard_stats(
-    tenant_id: Optional[str] = Query("default", description="Tenant ID"),
-):
+def set_metering(metering: UsageMetering) -> None:
     """
-    Get dashboard statistics for a tenant.
+    Set the global metering instance.
 
-    This is a public endpoint for the customer dashboard (no auth required).
-    Returns memory stats and tier information.
+    This should be called once during server initialization.
+
+    Args:
+        metering: The UsageMetering instance to use globally
     """
-    try:
-        # Get tenant's memory instance and query actual stats from database
-        memory = tenant_manager.get_tenant(tenant_id)
-        stats = await memory.aget_stats()
+    global _metering_instance
+    _metering_instance = metering
 
-        # Look up tenant's pricing tier (default to FREE for now)
-        # In production, this would query the subscription/billing database
-        tier = PricingTier.FREE
-        tier_limits = get_tier_limits(tier)
 
-        # Get API call usage from metering system
-        metering = get_metering()
-        api_calls_today = await metering.get_usage(
-            tenant_id=tenant_id,
-            metric='api_calls',
-            period='day'
-        )
+def get_metering() -> UsageMetering:
+    """
+    Get the global metering instance.
 
-        return {
-            "tenant_id": stats["tenant_id"],
-            "instance_id": stats["instance_id"],
-            "entities": stats["entities"],
-            "messages": stats.get("messages", 0) + stats.get("auto_messages", 0),
-            "decisions": stats["decisions"],
-            "attention_links": stats["attention_links"],
-            "compound_concepts": stats["compound_concepts"],
-            "tier": tier.value.upper(),
-            "api_calls_today": api_calls_today,
-            "tier_info": {
-                "name": tier.value.upper(),
-                "limits": {
-                    "memories": tier_limits.max_memories,
-                    "api_calls_per_day": tier_limits.api_calls_per_day
-                }
-            }
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve dashboard stats: {str(e)}"
-        ) from e
+    Returns:
+        The global UsageMetering instance
+
+    Raises:
+        RuntimeError: If metering has not been initialized
+    """
+    if _metering_instance is None:
+        # Return a new instance for testing/fallback
+        # In production, this should be set by server.py
+        return UsageMetering()
+
+    return _metering_instance
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
