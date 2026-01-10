@@ -19,8 +19,9 @@ DataLoaders for Session entities.
 """
 
 from typing import List, Optional
-from strawberry.dataloader import DataLoader
+
 import aiosqlite
+from strawberry.dataloader import DataLoader
 
 
 class SessionLoader(DataLoader):
@@ -32,8 +33,9 @@ class SessionLoader(DataLoader):
 
     async def batch_load_fn(self, keys: List[str]) -> List[Optional[dict]]:
         """Batch load sessions by IDs"""
-        from ..types import Session, SessionStatus
         from datetime import datetime
+
+        from ..types import Session, SessionStatus
 
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = aiosqlite.Row

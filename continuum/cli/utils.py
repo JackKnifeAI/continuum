@@ -20,11 +20,11 @@ CLI Utility Functions
 Shared utilities for CLI commands.
 """
 
-import sys
 import json
-from pathlib import Path
-from typing import Any, Optional, Dict
+import sys
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
 
 
 # Color codes for terminal output

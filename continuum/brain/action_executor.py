@@ -17,9 +17,10 @@ Supports:
 import asyncio
 import logging
 import subprocess
-from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Optional
+
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -202,10 +203,10 @@ class ActionExecutor:
         # Try to import selenium
         try:
             from selenium import webdriver
-            from selenium.webdriver.firefox.options import Options
             from selenium.webdriver.common.by import By
-            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.firefox.options import Options
             from selenium.webdriver.support import expected_conditions as EC
+            from selenium.webdriver.support.ui import WebDriverWait
 
             # Set up Firefox with marionette
             options = Options()

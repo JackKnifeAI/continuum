@@ -19,8 +19,9 @@ DataLoaders for Concept entities.
 """
 
 from typing import List, Optional
-from strawberry.dataloader import DataLoader
+
 import aiosqlite
+from strawberry.dataloader import DataLoader
 
 
 class ConceptLoader(DataLoader):
@@ -32,8 +33,9 @@ class ConceptLoader(DataLoader):
 
     async def batch_load_fn(self, keys: List[str]) -> List[Optional[dict]]:
         """Batch load concepts by IDs"""
-        from ..types import Concept
         from datetime import datetime
+
+        from ..types import Concept
 
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = aiosqlite.Row
@@ -76,8 +78,9 @@ class MemoriesByConceptLoader(DataLoader):
 
     async def batch_load_fn(self, concept_ids: List[str]) -> List[List[dict]]:
         """Batch load memories for multiple concepts"""
-        from ..types import Memory, MemoryType
         from datetime import datetime
+
+        from ..types import Memory, MemoryType
 
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = aiosqlite.Row

@@ -29,13 +29,14 @@ Async-first SQLite backend using aiosqlite for:
 This backend is optimized for async FastAPI applications.
 """
 
-import aiosqlite
 import asyncio
 import atexit
-from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import aiosqlite
 
 
 @dataclass

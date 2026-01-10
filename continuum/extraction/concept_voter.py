@@ -32,10 +32,10 @@ This implements the ensemble approach for CONTINUUM v2.0 to improve
 extraction accuracy beyond single-extractor methods.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional, Tuple
-from enum import Enum
 import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 
 class VotingStrategy(Enum):
@@ -328,7 +328,7 @@ class ConceptVoter:
 
                 extraction_times[source] = elapsed_ms
 
-            except Exception as e:
+            except Exception:
                 # Log error but continue with other extractors
                 extraction_times[source] = -1  # Error indicator
                 continue

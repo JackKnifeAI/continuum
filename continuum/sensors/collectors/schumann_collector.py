@@ -61,22 +61,20 @@ PHYSICS MODEL (for simulation):
     - Ionospheric modulation: Day/night, solar activity, seasons
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timezone, timedelta
-from dataclasses import dataclass
 import logging
 import math
 import random
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
 from ..schemas import (
-    SensorReading,
-    DataSource,
-    SensorType,
-    AnomalyEvent,
-    AnomalyType,
     AnomalySeverity,
+    DataSource,
+    SensorReading,
+    SensorType,
 )
 
 logger = logging.getLogger(__name__)

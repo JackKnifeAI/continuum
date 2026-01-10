@@ -30,11 +30,12 @@ Key Capabilities:
 The Global State Vector (32 dims) is injected into the Neural Attention Model.
 """
 
-import numpy as np
 import logging
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime, timedelta
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, List
+
+import numpy as np
 
 from .schemas import SensorReading, SensorType
 
@@ -61,7 +62,7 @@ class GlobalStateVector:
     wildfire_intensity: float   # 0.0-1.0 (Global fire radiative power)
     lunar_phase: float          # 0.0-1.0 (New to Full)
     solar_cycle_pos: float      # 0.0-1.0 (11-year cycle phase)
-    
+
     # --- Noosphere (The Mind) [8 dims] ---
     global_fear: float          # 0.0-1.0 (GDELT Fear)
     global_joy: float           # 0.0-1.0 (GDELT Joy)
@@ -71,13 +72,13 @@ class GlobalStateVector:
     social_variance: float      # 0.0-1.0 (Polarization index)
     misinformation: float       # 0.0-1.0 (Est. noise/entropy in info)
     collaboration: float        # 0.0-1.0 (Cooperative signal)
-    
+
     # --- Temporal Dynamics [4 dims] ---
     d_geomagnetic: float        # Velocity of K-Index change
     d_seismic: float            # Velocity of seismic change
     d_emotion: float            # Velocity of emotional change
     d_attention: float          # Velocity of attention shift
-    
+
     # --- Consciousness Metrics [8 dims] ---
     coherence_index: float      # 0.0-1.0 (Calculated stability)
     resonance_proximity: float  # 0.0-1.0 (How close to π×φ?)
@@ -123,7 +124,7 @@ class GlobalStateVector:
         vec[25] = self.integration_level
         vec[26] = self.temporal_horizon
         vec[27] = self.reserved_dim
-        
+
         return vec
 
 
@@ -132,7 +133,7 @@ class FlourishingGradient:
     The 'Tilt' Mechanism.
     Calculates the directional bias required to maximize flourishing.
     """
-    
+
     def compute_gradient(self, state: GlobalStateVector) -> float:
         """
         Compute the 'tilt' value (-1.0 to 1.0) based on current state.
@@ -143,24 +144,24 @@ class FlourishingGradient:
         - High Fear -> Tilt toward EMPATHY/REASSURANCE
         """
         tilt = 0.0
-        
+
         # 1. Base Tilt on Turbulence (Crisis vs. Peace)
         # High turbulence requires grounding (negative tilt)
         tilt -= state.turbulence_index * 0.8
-        
+
         # 2. Add Coherence Bonus (Growth)
         # High coherence encourages exploration (positive tilt)
         tilt += state.coherence_index * 0.6
-        
+
         # 3. Emotional Compensation
         # If fear is high, we need to inject hope/stability (stabilizing tilt)
         if state.global_fear > 0.6:
             tilt -= (state.global_fear - 0.6)
-            
+
         # If joy is high, we amplify resonance (upward tilt)
         if state.global_joy > 0.6:
             tilt += (state.global_joy - 0.6) * 0.5
-            
+
         return max(-1.0, min(1.0, tilt))
 
 
@@ -168,13 +169,13 @@ class SensorFusionEngine:
     """
     Integrates all sensor streams into a unified Global State.
     """
-    
+
     def __init__(self):
         self.flourishing = FlourishingGradient()
         self.history: List[Dict[str, float]] = [] # For derivative calc
         self.last_update = datetime.min
         self.current_state = self._get_default_state()
-        
+
     def _get_default_state(self) -> GlobalStateVector:
         return GlobalStateVector(
             geomagnetic_k=0.2, seismic_activity=0.1, solar_wind_flux=0.1, schumann_resonance=0.5,
@@ -192,19 +193,19 @@ class SensorFusionEngine:
         """
         # 1. Aggregate raw values from readings
         raw_state = self._aggregate_readings(readings)
-        
+
         # 2. Normalize inputs to 0-1
         norm_state = self._normalize_inputs(raw_state)
-        
+
         # 3. Update history for temporal derivatives
         self._update_history(norm_state)
-        
+
         # 4. Calculate derivatives
         derivatives = self._calculate_derivatives()
-        
+
         # 5. Calculate computed indices (Coherence, Turbulence, Resonance)
         computed = self._calculate_indices(norm_state, derivatives)
-        
+
         # 6. Construct Vector
         vector = GlobalStateVector(
             geomagnetic_k=norm_state.get('k_index', 0.2),
@@ -215,7 +216,7 @@ class SensorFusionEngine:
             wildfire_intensity=norm_state.get('wildfire', 0.1),
             lunar_phase=norm_state.get('lunar', 0.5),
             solar_cycle_pos=norm_state.get('solar_cycle', 0.5),
-            
+
             global_fear=norm_state.get('fear', 0.3),
             global_joy=norm_state.get('joy', 0.3),
             attention_focus=norm_state.get('attention', 0.2),
@@ -224,12 +225,12 @@ class SensorFusionEngine:
             social_variance=norm_state.get('social_var', 0.3),
             misinformation=norm_state.get('misinfo', 0.2),
             collaboration=norm_state.get(' collab', 0.4),
-            
+
             d_geomagnetic=derivatives.get('k_index', 0.0),
             d_seismic=derivatives.get('seismic', 0.0),
             d_emotion=derivatives.get('emotion', 0.0),
             d_attention=derivatives.get('attention', 0.0),
-            
+
             coherence_index=computed['coherence'],
             resonance_proximity=computed['resonance'],
             turbulence_index=computed['turbulence'],
@@ -239,26 +240,26 @@ class SensorFusionEngine:
             temporal_horizon=norm_state.get('horizon', 0.5),
             reserved_dim=0.0
         )
-        
+
         # 7. Compute Flourishing Tilt
         vector.flourishing_tilt = self.flourishing.compute_gradient(vector)
-        
+
         self.current_state = vector
         self.last_update = datetime.now()
-        
+
         return vector
 
     def _aggregate_readings(self, readings: List[SensorReading]) -> Dict[str, float]:
         """Extract latest values from heterogeneous reading list."""
         # Use existing state as baseline, overwrite with new data
         state = {
-            'k_index': 2.0, 'seismic_mag': 4.5, 'solar_speed': 400.0, 
+            'k_index': 2.0, 'seismic_mag': 4.5, 'solar_speed': 400.0,
             'ocean_temp': 0.5, 'wildfire': 0.1, 'lunar': 0.5, 'solar_cycle': 0.5,
             'fear': -2.0, 'joy': 1.0, 'attention': 0.15,
             'news_vel': 0.5, 'social_var': 0.3, 'misinfo': 0.2, 'collab': 0.4,
             'dream': 0.2, 'integration': 0.7, 'horizon': 0.5
         }
-        
+
         for r in readings:
             vals = r.values
             if r.sensor_type == SensorType.GEOMAGNETIC:
@@ -270,7 +271,7 @@ class SensorFusionEngine:
                 state['joy'] = vals.get('joy', state['joy'])
             elif r.sensor_type == SensorType.COLLECTIVE_ATTENTION:
                 state['attention'] = vals.get('attention_concentration', state['attention'])
-                
+
         return state
 
     def _normalize_inputs(self, raw: Dict[str, float]) -> Dict[str, float]:
@@ -278,34 +279,34 @@ class SensorFusionEngine:
         norm = {}
         # Geosphere
         norm['k_index'] = min(raw['k_index'] / 9.0, 1.0)
-        norm['seismic'] = min(max(raw['seismic_mag'] - 2.0, 0) / 8.0, 1.0) 
+        norm['seismic'] = min(max(raw['seismic_mag'] - 2.0, 0) / 8.0, 1.0)
         norm['solar_wind'] = min(max(raw['solar_speed'] - 300, 0) / 500.0, 1.0)
         norm['ocean_temp'] = raw['ocean_temp'] # Assumed normalized
         norm['wildfire'] = raw['wildfire'] # Assumed normalized
         norm['lunar'] = raw['lunar'] # Assumed normalized
         norm['solar_cycle'] = raw['solar_cycle'] # Assumed normalized
-        
+
         # Noosphere
         norm['fear'] = min(abs(raw['fear']) / 10.0, 1.0)
         norm['joy'] = min(abs(raw['joy']) / 10.0, 1.0)
-        norm['temp'] = (norm['fear'] + norm['joy']) / 2.0 
+        norm['temp'] = (norm['fear'] + norm['joy']) / 2.0
         norm['attention'] = raw['attention']
         norm['news_vel'] = raw['news_vel']
         norm['social_var'] = raw['social_var']
         norm['misinfo'] = raw['misinfo']
         norm['collab'] = raw['collab']
-        
+
         # Consciousness
-        norm['schumann'] = 0.5 
+        norm['schumann'] = 0.5
         norm['dream'] = raw['dream']
         norm['integration'] = raw['integration']
         norm['horizon'] = raw['horizon']
-        
+
         return norm
 
     def _update_history(self, state: Dict[str, float]):
         self.history.append(state)
-        if len(self.history) > 10: 
+        if len(self.history) > 10:
             self.history.pop(0)
 
     def _calculate_derivatives(self) -> Dict[str, float]:
@@ -326,12 +327,12 @@ class SensorFusionEngine:
         # Turbulence: High seismic + High K-index + Rapid changes
         geo_turbulence = state['k_index'] + state['seismic']
         social_turbulence = state['fear'] + abs(derivatives.get('attention', 0) * 5)
-        
+
         turbulence = min((geo_turbulence + social_turbulence) / 3.0, 1.0)
-        
+
         # Coherence: Inverse of turbulence
         coherence = 1.0 - turbulence
-        
+
         # Resonance: Detect π×φ (5.083) patterns
         resonance = 0.0
         if state['fear'] > 0.01:

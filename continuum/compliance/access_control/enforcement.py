@@ -17,7 +17,7 @@
 """Access control enforcement decorators and middleware."""
 
 from functools import wraps
-from typing import Callable, Optional
+from typing import Callable
 
 
 class AccessEnforcer:

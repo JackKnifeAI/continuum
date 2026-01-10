@@ -54,11 +54,11 @@ Example:
     await coordinator.sync_state()
 """
 
-from .coordinator import FederationCoordinator, NodeHealth, LoadBalance, NodeStatus
-from .consensus import RaftConsensus, ConsensusState, NodeRole
-from .replication import MultiMasterReplicator, ConflictResolver
-from .discovery import NodeDiscovery, DiscoveryMethod, DiscoveryConfig, DiscoveredNode
+from .consensus import ConsensusState, NodeRole, RaftConsensus
+from .coordinator import FederationCoordinator, LoadBalance, NodeHealth, NodeStatus
+from .discovery import DiscoveredNode, DiscoveryConfig, DiscoveryMethod, NodeDiscovery
 from .mesh import GossipMesh, GossipMessage, MeshConfig
+from .replication import ConflictResolver, MultiMasterReplicator
 
 __all__ = [
     'FederationCoordinator',

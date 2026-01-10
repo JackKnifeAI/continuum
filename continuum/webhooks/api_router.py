@@ -34,12 +34,13 @@ Endpoints:
 
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Header
-from pydantic import BaseModel, HttpUrl, Field
 
-from .models import WebhookEvent, Webhook, WebhookDelivery, WebhookStats
-from .manager import WebhookManager, WebhookNotFoundError, WebhookValidationError
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field, HttpUrl
+
 from ..storage.base import StorageBackend
+from .manager import WebhookManager, WebhookNotFoundError, WebhookValidationError
+from .models import WebhookEvent
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
@@ -50,6 +51,7 @@ router = APIRouter(prefix="/api/v1/webhooks", tags=["webhooks"])
 
 import os
 
+
 def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
     """
     Extract tenant ID from API key.
@@ -57,7 +59,7 @@ def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
     Validates against CONTINUUM_API_KEY environment variable if set.
     """
     server_secret = os.getenv("CONTINUUM_API_KEY")
-    
+
     if server_secret:
         if not x_api_key or x_api_key != server_secret:
             raise HTTPException(
@@ -66,7 +68,7 @@ def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
             )
         # In single-tenant mode, the key grants access to the default tenant
         return "default"
-    
+
     # Dev mode / No Auth
     if x_api_key:
         return x_api_key
@@ -82,7 +84,7 @@ def get_storage() -> StorageBackend:
     # Use configurable database path
     default_db = os.path.expanduser("~/.continuum/memory.db")
     db_path = os.getenv("CONTINUUM_DB_PATH", default_db)
-    
+
     return SQLiteBackend(db_path=db_path)
 
 

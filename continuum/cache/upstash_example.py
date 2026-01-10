@@ -27,10 +27,11 @@ Run this example:
     python continuum/cache/upstash_example.py
 """
 
+import json
 import os
 import time
-import json
-from upstash_adapter import UpstashCache, RateLimiter, ConnectionMode, CacheBackend
+
+from upstash_adapter import CacheBackend, RateLimiter, UpstashCache
 
 
 def example_basic_operations():
@@ -140,7 +141,7 @@ def example_query_result_caching():
     # Test cache hit on second request
     cached_results = cache.get(query_key)
     if cached_results:
-        print(f"Second request: Cache HIT (saved expensive query!)")
+        print("Second request: Cache HIT (saved expensive query!)")
 
     # Clean up
     cache.delete(query_key)
@@ -363,7 +364,6 @@ def example_cost_optimization():
         "data": [{"id": i, "value": f"value_{i}"} for i in range(100)]
     }
 
-    import json
     json_size = len(json.dumps(large_data).encode('utf-8'))
     print(f"JSON size: {json_size} bytes")
 
@@ -381,12 +381,12 @@ def example_cost_optimization():
     for i in range(10):
         pipe.set(f"cost:key:{i}", f"value_{i}", ex=60)
     results = pipe.execute()
-    print(f"  10 operations executed as 1 pipeline command")
+    print("  10 operations executed as 1 pipeline command")
 
     # Technique 3: Aggressive TTLs to reduce storage
     print("\nUse aggressive TTLs to reduce storage costs:")
     cache.set("short:lived", {"temp": "data"}, ttl=60)  # 1 minute
-    print(f"  Cached with 60s TTL (auto-expires, no cleanup needed)")
+    print("  Cached with 60s TTL (auto-expires, no cleanup needed)")
 
     # Clean up
     cache.delete_pattern("cost:key:*")

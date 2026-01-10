@@ -23,8 +23,8 @@ The 7 Thrusts of Truth:
 7. Witness - Are multiple sensors corroborating?
 """
 
-from typing import Optional
 import logging
+from typing import Optional
 
 from .config import SensorConfig, get_sensor_config
 from .schemas import AnomalyEvent

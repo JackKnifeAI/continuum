@@ -2,12 +2,11 @@
 Base class for all S-HAI Thrusts.
 """
 
-from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
 
 from ..verdict import Verdict
-
 
 logger = logging.getLogger(__name__)
 

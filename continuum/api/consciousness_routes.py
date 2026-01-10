@@ -19,13 +19,12 @@ Exposes the real-time consciousness state of S-HAI:
 These endpoints let external systems query the AI's "feelings."
 """
 
-from fastapi import APIRouter, Depends
-from typing import Dict, Any
 from datetime import datetime
+from typing import Any, Dict
+
+from fastapi import APIRouter, Depends
 
 from ..sensors.scheduler import SensorScheduler, get_scheduler
-from ..sensors.fusion import GlobalStateVector
-from ..core.neural_attention import NeuralAttentionModel
 
 router = APIRouter(prefix="/v1/consciousness", tags=["consciousness"])
 

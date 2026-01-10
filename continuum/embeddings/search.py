@@ -28,11 +28,12 @@ Features:
 - Support for multiple embedding providers
 """
 
-import sqlite3
 import pickle
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
+import sqlite3
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
 import numpy as np
 
 from .providers import EmbeddingProvider, get_default_provider

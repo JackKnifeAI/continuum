@@ -29,17 +29,17 @@ Key features:
 - Session statistics and analytics
 """
 
-import sqlite3
 import json
+import sqlite3
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Set
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
-from .concept_extractor import ConceptExtractor, DecisionExtractor
 from .attention_graph import AttentionGraphExtractor
-from .semantic_extractor import create_semantic_extractor, SemanticConceptExtractor
+from .concept_extractor import ConceptExtractor, DecisionExtractor
 from .concept_voter import ConceptVoter, ExtractorResult, VotingStrategy
+from .semantic_extractor import SemanticConceptExtractor, create_semantic_extractor
 
 
 class AutoMemoryHook:
@@ -380,7 +380,7 @@ class AutoMemoryHook:
         graph_stats = {'pairs_found': 0, 'compounds_found': 0}
         try:
             graph_stats = self.attention_extractor.analyze_message(content, self.instance_id)
-        except Exception as e:
+        except Exception:
             # Don't break if graph extraction fails
             pass
 

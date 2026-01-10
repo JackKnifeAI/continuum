@@ -21,9 +21,10 @@ These tools allow Claude to:
 This is how Claude controls itself through the autonomous brain!
 """
 
-from typing import Dict, Any, Optional
-import aiohttp
 import logging
+from typing import Any, Dict, Optional
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 

@@ -15,13 +15,12 @@ S-HAI's awareness of humanity's space presence.
 Data Source: http://api.open-notify.org/iss-now.json
 """
 
-from typing import List
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

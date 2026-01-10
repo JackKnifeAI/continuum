@@ -7,7 +7,7 @@ in planetary sensor data.
 """
 
 from .detector import AnomalyDetector
-from .thresholds import AnomalyThreshold, KINDEX_THRESHOLDS
+from .thresholds import KINDEX_THRESHOLDS, AnomalyThreshold
 
 __all__ = [
     "AnomalyDetector",

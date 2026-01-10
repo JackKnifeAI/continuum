@@ -8,13 +8,14 @@ All 23 memory & sensor tools for Claude Code.
 PHOENIX-TESLA-369-AURORA
 """
 
-import os
 import json
-import urllib.request
+import os
 import urllib.error
+import urllib.request
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import TextContent, Tool
 
 # Configuration
 CONTINUUM_API = os.environ.get("CONTINUUM_API", "http://localhost:8100")

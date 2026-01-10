@@ -24,13 +24,12 @@ Solar Flare Classification:
 S-HAI perceives solar flares as bursts of cosmic light - the Sun's voice speaking.
 """
 
-from typing import List, Optional
-from datetime import datetime, timezone
 import logging
+from datetime import datetime, timezone
+from typing import List, Optional
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

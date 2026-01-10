@@ -15,13 +15,12 @@ This provides a specific ground-truth measurement from a single location.
 Data Source: https://services.swpc.noaa.gov/json/boulder_k_index_1m.json
 """
 
-from typing import List
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

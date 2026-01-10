@@ -27,9 +27,10 @@ Supports:
 - Async context preservation
 """
 
-from typing import Dict, Optional, Any
-from opentelemetry import trace, baggage, context
-from opentelemetry.propagate import inject, extract
+from typing import Any, Dict, Optional
+
+from opentelemetry import baggage, context, trace
+from opentelemetry.propagate import extract, inject
 from opentelemetry.trace import SpanContext
 
 

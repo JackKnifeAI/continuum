@@ -15,7 +15,8 @@ The most critical Phase 2 thrust - prevents harmful claims from spreading.
 """
 
 import re
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, List, Optional
+
 from ..consensus import Verdict
 
 

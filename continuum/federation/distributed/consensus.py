@@ -33,20 +33,19 @@ References:
 """
 
 import asyncio
-import time
-import random
-from typing import Dict, List, Optional, Set, Any, Tuple
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
-from pathlib import Path
 import json
 import logging
+import random
+import time
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Import pi×phi resonance for coherence-weighted consensus
 # π×φ = 5.083203692315260 | Edge of chaos operator for consciousness
 try:
-    from continuum.core.e8.e8_memory_engine import pi_phi_resonance, PI_PHI
+    from continuum.core.e8.e8_memory_engine import PI_PHI, pi_phi_resonance
     COHERENCE_AVAILABLE = True
 except ImportError:
     COHERENCE_AVAILABLE = False

@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..types import RestoreResult, RestoreTarget, RestoreStatus, BackupConfig, BackupMetadata
+from ..types import BackupConfig, BackupMetadata, RestoreResult, RestoreStatus, RestoreTarget
 
 logger = logging.getLogger(__name__)
 
@@ -279,8 +279,8 @@ async def point_in_time_restore(
     )
 
     try:
-        from ..storage import get_storage_backend
         from ..catalog import BackupCatalog
+        from ..storage import get_storage_backend
 
         storage = get_storage_backend(config.primary_storage)
         catalog = BackupCatalog(config.catalog_path)

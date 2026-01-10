@@ -20,7 +20,7 @@ Logging extension for GraphQL queries.
 
 import logging
 import time
-from typing import Any
+
 from strawberry.extensions import SchemaExtension
 
 logger = logging.getLogger(__name__)

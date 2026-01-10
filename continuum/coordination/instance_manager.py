@@ -30,12 +30,11 @@ Features:
 
 import json
 import time
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .sync import FileLock
-
 
 # Default configuration
 DEFAULT_HEARTBEAT_INTERVAL = 30  # seconds

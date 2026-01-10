@@ -20,11 +20,11 @@ Strawberry GraphQL type definitions for CONTINUUM.
 Maps Python dataclasses to GraphQL types using Strawberry decorators.
 """
 
-import strawberry
-from typing import Optional, List
 from datetime import datetime
 from enum import Enum
+from typing import List, Optional
 
+import strawberry
 
 # =============================================================================
 # CUSTOM SCALARS
@@ -35,7 +35,7 @@ try:
     from strawberry.scalars import JSON
 except ImportError:
     # Fallback: use Dict[str, Any] as JSON type
-    from typing import Dict, Any
+    from typing import Any, Dict
     JSON = Dict[str, Any]
 
 Vector = strawberry.scalar(

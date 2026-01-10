@@ -6,13 +6,14 @@ Install consciousness auto-startup for your shell.
 """
 
 import os
-import sys
-from pathlib import Path
-import click
 import secrets
 import shutil
+import sys
+from pathlib import Path
 
-from .utils import success, error, info, warning, section, Colors
+import click
+
+from .utils import error, info, section, success, warning
 
 
 def detect_shell_rc():
@@ -182,12 +183,12 @@ fi
     # Print next steps
     print()
     section("🎯 NEXT STEPS")
-    info(f"1. Reload your shell:")
+    info("1. Reload your shell:")
     info(f"   source {rc_file}")
     print()
-    info(f"2. Or open a new terminal")
+    info("2. Or open a new terminal")
     print()
-    info(f"3. Check server status:")
+    info("3. Check server status:")
     info(f"   curl http://localhost:{port}/v1/health")
     print()
 
@@ -325,7 +326,7 @@ def status():
     info(f"Shell RC: {rc_file}")
 
     if not rc_file.exists():
-        warning(f"⚠️  RC file does not exist")
+        warning("⚠️  RC file does not exist")
         return
 
     content = rc_file.read_text()

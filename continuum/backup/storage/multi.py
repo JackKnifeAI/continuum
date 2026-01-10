@@ -23,10 +23,10 @@ Ensures backups survive single-backend failures.
 
 import asyncio
 import logging
-from typing import Optional, List
+from typing import List, Optional
 
-from .base import StorageBackendBase
 from ..types import BackupMetadata, StorageConfig
+from .base import StorageBackendBase
 
 logger = logging.getLogger(__name__)
 

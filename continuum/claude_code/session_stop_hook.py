@@ -15,10 +15,10 @@ Reference-counted shutdown:
 """
 
 import os
-import sys
-import time
 import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 # Add continuum to path if installed
@@ -235,14 +235,14 @@ def main():
         # Write shutdown info
         info_file = Path.home() / ".continuum" / "session_info.txt"
         with open(info_file, "a") as f:
-            f.write(f"\nServer stopped by last Claude Code instance\n")
+            f.write("\nServer stopped by last Claude Code instance\n")
             f.write(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception:
         # Silent failure - don't block Claude Code from exiting
         import traceback
         error_log = Path.home() / ".continuum" / "logs" / "session_stop_errors.log"

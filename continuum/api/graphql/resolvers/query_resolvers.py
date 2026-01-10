@@ -18,14 +18,12 @@
 Query resolvers for top-level Query type.
 """
 
-from typing import List, Optional
 from strawberry.types import Info
-import aiosqlite
 
 
 async def resolve_memories(info: Info, filter, pagination):
     """Resolve memories query"""
-    from ..types import MemoryConnection, MemoryEdge, PageInfo
+    from ..types import MemoryConnection, PageInfo
 
     # Stub implementation - return empty connection
     return MemoryConnection(
@@ -85,7 +83,7 @@ async def resolve_concept_graph(info: Info, root_id: str, depth: int, relationsh
 
 async def resolve_users(info: Info, filter, pagination):
     """Resolve users query"""
-    from ..types import UserConnection, PageInfo
+    from ..types import PageInfo, UserConnection
 
     return UserConnection(
         edges=[],

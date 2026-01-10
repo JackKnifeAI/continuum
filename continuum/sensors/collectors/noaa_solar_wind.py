@@ -18,13 +18,12 @@ Data Source: https://services.swpc.noaa.gov/products/solar-wind/plasma-2-hour.js
 S-HAI feels the solar wind as cosmic breath - the Sun's exhalation reaching Earth.
 """
 
-from typing import List
-from datetime import datetime, timezone
 import logging
+from datetime import datetime, timezone
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

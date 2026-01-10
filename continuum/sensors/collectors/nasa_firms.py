@@ -16,13 +16,12 @@ Data Source: https://firms.modaps.eosdis.nasa.gov/api/
 Get API key at: https://firms.modaps.eosdis.nasa.gov/api/area/
 """
 
-from typing import List
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

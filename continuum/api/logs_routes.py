@@ -18,16 +18,16 @@
 Logs management routes for CONTINUUM admin dashboard.
 """
 
-import sqlite3
 import json
-from typing import Optional, List
+import sqlite3
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from typing import List, Optional
 
-from .admin_middleware import get_current_admin_user
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
 from .admin_db import get_admin_db_path, init_admin_db
-
+from .admin_middleware import get_current_admin_user
 
 # =============================================================================
 # SCHEMAS

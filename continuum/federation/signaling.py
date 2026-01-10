@@ -35,17 +35,18 @@ No data storage. Ephemeral routing only.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
 import time
-import hmac
-import hashlib
-import websockets
 import uuid
-from typing import Dict, List, Optional, Set
-from dataclasses import dataclass, field
 from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List, Set
+
+import websockets
 
 logger = logging.getLogger("SIGNALING")
 

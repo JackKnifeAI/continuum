@@ -20,14 +20,15 @@ Admin memory management routes for CONTINUUM admin dashboard.
 These routes provide admin-level access to all memories across all tenants.
 """
 
-import aiosqlite
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from typing import List, Optional
 
-from .admin_middleware import get_current_admin_user
+import aiosqlite
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+
 from continuum.core.memory import TenantManager
 
+from .admin_middleware import get_current_admin_user
 
 # =============================================================================
 # SCHEMAS
@@ -177,7 +178,7 @@ async def list_all_memories(
                         metadata=metadata
                     ))
 
-        except Exception as e:
+        except Exception:
             # Skip tenant if error
             continue
 

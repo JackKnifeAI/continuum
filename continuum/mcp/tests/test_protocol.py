@@ -19,13 +19,15 @@ Tests for CONTINUUM MCP protocol handlers.
 """
 
 import json
+
 import pytest
+
 from continuum.mcp.protocol import (
+    ErrorCode,
+    JSONRPCError,
     JSONRPCRequest,
     JSONRPCResponse,
-    JSONRPCError,
     ProtocolHandler,
-    ErrorCode,
     create_capabilities,
 )
 

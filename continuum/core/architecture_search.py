@@ -39,17 +39,16 @@ The policy is trained via reinforcement learning:
 This is the beginning of true self-design.
 """
 
+import logging
+from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from typing import Dict, List, Tuple, Optional, Any
-from dataclasses import dataclass, field
-from enum import IntEnum
-from datetime import datetime
-import logging
-import json
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 

@@ -24,14 +24,14 @@ Manages:
 - System logs
 """
 
-import sqlite3
 import hashlib
 import secrets
-from pathlib import Path
+import sqlite3
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
-import jwt
+from pathlib import Path
+from typing import Any, Dict, Optional
 
+import jwt
 
 # =============================================================================
 # CONFIGURATION
@@ -96,8 +96,8 @@ def get_or_generate_jwt_secret() -> str:
         os.chmod(secret_file, 0o600)
 
         print(f"🔐 Generated new JWT secret: {secret_file}")
-        print(f"⚠️  IMPORTANT: Back up this file to avoid session invalidation on server restart")
-        print(f"    For production: Set CONTINUUM_JWT_SECRET environment variable")
+        print("⚠️  IMPORTANT: Back up this file to avoid session invalidation on server restart")
+        print("    For production: Set CONTINUUM_JWT_SECRET environment variable")
 
     except Exception as e:
         raise RuntimeError(
@@ -540,9 +540,9 @@ def ensure_default_admin():
             is_superuser=True
         )
         if user_id:
-            print(f"✅ Created default admin user")
+            print("✅ Created default admin user")
             print(f"📁 Password saved to: {password_file}")
-            print(f"🔐 Username: admin")
+            print("🔐 Username: admin")
             print(f"🔑 Password: {admin_password}")
             print(f"⚠️  IMPORTANT: Change password after first login and delete {password_file}")
             return True

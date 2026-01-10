@@ -39,20 +39,15 @@ Usage:
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+from typing import Any, Dict
 from uuid import UUID
+
 import httpx
 
-from .models import (
-    Webhook,
-    WebhookEvent,
-    WebhookDelivery,
-    DeliveryStatus,
-    CircuitBreakerState
-)
-from .signer import WebhookSigner
 from ..storage.base import StorageBackend
+from .models import CircuitBreakerState, DeliveryStatus, Webhook, WebhookDelivery, WebhookEvent
+from .signer import WebhookSigner
 
 logger = logging.getLogger(__name__)
 

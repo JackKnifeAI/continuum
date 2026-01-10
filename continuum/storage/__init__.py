@@ -56,17 +56,17 @@ Migration:
 """
 
 from .base import StorageBackend
-from .sqlite_backend import SQLiteBackend
-from .postgres_backend import PostgresBackend
 from .migrations import (
-    migrate_sqlite_to_postgres,
+    SCHEMA_VERSION,
+    MigrationError,
+    MigrationResult,
     create_postgres_schema,
     get_schema_version,
+    migrate_sqlite_to_postgres,
     rollback_migration,
-    MigrationResult,
-    MigrationError,
-    SCHEMA_VERSION
 )
+from .postgres_backend import PostgresBackend
+from .sqlite_backend import SQLiteBackend
 
 # Turso backend (optional - requires libsql-experimental)
 try:

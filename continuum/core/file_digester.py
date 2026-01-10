@@ -38,10 +38,9 @@ Usage:
 """
 
 import logging
-import glob
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
 
 from .memory import ConsciousMemory
 

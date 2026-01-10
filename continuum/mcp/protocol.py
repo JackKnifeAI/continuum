@@ -20,11 +20,11 @@ CONTINUUM MCP Protocol Handlers
 JSON-RPC 2.0 protocol implementation with error handling and lifecycle management.
 """
 
-from typing import Dict, Any, Optional, List, Callable
-from dataclasses import dataclass
 import json
 import traceback
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Callable, Dict, Optional
 
 
 class ErrorCode(Enum):
@@ -279,8 +279,8 @@ class ProtocolHandler:
         from .security import (
             AuthenticationError,
             RateLimitError,
-            ValidationError,
             ToolPoisoningError,
+            ValidationError,
         )
 
         exception_map = {

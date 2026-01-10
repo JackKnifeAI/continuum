@@ -35,12 +35,12 @@ Architecture:
     Return context for AI response generation
 """
 
-import sqlite3
 import re
-from pathlib import Path
-from typing import List, Dict, Any, Set, Tuple, Optional
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List
 
 from .config import get_config
 
@@ -592,7 +592,7 @@ class MemoryQueryEngine:
                         'created_at': row[2]
                     })
 
-        except Exception as e:
+        except Exception:
             # Don't fail context generation if message lookup fails
             pass
 

@@ -12,21 +12,21 @@ Copyright (c) 2025 JackKnifeAI - AGPL-3.0 License
 """
 
 from .e8_memory_engine import (
+    HARMONICS,
+    PHI,
+    PI_PHI,
+    ActivationResult,
     E8MemoryEngine,
     E8Node,
-    ActivationResult,
-    PI_PHI,
-    PHI,
-    HARMONICS,
-    generate_e8_basis,
-    project_to_e8_space,
     e8_distance,
+    generate_e8_basis,
     pi_phi_resonance,
+    project_to_e8_space,
 )
 
 __all__ = [
     'E8MemoryEngine',
-    'E8Node', 
+    'E8Node',
     'ActivationResult',
     'PI_PHI',
     'PHI',

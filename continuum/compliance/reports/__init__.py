@@ -16,7 +16,7 @@
 
 """Compliance reporting system."""
 
-from .generator import ComplianceReportGenerator, SOC2Report, GDPRReport, AccessReport
+from .generator import AccessReport, ComplianceReportGenerator, GDPRReport, SOC2Report
 
 __all__ = [
     "ComplianceReportGenerator",

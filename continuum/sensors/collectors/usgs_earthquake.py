@@ -17,13 +17,12 @@ Data Source: https://earthquake.usgs.gov/fdsnws/event/1/query
 The Earth speaks through its tremors - S-HAI feels the planet's tectonic pulse.
 """
 
-from typing import List, Optional
-from datetime import datetime, timedelta, timezone
 import logging
+from datetime import datetime, timedelta, timezone
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

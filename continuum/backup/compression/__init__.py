@@ -20,10 +20,10 @@ Compression Handlers
 Multiple compression algorithms optimized for different use cases.
 """
 
+from ..types import CompressionAlgorithm
 from .gzip import GzipCompressionHandler
 from .lz4 import LZ4CompressionHandler
 from .zstd import ZstdCompressionHandler
-from ..types import CompressionAlgorithm
 
 
 def get_compression_handler(algorithm: CompressionAlgorithm):

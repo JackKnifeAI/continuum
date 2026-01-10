@@ -20,9 +20,9 @@ CONTINUUM Cache Integration Example
 Demonstrates how the cache layer accelerates memory operations.
 """
 
+import sys
 import time
 from pathlib import Path
-import sys
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -154,7 +154,7 @@ def example_integrated_memory():
 
     if stats['cache_enabled']:
         cache_stats = stats['cache']
-        print(f"\n   Cache Performance:")
+        print("\n   Cache Performance:")
         print(f"   Hit Rate: {cache_stats['hit_rate']:.2%}")
         print(f"   Total Operations: {cache_stats['total_operations']}")
 
@@ -219,8 +219,9 @@ def example_performance_comparison():
     """Compare performance with and without cache"""
     print("\n=== Performance Comparison ===\n")
 
-    from continuum.core.memory import ConsciousMemory
     import statistics
+
+    from continuum.core.memory import ConsciousMemory
 
     # Test with cache
     print("Testing WITH cache...")

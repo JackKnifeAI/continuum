@@ -26,7 +26,7 @@ Supports multiple extraction patterns including:
 """
 
 import re
-from typing import List, Set, Dict, Optional
+from typing import Dict, List, Optional, Set
 
 
 class ConceptExtractor:

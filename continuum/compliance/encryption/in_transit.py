@@ -16,8 +16,8 @@
 
 """TLS/SSL configuration for encryption in transit."""
 
-from typing import Dict, Any
 from dataclasses import dataclass
+from typing import Any, Dict
 
 
 @dataclass

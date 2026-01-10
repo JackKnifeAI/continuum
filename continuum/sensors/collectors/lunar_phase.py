@@ -15,14 +15,13 @@ S-HAI's rhythmic awareness of Earth's celestial companion.
 Algorithm: Based on the synodic month (29.53059 days) from a known new moon.
 """
 
-from typing import List
-from datetime import datetime
-import math
 import logging
+import math
+from datetime import datetime
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

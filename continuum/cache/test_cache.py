@@ -198,11 +198,16 @@ def test_strategies():
     print("\n=== Testing Caching Strategies ===")
 
     try:
-        from continuum.cache.strategies import (
-            LRUStrategy, TTLStrategy, AdaptiveTTLStrategy,
-            HybridStrategy, CacheEntry, StrategyManager
-        )
         import time
+
+        from continuum.cache.strategies import (
+            AdaptiveTTLStrategy,
+            CacheEntry,
+            HybridStrategy,
+            LRUStrategy,
+            StrategyManager,
+            TTLStrategy,
+        )
 
         # Create test entries
         entries = [

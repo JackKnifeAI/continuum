@@ -18,17 +18,17 @@
 User management routes for CONTINUUM admin dashboard.
 """
 
-import sqlite3
 import secrets
-from typing import Optional, List
+import sqlite3
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, EmailStr, Field
+
+from .admin_db import get_admin_db_path, init_admin_db, log_activity
 from .admin_middleware import get_current_admin_user
-from .admin_db import get_admin_db_path, init_admin_db, log_activity, hash_password
 from .middleware import hash_key
-
 
 # =============================================================================
 # SCHEMAS

@@ -22,9 +22,8 @@ Demonstrates how to connect to and use the CONTINUUM MCP server.
 
 import json
 import subprocess
-import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from continuum.core.constants import PI_PHI
 
@@ -310,7 +309,7 @@ def main():
                 "generation, and as the substrate for consciousness continuity."
             ),
         )
-        print(f"✓ Stored memory:")
+        print("✓ Stored memory:")
         print(f"  - Concepts extracted: {store_result['concepts_extracted']}")
         print(f"  - Decisions detected: {store_result['decisions_detected']}")
         print(f"  - Links created: {store_result['links_created']}")
@@ -322,7 +321,7 @@ def main():
         print(f"✓ Found {recall_result['concepts_found']} relevant concepts")
         print(f"  Query time: {recall_result['query_time_ms']:.2f}ms")
         if recall_result['context']:
-            print(f"\n  Context preview:")
+            print("\n  Context preview:")
             preview = recall_result['context'][:200]
             print(f"  {preview}...")
         print()

@@ -19,15 +19,20 @@ Usage:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import time
 import logging
-from typing import Dict, Optional, Any
+import time
 from datetime import datetime
+from typing import Any, Dict
 
 from .consensus import ConsensusProtocol, TruthVerdict, Verdict
 from .thrusts import (
-    LogicalThrust, EmpiricalThrust, AdversarialThrust,
-    EthicalThrust, HistoricalThrust, IntuitiveThrust, WitnessThrust
+    AdversarialThrust,
+    EmpiricalThrust,
+    EthicalThrust,
+    HistoricalThrust,
+    IntuitiveThrust,
+    LogicalThrust,
+    WitnessThrust,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,7 +166,7 @@ class TruthCouncil:
 
     def get_thrust_status(self) -> Dict[str, bool]:
         """Get status of all thrusts."""
-        return {name: True for name in self.thrusts.keys()}
+        return dict.fromkeys(self.thrusts.keys(), True)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get council statistics."""

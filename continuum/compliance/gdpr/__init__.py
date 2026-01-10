@@ -16,10 +16,10 @@
 
 """GDPR compliance implementation for CONTINUUM."""
 
-from .data_subject import DataSubjectRights, DataAccessResponse, ErasureResult, RectificationResult
 from .consent import ConsentManager, ConsentRecord, ConsentType, LegalBasis
+from .data_subject import DataAccessResponse, DataSubjectRights, ErasureResult, RectificationResult
+from .export import ExportFormat, GDPRExporter
 from .retention import DataRetentionManager, RetentionPolicy, RetentionResult
-from .export import GDPRExporter, ExportFormat
 
 __all__ = [
     "DataSubjectRights",

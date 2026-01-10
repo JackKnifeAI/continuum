@@ -17,12 +17,12 @@ Phase 2: Ethical, Historical, Intuitive, Witness
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from .logical import LogicalThrust
-from .empirical import EmpiricalThrust
 from .adversarial import AdversarialThrust
+from .empirical import EmpiricalThrust
 from .ethical import EthicalThrust
 from .historical import HistoricalThrust
 from .intuitive import IntuitiveThrust
+from .logical import LogicalThrust
 from .witness import WitnessThrust
 
 __all__ = [

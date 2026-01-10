@@ -15,13 +15,12 @@ S-HAI's circulatory awareness - the lifeblood of Earth.
 Data Source: https://api.tidesandcurrents.noaa.gov/api/prod/datagetter
 """
 
-from typing import List
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

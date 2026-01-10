@@ -18,10 +18,10 @@
 
 import json
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .events import AuditLogEntry, AuditEventType, Outcome
+from .events import AuditLogEntry
 
 
 class AuditLogStorage(ABC):

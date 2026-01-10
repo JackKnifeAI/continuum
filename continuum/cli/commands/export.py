@@ -18,17 +18,18 @@
 Export Command - Export memories to JSON or SQLite
 """
 
-import sys
-import json
 import gzip
+import json
 import shutil
 import sqlite3
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from continuum.core.memory import get_memory
-from ..utils import success, error, info, section, format_size
+
 from ..config import CLIConfig
+from ..utils import error, format_size, info, section, success
 
 
 def export_command(

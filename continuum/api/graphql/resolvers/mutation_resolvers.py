@@ -18,10 +18,11 @@
 Mutation resolvers for top-level Mutation type.
 """
 
-from typing import List, Optional
-from strawberry.types import Info
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import List, Optional
+
+from strawberry.types import Info
 
 
 async def resolve_create_memory(info: Info, input):
@@ -225,7 +226,7 @@ async def resolve_update_profile(info: Info, input):
 
 async def resolve_update_settings(info: Info, input):
     """Resolve updateSettings mutation"""
-    from ..types import Settings, SearchType
+    from ..types import SearchType, Settings
 
     return Settings(
         realtime_sync=input.realtime_sync if input.realtime_sync is not None else True,

@@ -27,13 +27,12 @@ Strategies:
     - Adaptive TTL: Adjust TTL based on access patterns
 """
 
-import time
-import math
-from typing import Any, Optional, Dict, List, Callable
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
-from collections import OrderedDict
 import logging
+import math
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

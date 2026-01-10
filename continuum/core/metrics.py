@@ -20,11 +20,10 @@ Application-level metrics collection for CONTINUUM.
 Provides metrics for memory operations, federation, caching, and business KPIs.
 """
 
-import os
-import psutil
 from pathlib import Path
-from prometheus_client import Counter, Gauge, Histogram
 
+import psutil
+from prometheus_client import Counter, Gauge, Histogram
 
 # =============================================================================
 # MEMORY METRICS

@@ -19,6 +19,7 @@ Resolvers for Session type fields.
 """
 
 from typing import List
+
 from strawberry.types import Info
 
 
@@ -48,8 +49,9 @@ async def resolve_session_user(session, info: Info):
 
 async def resolve_session_memories(session, info: Info, pagination):
     """Resolve memories for a session"""
-    from ..types import MemoryConnection, MemoryEdge, PageInfo
     import aiosqlite
+
+    from ..types import MemoryConnection, MemoryEdge, PageInfo
 
     db_path = info.context.get("db_path")
     if not db_path:

@@ -30,26 +30,25 @@ Provides:
 
 import functools
 import logging
-from typing import Optional, Callable, Any, Dict
 from contextlib import contextmanager
+from typing import Any, Callable, Dict, Optional
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import (
+    ConsoleMetricExporter,
+    PeriodicExportingMetricReader,
+)
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     ConsoleSpanExporter,
     SpanExporter,
 )
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.trace import Tracer, Span, Status, StatusCode
-from opentelemetry import metrics
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import (
-    PeriodicExportingMetricReader,
-    ConsoleMetricExporter,
-)
+from opentelemetry.trace import Span, Status, StatusCode, Tracer
 
-from .config import get_otel_config, OTelConfig
+from .config import OTelConfig, get_otel_config
 from .sampling import get_sampler
 
 logger = logging.getLogger(__name__)

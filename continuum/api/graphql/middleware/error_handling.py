@@ -18,9 +18,9 @@
 Error formatting extension for GraphQL.
 """
 
-from typing import Any
-from strawberry.extensions import SchemaExtension
 import logging
+
+from strawberry.extensions import SchemaExtension
 
 logger = logging.getLogger(__name__)
 

@@ -26,9 +26,9 @@ into format-specific representations for different AI systems.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
 
 
 class BridgeError(Exception):

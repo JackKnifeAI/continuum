@@ -20,9 +20,9 @@ Encryption Handlers
 AES-256-GCM encryption with optional KMS integration.
 """
 
+from ..types import EncryptionConfig
 from .aes import AESEncryptionHandler
 from .kms import KMSEncryptionHandler
-from ..types import EncryptionConfig
 
 
 def get_encryption_handler(config: EncryptionConfig):

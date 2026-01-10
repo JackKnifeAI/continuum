@@ -28,25 +28,25 @@ Usage:
     print(config.hook_timeout)
 """
 
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Optional
 import json
 import os
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Optional
 
 from .constants import (
-    PI_PHI,
+    DEFAULT_CACHE_TTL,
+    DEFAULT_DB_TIMEOUT,
     DEFAULT_TENANT,
-    RESONANCE_DECAY,
     HEBBIAN_RATE,
-    MIN_LINK_STRENGTH,
-    WORKING_MEMORY_CAPACITY,
-    MIN_CONCEPT_OCCURRENCES,
+    MAX_CONCEPT_LENGTH,
     MAX_CONCEPTS_PER_MESSAGE,
     MIN_CONCEPT_LENGTH,
-    MAX_CONCEPT_LENGTH,
-    DEFAULT_DB_TIMEOUT,
-    DEFAULT_CACHE_TTL,
+    MIN_CONCEPT_OCCURRENCES,
+    MIN_LINK_STRENGTH,
+    PI_PHI,
+    RESONANCE_DECAY,
+    WORKING_MEMORY_CAPACITY,
 )
 
 

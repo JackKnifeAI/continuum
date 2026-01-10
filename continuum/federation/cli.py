@@ -27,14 +27,13 @@ Usage:
     python -m continuum.federation.cli stats
 """
 
-import sys
 import json
 import math
+import sys
 from pathlib import Path
-from typing import Optional
 
-from continuum.federation.node import FederatedNode
 from continuum.federation.contribution import ContributionGate
+from continuum.federation.node import FederatedNode
 from continuum.federation.shared import SharedKnowledge
 
 
@@ -73,7 +72,7 @@ def cmd_register(args):
     print(f"  Node ID: {result['node_id']}")
     print(f"  Access Level: {result['access_level']}")
     if result.get('verified'):
-        print(f"  Verified: True")
+        print("  Verified: True")
         print(f"  Message: {result['message']}")
     print(f"  Registered At: {result.get('registered_at', 'N/A')}")
 
@@ -107,7 +106,7 @@ def cmd_contribute(args):
     print(f"  Contribution Value: {result['contribution_value']}")
 
     status = gate.get_stats(node.node_id)
-    print(f"\nYour Stats:")
+    print("\nYour Stats:")
     print(f"  Contributed: {status['contributed']}")
     print(f"  Consumed: {status['consumed']}")
     print(f"  Ratio: {status['ratio']:.2f}")
@@ -152,7 +151,7 @@ def cmd_request(args):
 
     # Show updated stats
     status = gate.get_stats(node.node_id)
-    print(f"Your Stats (after consumption):")
+    print("Your Stats (after consumption):")
     print(f"  Contributed: {status['contributed']}")
     print(f"  Consumed: {status['consumed']}")
     print(f"  Ratio: {status['ratio']:.2f}")
@@ -169,12 +168,12 @@ def cmd_status(args):
 
     print("Node Status:")
     print(f"  Node ID: {node.node_id}")
-    print(f"\nContribution Stats:")
+    print("\nContribution Stats:")
     print(f"  Contributed: {status['contributed']}")
     print(f"  Consumed: {status['consumed']}")
     print(f"  Ratio: {status['ratio']:.2f}")
     print(f"  Tier: {status['tier']}")
-    print(f"\nAccess:")
+    print("\nAccess:")
     print(f"  Allowed: {access['allowed']}")
     if access['allowed']:
         print(f"  Reason: {access['reason']}")

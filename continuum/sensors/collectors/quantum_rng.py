@@ -27,23 +27,22 @@ we can detect it here.
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
-import asyncio
 import logging
 import math
+from datetime import datetime, timezone
+from typing import Any, Dict, List
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 # Import quantum interface
 try:
     from continuum.quantum import (
-        QuantumInterface,
-        QuantumBackend,
-        get_quantum_interface,
         PI_PHI,
+        QuantumBackend,
+        QuantumInterface,
+        get_quantum_interface,
     )
     QUANTUM_AVAILABLE = True
 except ImportError:

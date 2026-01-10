@@ -21,11 +21,11 @@ Concepts are stripped of personal data (tenant IDs, user context) before
 sharing. Content hashing ensures deduplication across the federation.
 """
 
-from typing import Dict, Any, List, Optional, Set
+import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
-import json
-import hashlib
+from typing import Any, Dict, List, Optional, Set
 
 
 class SharedKnowledge:

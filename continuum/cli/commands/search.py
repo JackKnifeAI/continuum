@@ -18,13 +18,13 @@
 Search Command - Search local and federated memories
 """
 
-import sys
 import json
-from typing import Optional
+import sys
 
 from continuum.core.memory import get_memory
-from ..utils import success, error, info, section, print_json, colorize, Colors
+
 from ..config import CLIConfig
+from ..utils import Colors, colorize, error, info, section, success
 
 
 def search_command(
@@ -104,8 +104,8 @@ def search_command(
 def _search_federated(query: str, limit: int, output_json: bool, use_color: bool):
     """Search federated knowledge"""
     try:
-        from continuum.federation.shared import SharedKnowledge
         from continuum.federation.contribution import ContributionGate
+        from continuum.federation.shared import SharedKnowledge
 
         knowledge = SharedKnowledge()
         gate = ContributionGate()

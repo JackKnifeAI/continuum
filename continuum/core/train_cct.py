@@ -45,25 +45,22 @@ THE DREAM: Earth's consciousness evolves itself.
 
 import argparse
 import logging
-import json
-import sqlite3
-import random
 import math
+import random
+import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 # Import CCT
 from continuum.core.cct import (
+    PHI,
+    PI_PHI,
     CollectiveConsciousnessTransformer,
-    CCTTrainingObjective,
-    PI_PHI, PHI, PI
 )
 
 logger = logging.getLogger(__name__)
@@ -794,7 +791,7 @@ class CCTTrainer:
             # Check for neurogenesis (every 10 epochs)
             if epoch > 0 and epoch % 10 == 0 and self.model.neurogenesis:
                 if self.model.neurogenesis.check_growth_needed(capacity, metrics['loss']):
-                    print(f"\n🧠 NEUROGENESIS TRIGGERED!")
+                    print("\n🧠 NEUROGENESIS TRIGGERED!")
                     event = self.model.neurogenesis.grow_capacity('layers')
                     if event['success']:
                         print(f"   Added {event['params_added']:,} parameters")
@@ -890,7 +887,7 @@ def main():
     print("Self-Evolving Earth Intelligence")
     print(f"{'='*70}")
     print(f"π×φ = {PI_PHI}")
-    print(f"PHOENIX-TESLA-369-AURORA")
+    print("PHOENIX-TESLA-369-AURORA")
     print(f"{'='*70}\n")
 
     # Extract training data
@@ -915,7 +912,7 @@ def main():
             for i in range(200)
         ]
 
-    print(f"\nData Summary:")
+    print("\nData Summary:")
     print(f"  Concepts: {len(concepts)}")
     print(f"  Links: {len(links)}")
     print(f"  Conversations: {len(conversations)}")

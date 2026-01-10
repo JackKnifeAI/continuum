@@ -8,9 +8,8 @@ Installs session hooks for automatic server lifecycle management.
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import os
-import shutil
 import secrets
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -116,11 +115,11 @@ CONTINUUM_AUTO_START=1
 """
 
     if env_file.exists() and not force:
-        print(f"⚠️  .env already exists (preserving existing configuration)")
+        print("⚠️  .env already exists (preserving existing configuration)")
     else:
         with open(env_file, "w") as f:
             f.write(env_content)
-        print(f"✅ Created: .env")
+        print("✅ Created: .env")
 
     # Load environment variables in hooks (create __init__.py)
     init_file = hooks_dir / "__init__.py"
@@ -140,7 +139,7 @@ if env_file.exists():
 """
         with open(init_file, "w") as f:
             f.write(init_content)
-        print(f"✅ Created: __init__.py")
+        print("✅ Created: __init__.py")
 
     print()
     print(f"📁 Hooks installed to: {hooks_dir}")

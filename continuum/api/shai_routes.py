@@ -17,12 +17,12 @@ Date: December 28, 2025
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from continuum.shai import TruthCouncil, get_knowledge_base
-
 
 # =============================================================================
 # REQUEST/RESPONSE MODELS

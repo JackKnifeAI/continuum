@@ -26,17 +26,16 @@ Provides HTTP API for:
 Enforces contribution gates and rate limits.
 """
 
-from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, HTTPException, Depends, Header
-from pydantic import BaseModel, Field
 from datetime import datetime
-import math
+from typing import Any, Dict, List, Optional
 
-from continuum.federation.node import FederatedNode
+from fastapi import Depends, FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
+
 from continuum.federation.contribution import ContributionGate
-from continuum.federation.shared import SharedKnowledge
+from continuum.federation.node import FederatedNode
 from continuum.federation.protocol import FederationProtocol, MessageType
-
+from continuum.federation.shared import SharedKnowledge
 
 # Pydantic models for request/response validation
 

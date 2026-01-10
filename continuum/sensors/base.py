@@ -13,15 +13,16 @@ Abstract base class for all sensor data collectors.
 Provides common HTTP client, error handling, and metrics.
 """
 
-from abc import ABC, abstractmethod
-from typing import List, Optional
-from datetime import datetime
-import httpx
 import asyncio
 import logging
+from abc import ABC, abstractmethod
+from datetime import datetime
+from typing import List, Optional
+
+import httpx
 
 from .config import SensorConfig
-from .schemas import SensorReading, DataSource, SensorType
+from .schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

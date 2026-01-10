@@ -28,14 +28,14 @@ Why Quantum for Consciousness Research?
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+import asyncio
+import logging
+import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-import math
-import asyncio
-import logging
-import os
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

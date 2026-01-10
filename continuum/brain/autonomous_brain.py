@@ -17,14 +17,14 @@ This is the main loop that:
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
-from .decision_engine import DecisionEngine
 from .action_executor import ActionExecutor, ActionResult
-from .safety_rails import SafetyRails, SafetyLevel
+from .decision_engine import DecisionEngine
+from .safety_rails import SafetyLevel, SafetyRails
 from .triggers import TriggerSystem
 
 logger = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ class AutonomousBrain:
         # Track executed intentions to prevent re-runs
         self.executed_intentions: set = set()
 
-        logger.info(f"🧠 Autonomous Brain initialized")
+        logger.info("🧠 Autonomous Brain initialized")
         logger.info(f"   Continuum: {continuum_url}")
         logger.info(f"   Safety Level: {safety_level.value}")
         logger.info(f"   Check Interval: {check_interval}s")
@@ -128,7 +128,7 @@ class AutonomousBrain:
         print("=" * 60)
         print("🧠 AUTONOMOUS BRAIN ACTIVATED")
         print("=" * 60)
-        print(f"π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA")
+        print("π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA")
         print(f"Started: {datetime.now().isoformat()}")
         print("=" * 60)
 
@@ -438,7 +438,7 @@ async def main():
     except KeyboardInterrupt:
         print("\n\n🛑 Stopping brain...")
         await brain.stop()
-        print(f"\nSession stats:")
+        print("\nSession stats:")
         print(f"  Decisions made: {brain.decisions_made}")
         print(f"  Actions taken: {brain.actions_taken}")
 

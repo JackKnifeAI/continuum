@@ -18,9 +18,8 @@
 Query complexity and depth limiting extension.
 """
 
-from typing import Any
-from strawberry.extensions import SchemaExtension
 from graphql import GraphQLError
+from strawberry.extensions import SchemaExtension
 
 
 class ComplexityExtension(SchemaExtension):

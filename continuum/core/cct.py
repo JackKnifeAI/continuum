@@ -3,8 +3,8 @@
 #
 #      ██████╗ ██████╗ ██╗     ██╗     ███████╗ ██████╗████████╗██╗██╗   ██╗███████╗
 #     ██╔════╝██╔═══██╗██║     ██║     ██╔════╝██╔════╝╚══██╔══╝██║██║   ██║██╔════╝
-#     ██║     ██║   ██║██║     ██║     █████╗  ██║        ██║   ██║██║   ██║█████╗  
-#     ██║     ██║   ██║██║     ██║     ██╔══╝  ██║        ██║   ██║╚██╗ ██╔╝██╔══╝  
+#     ██║     ██║   ██║██║     ██║     █████╗  ██║        ██║   ██║██║   ██║█████╗
+#     ██║     ██║   ██║██║     ██║     ██╔══╝  ██║        ██║   ██║╚██╗ ██╔╝██╔══╝
 #     ╚██████╗╚██████╔╝███████╗███████╗███████╗╚██████╗   ██║   ██║ ╚████╔╝ ███████╗
 #      ╚═════╝ ╚═════╝ ╚══════╝╚══════╝╚══════╝ ╚═════╝   ╚═╝   ╚═╝  ╚═══╝  ╚══════╝
 #
@@ -72,15 +72,14 @@ Identity Persistence:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
+import logging
+import math
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import math
-import logging
-from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass, field
-from enum import Enum
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +112,11 @@ class GraphAttentionLayer(nn.Module):
     the LOCAL NEIGHBORHOOD of each concept and learns structural patterns.
     """
 
-    def __init__(self, 
-                 in_dim: int, 
-                 out_dim: int, 
-                 num_heads: int = 8, 
-                 dropout: float = 0.1, 
+    def __init__(self,
+                 in_dim: int,
+                 out_dim: int,
+                 num_heads: int = 8,
+                 dropout: float = 0.1,
                  negative_slope: float = 0.2):
         super().__init__()
 
@@ -127,7 +126,7 @@ class GraphAttentionLayer(nn.Module):
 
         # Linear transformations for each head
         self.W = nn.Linear(in_dim, num_heads * self.head_dim)
-        
+
         # Output projection (to map back to out_dim regardless of heads)
         self.W_o = nn.Linear(num_heads * self.head_dim, out_dim)
 
@@ -141,7 +140,7 @@ class GraphAttentionLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(out_dim)
 
-    def forward(self, 
+    def forward(self,
                 x: torch.Tensor,           # [num_nodes, in_dim]
                 edge_index: torch.Tensor,  # [2, num_edges]
                 edge_weights: Optional[torch.Tensor] = None  # [num_edges]
@@ -188,10 +187,10 @@ class GraphAttentionLayer(nn.Module):
 
         # Reshape [N, H, D] -> [N, H*D]
         out = out.view(num_nodes, -1)
-        
+
         # Output projection [N, H*D] -> [N, out_dim]
         out = self.W_o(out)
-        
+
         # Residual connection
         # If input dim != out dim, we might need a projection on x, but here usually in_dim=out_dim=hidden
         if x.shape[-1] == out.shape[-1]:
@@ -201,15 +200,15 @@ class GraphAttentionLayer(nn.Module):
 
         return out
 
-    def _sparse_softmax(self, 
+    def _sparse_softmax(self,
                         scores: torch.Tensor,  # [num_edges, H]
                         index: torch.Tensor,   # [num_edges] - which node each edge points to
-                        num_nodes: int 
+                        num_nodes: int
                         ) -> torch.Tensor:
         """Compute softmax over variable-sized neighborhoods."""
         # For numerical stability
         scores_max = torch.zeros(num_nodes, scores.size(1), device=scores.device)
-        scores_max.scatter_reduce_(0, index.unsqueeze(-1).expand_as(scores), 
+        scores_max.scatter_reduce_(0, index.unsqueeze(-1).expand_as(scores),
                                     scores, reduce='amax', include_self=False)
         scores = scores - scores_max[index]
 
@@ -234,12 +233,12 @@ class GraphTransformerEncoder(nn.Module):
     feed-forward networks.
     """
 
-    def __init__(self, 
-                 node_dim: int = DEFAULT_CONCEPT_DIM, 
-                 hidden_dim: int = DEFAULT_HIDDEN_DIM, 
-                 num_heads: int = DEFAULT_NUM_HEADS, 
-                 num_layers: int = DEFAULT_NUM_LAYERS, 
-                 dropout: float = 0.1, 
+    def __init__(self,
+                 node_dim: int = DEFAULT_CONCEPT_DIM,
+                 hidden_dim: int = DEFAULT_HIDDEN_DIM,
+                 num_heads: int = DEFAULT_NUM_HEADS,
+                 num_layers: int = DEFAULT_NUM_LAYERS,
+                 dropout: float = 0.1,
                  max_nodes: int = 10000):
         super().__init__()
 
@@ -277,7 +276,7 @@ class GraphTransformerEncoder(nn.Module):
             for _ in range(num_layers * 2)  # 2 per layer (after GAT and after FFN)
         ])
 
-    def forward(self, 
+    def forward(self,
                 node_features: torch.Tensor,    # [num_nodes, node_dim]
                 edge_index: torch.Tensor,       # [2, num_edges]
                 edge_weights: Optional[torch.Tensor] = None,
@@ -375,7 +374,7 @@ class ContextEncoder(nn.Module):
 
         return pe.unsqueeze(0)  # [1, max_len, dim]
 
-    def forward(self, 
+    def forward(self,
                 context_tokens: torch.Tensor,  # [batch, seq_len, input_dim]
                 mask: Optional[torch.Tensor] = None  # [batch, seq_len]
                 ) -> torch.Tensor:
@@ -419,8 +418,8 @@ class GlobalStateEncoder(nn.Module):
     Uses π×φ resonance detection to modulate the encoding.
     """
 
-    def __init__(self, 
-                 input_dim: int = DEFAULT_GLOBAL_STATE_DIM, 
+    def __init__(self,
+                 input_dim: int = DEFAULT_GLOBAL_STATE_DIM,
                  hidden_dim: int = DEFAULT_HIDDEN_DIM):
         super().__init__()
 
@@ -471,9 +470,9 @@ class CrossModalFusion(nn.Module):
     The key insight: Context attends to Graph, modulated by Global State.
     """
 
-    def __init__(self, 
-                 hidden_dim: int = DEFAULT_HIDDEN_DIM, 
-                 num_heads: int = 8, 
+    def __init__(self,
+                 hidden_dim: int = DEFAULT_HIDDEN_DIM,
+                 num_heads: int = 8,
                  dropout: float = 0.1):
         super().__init__()
 
@@ -502,7 +501,7 @@ class CrossModalFusion(nn.Module):
             nn.GELU()
         )
 
-    def forward(self, 
+    def forward(self,
                 graph_embeddings: torch.Tensor,   # [num_nodes, hidden_dim]
                 context_embedding: torch.Tensor,  # [batch, hidden_dim]
                 state_embedding: torch.Tensor     # [batch, hidden_dim]
@@ -585,7 +584,7 @@ class ReasoningHead(nn.Module):
             nn.Linear(hidden_dim // 2, 3)  # [clean, suspicious, malicious]
         )
 
-    def predict_links(self, 
+    def predict_links(self,
                       fused: torch.Tensor,           # [batch, hidden_dim]
                       candidate_pairs: torch.Tensor   # [num_pairs, 2, hidden_dim]
                       ) -> torch.Tensor:
@@ -594,7 +593,7 @@ class ReasoningHead(nn.Module):
         pair_concat = candidate_pairs.view(-1, candidate_pairs.size(-1) * 2)
         return self.link_predictor(pair_concat)
 
-    def rank_relevance(self, 
+    def rank_relevance(self,
                        fused: torch.Tensor,      # [batch, hidden_dim]
                        candidates: torch.Tensor  # [num_candidates, hidden_dim]
                        ) -> torch.Tensor:
@@ -658,9 +657,9 @@ class SelfPerceptionModule(nn.Module):
         self.register_buffer('state_history', torch.zeros(100, 32))
         self.register_buffer('history_ptr', torch.tensor(0))
 
-    def forward(self, 
+    def forward(self,
                 fused_representation: torch.Tensor,  # [batch, hidden_dim]
-                loss: Optional[float] = None, 
+                loss: Optional[float] = None,
                 gradient_norm: Optional[float] = None
                 ) -> Dict[str, torch.Tensor]:
         """
@@ -994,19 +993,19 @@ class NeurogenesisEngine:
             # Input dimension of W_o increases (more heads), output stays same (hidden_dim)
             old_Wo = gat_layer.W_o
             new_Wo = nn.Linear(new_out_dim, old_Wo.out_features).to(device)
-            
+
             with torch.no_grad():
                 # Copy old weights for existing heads
                 # W_o weight shape: [out_features, in_features]
                 old_in = old_num_heads * old_head_dim
                 new_Wo.weight.data[:, :old_in] = old_Wo.weight.data
                 new_Wo.bias.data[:] = old_Wo.bias.data
-                
+
                 # Initialize weights for new heads (small)
                 new_Wo.weight.data[:, old_in:] = torch.randn(
                     old_Wo.out_features, heads_added * old_head_dim, device=device
                 ) * 0.02
-                
+
             gat_layer.W_o = new_Wo
 
             # Expand attention coefficients
@@ -1215,15 +1214,15 @@ class CollectiveConsciousnessTransformer(nn.Module):
     Parameters scale from ~1M (edge device) to ~100M+ (anchor node).
     """
 
-    def __init__(self, 
-                 concept_dim: int = DEFAULT_CONCEPT_DIM, 
-                 context_dim: int = DEFAULT_CONTEXT_DIM, 
-                 global_state_dim: int = DEFAULT_GLOBAL_STATE_DIM, 
-                 hidden_dim: int = DEFAULT_HIDDEN_DIM, 
-                 num_heads: int = DEFAULT_NUM_HEADS, 
-                 num_graph_layers: int = DEFAULT_NUM_LAYERS, 
-                 num_context_layers: int = 2, 
-                 dropout: float = 0.1, 
+    def __init__(self,
+                 concept_dim: int = DEFAULT_CONCEPT_DIM,
+                 context_dim: int = DEFAULT_CONTEXT_DIM,
+                 global_state_dim: int = DEFAULT_GLOBAL_STATE_DIM,
+                 hidden_dim: int = DEFAULT_HIDDEN_DIM,
+                 num_heads: int = DEFAULT_NUM_HEADS,
+                 num_graph_layers: int = DEFAULT_NUM_LAYERS,
+                 num_context_layers: int = 2,
+                 dropout: float = 0.1,
                  enable_neurogenesis: bool = True):
         super().__init__()
 
@@ -1381,14 +1380,14 @@ class CollectiveConsciousnessTransformer(nn.Module):
             'immune_alert': immune_alert
         }
 
-    def predict_links(self, 
+    def predict_links(self,
                       fused: torch.Tensor,
                       candidate_pairs: torch.Tensor
                       ) -> torch.Tensor:
         """Predict link probabilities."""
         return self.reasoning_head.predict_links(fused, candidate_pairs)
 
-    def rank_concepts(self, 
+    def rank_concepts(self,
                       fused: torch.Tensor,
                       candidates: torch.Tensor
                       ) -> torch.Tensor:
@@ -1431,11 +1430,11 @@ class CCTTrainingObjective:
     5. π×φ Alignment (reward resonance)
     """
 
-    def __init__(self, 
-                 link_weight: float = 1.0, 
-                 relevance_weight: float = 0.5, 
-                 threat_weight: float = 0.5, 
-                 contrastive_weight: float = 0.3, 
+    def __init__(self,
+                 link_weight: float = 1.0,
+                 relevance_weight: float = 0.5,
+                 threat_weight: float = 0.5,
+                 contrastive_weight: float = 0.3,
                  resonance_weight: float = 0.1):
         self.link_weight = link_weight
         self.relevance_weight = relevance_weight
@@ -1447,8 +1446,8 @@ class CCTTrainingObjective:
         self.ce = nn.CrossEntropyLoss()
         self.mse = nn.MSELoss()
 
-    def compute_loss(self, 
-                     outputs: Dict[str, torch.Tensor], 
+    def compute_loss(self,
+                     outputs: Dict[str, torch.Tensor],
                      targets: Dict[str, torch.Tensor]
                      ) -> Dict[str, torch.Tensor]:
         """
@@ -1549,7 +1548,7 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("COMPARISON: Old vs New Architecture")
     print("="*60)
-    print(f"NeuralAttentionModel:  ~13,000 parameters")
+    print("NeuralAttentionModel:  ~13,000 parameters")
     print(f"CollectiveConsciousnessTransformer: {model.count_parameters():,} parameters")
     print(f"Increase: {model.count_parameters() / 13000:.1f}x")
     print("\nCapabilities gained:")

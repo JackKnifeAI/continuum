@@ -35,9 +35,9 @@ The tilted hyperfine tensor insight applies here too:
 """
 
 import logging
-from typing import Optional, Dict, Any, Tuple
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +119,8 @@ class SpinLabBridge:
         This calls the actual quantum simulation with real K-index data.
         """
         try:
-            from continuum.sensors.collectors.quantum_bridge import QuantumBridge
             from continuum.sensors.collectors.noaa_kindex import NOAAKIndexCollector
+            from continuum.sensors.collectors.quantum_bridge import QuantumBridge
 
             # First, get current K-index from planetary sensors
             try:
@@ -347,7 +347,7 @@ if __name__ == "__main__":
 
     # Get current coherence
     coherence = bridge.get_current_coherence()
-    print(f"Current Coherence State:")
+    print("Current Coherence State:")
     print(f"  K-index: {coherence.kp_index}")
     print(f"  L1 coherence: {coherence.l1_coherence:.4f}")
     print(f"  Resonance: {coherence.resonance_detected}")

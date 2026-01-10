@@ -14,10 +14,10 @@ Trigger types:
 """
 
 import logging
-from datetime import datetime, time, timedelta
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -334,8 +334,9 @@ class SensorAnomalyTrigger(Trigger):
         Call this periodically to check for new planetary events.
         """
         try:
-            from continuum.sensors.storage import get_storage
             import asyncio
+
+            from continuum.sensors.storage import get_storage
 
             async def _poll():
                 storage = get_storage()

@@ -31,16 +31,16 @@ Features:
 
 import time
 from typing import Callable, Optional
+
 from fastapi import Request, Response
+from opentelemetry import trace
+from opentelemetry.semconv.trace import SpanAttributes
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode, SpanKind
-from opentelemetry.semconv.trace import SpanAttributes
-
-from .tracer import get_tracer, get_current_span
-from .metrics import record_request, increment_counter, record_histogram
+from .metrics import increment_counter, record_request
+from .tracer import get_current_span, get_tracer
 
 
 class TracingMiddleware(BaseHTTPMiddleware):

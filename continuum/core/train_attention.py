@@ -32,17 +32,22 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
-import json
+from typing import Any, Dict
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from continuum.core.neural_attention import NeuralAttentionModel, NeuralAttentionTrainer, save_model, load_model
-from continuum.core.neural_attention_data import NeuralAttentionDataPipeline, TrainingExample
+from continuum.core.neural_attention import (
+    NeuralAttentionModel,
+    NeuralAttentionTrainer,
+    load_model,
+    save_model,
+)
+from continuum.core.neural_attention_data import NeuralAttentionDataPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -304,11 +309,11 @@ def main():
 
         result = trainer.evaluate_model()
 
-        print(f"\nEvaluation Results:")
+        print("\nEvaluation Results:")
         print(f"  Test Loss: {result['test_loss']:.4f}")
         print(f"  Parameters: {result['param_count']:,}")
 
-        print(f"\nSample Predictions:")
+        print("\nSample Predictions:")
         for pred in result['sample_predictions']:
             print(f"  {pred['concept_a']} <-> {pred['concept_b']}")
             print(f"    True: {pred['true_strength']:.3f}, Predicted: {pred['predicted_strength']:.3f}, Error: {pred['error']:.3f}")

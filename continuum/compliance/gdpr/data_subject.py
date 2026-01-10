@@ -214,7 +214,7 @@ class DataSubjectRights:
         data = await self._gather_user_data(user_id)
 
         # Export in requested format
-        from ..audit.export import AuditLogExporter, ExportFormat
+        from ..audit.export import AuditLogExporter
 
         exporter = AuditLogExporter(storage=None)  # Use GDPR-specific exporter
 

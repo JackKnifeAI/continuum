@@ -18,16 +18,17 @@
 Import Command - Import memories from JSON or SQLite
 """
 
-import sys
-import json
 import gzip
+import json
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
 
 from continuum.core.memory import get_memory
-from ..utils import success, error, info, section, warning, confirm
+
 from ..config import CLIConfig
+from ..utils import confirm, error, info, section, success, warning
 
 
 def import_command(
@@ -90,7 +91,7 @@ def import_command(
                 memory, input_path, merge, target_tenant, config, use_color
             )
 
-        success(f"Import complete", use_color)
+        success("Import complete", use_color)
 
         # Show updated stats
         stats = memory.get_stats()

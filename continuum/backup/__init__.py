@@ -38,15 +38,15 @@ Usage:
     await manager.restore(backup_id='backup-123')
 """
 
-from .manager import BackupManager, BackupConfig
+from .manager import BackupConfig, BackupManager
 from .types import (
-    BackupStrategy,
-    BackupResult,
     BackupMetadata,
+    BackupResult,
+    BackupStrategy,
     RestoreResult,
     RestoreTarget,
-    VerificationResult,
     RetentionResult,
+    VerificationResult,
 )
 
 __all__ = [

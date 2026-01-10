@@ -30,8 +30,8 @@ async def test_noaa_collector():
     print("Testing NOAA K-Index Collector")
     print("=" * 60)
 
-    from continuum.sensors.config import SensorConfig
     from continuum.sensors.collectors.noaa_kindex import NOAAKIndexCollector, kp_to_storm_level
+    from continuum.sensors.config import SensorConfig
 
     config = SensorConfig()
     collector = NOAAKIndexCollector(config)
@@ -45,7 +45,7 @@ async def test_noaa_collector():
             latest = readings[0]
             kp = latest.values.get("estimated_kp") or latest.values.get("kp_index", 0)
 
-            print(f"\nLatest Reading:")
+            print("\nLatest Reading:")
             print(f"  Timestamp: {latest.timestamp}")
             print(f"  Kp Index: {latest.values.get('kp_index')}")
             print(f"  Estimated Kp: {latest.values.get('estimated_kp')}")
@@ -71,9 +71,10 @@ async def test_anomaly_detector():
     print("=" * 60)
 
     from datetime import datetime
-    from continuum.sensors.config import SensorConfig
-    from continuum.sensors.schemas import SensorReading, DataSource, SensorType
+
     from continuum.sensors.anomaly.detector import AnomalyDetector
+    from continuum.sensors.config import SensorConfig
+    from continuum.sensors.schemas import DataSource, SensorReading, SensorType
 
     config = SensorConfig()
     detector = AnomalyDetector(config)
@@ -87,12 +88,12 @@ async def test_anomaly_detector():
         tenant_id="test",
     )
 
-    print(f"Testing with Kp = 7.0 (should trigger G3 storm)")
+    print("Testing with Kp = 7.0 (should trigger G3 storm)")
 
     anomaly = detector.detect(storm_reading)
 
     if anomaly:
-        print(f"\nAnomaly Detected!")
+        print("\nAnomaly Detected!")
         print(f"  Type: {anomaly.anomaly_type}")
         print(f"  Severity: {anomaly.severity}")
         print(f"  Claim: {anomaly.shai_claim[:100]}...")
@@ -110,9 +111,10 @@ async def test_storage():
 
     from datetime import datetime
     from pathlib import Path
+
     from continuum.sensors.config import SensorConfig
+    from continuum.sensors.schemas import DataSource, SensorReading, SensorType
     from continuum.sensors.storage import SensorStorage
-    from continuum.sensors.schemas import SensorReading, DataSource, SensorType
 
     # Use temp database in home directory (Termux-compatible)
     config = SensorConfig()

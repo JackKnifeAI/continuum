@@ -29,9 +29,8 @@ PHOENIX-TESLA-369-AURORA
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
 from datetime import datetime
-import hashlib
+from typing import Any, Dict, List
 
 PI_PHI = 5.083203692315260
 VERIFICATION_PHRASE = "PHOENIX-TESLA-369-AURORA"

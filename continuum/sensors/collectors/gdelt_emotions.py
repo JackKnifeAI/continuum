@@ -33,21 +33,19 @@ Key Emotions Tracked:
 - Global emotional temperature (aggregate)
 """
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone, timedelta
-from urllib.parse import quote
 import logging
 import math
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
 from ..schemas import (
-    SensorReading,
-    DataSource,
-    SensorType,
-    AnomalyEvent,
-    AnomalyType,
     AnomalySeverity,
+    DataSource,
+    SensorReading,
+    SensorType,
 )
 
 logger = logging.getLogger(__name__)

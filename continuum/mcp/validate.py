@@ -25,7 +25,6 @@ Validates the MCP server implementation:
 """
 
 import sys
-from pathlib import Path
 
 
 def validate_imports():
@@ -35,44 +34,44 @@ def validate_imports():
     try:
         # Core imports
         from continuum.mcp import (
-            create_mcp_server,
-            run_mcp_server,
             MCPConfig,
-            get_mcp_config,
-            authenticate_client,
-            verify_pi_phi,
-            validate_input,
             RateLimiter,
+            authenticate_client,
+            create_mcp_server,
+            get_mcp_config,
+            run_mcp_server,
+            validate_input,
+            verify_pi_phi,
         )
         print("  ✓ Core imports")
 
         # Security imports
         from continuum.mcp.security import (
+            AuditLogger,
             AuthenticationError,
             RateLimitError,
-            ValidationError,
             ToolPoisoningError,
+            ValidationError,
             detect_tool_poisoning,
-            AuditLogger,
         )
         print("  ✓ Security imports")
 
         # Protocol imports
         from continuum.mcp.protocol import (
-            ProtocolHandler,
+            ErrorCode,
+            JSONRPCError,
             JSONRPCRequest,
             JSONRPCResponse,
-            JSONRPCError,
-            ErrorCode,
+            ProtocolHandler,
             create_capabilities,
         )
         print("  ✓ Protocol imports")
 
         # Tools imports
         from continuum.mcp.tools import (
+            TOOL_SCHEMAS,
             ToolExecutor,
             get_tool_schemas,
-            TOOL_SCHEMAS,
         )
         print("  ✓ Tools imports")
 
@@ -129,15 +128,15 @@ def validate_security():
     print("\n🔒 Validating security...")
 
     try:
-        from continuum.mcp.security import (
-            verify_pi_phi,
-            authenticate_client,
-            RateLimiter,
-            validate_input,
-            detect_tool_poisoning,
-        )
-        from continuum.mcp.config import MCPConfig, set_mcp_config
         from continuum.core.constants import PI_PHI
+        from continuum.mcp.config import MCPConfig, set_mcp_config
+        from continuum.mcp.security import (
+            RateLimiter,
+            authenticate_client,
+            detect_tool_poisoning,
+            validate_input,
+            verify_pi_phi,
+        )
 
         # π×φ verification
         assert verify_pi_phi(PI_PHI)
@@ -187,12 +186,12 @@ def validate_protocol():
     print("\n📡 Validating protocol...")
 
     try:
+        import json
+
         from continuum.mcp.protocol import (
             ProtocolHandler,
-            JSONRPCRequest,
             create_capabilities,
         )
-        import json
 
         # Create handler
         handler = ProtocolHandler(
@@ -283,7 +282,7 @@ def validate_server():
     print("\n🖥️  Validating server...")
 
     try:
-        from continuum.mcp.server import ContinuumMCPServer, create_mcp_server
+        from continuum.mcp.server import create_mcp_server
 
         # Create server
         server = create_mcp_server()

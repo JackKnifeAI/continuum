@@ -27,16 +27,14 @@ Features:
 - Error handling with extensions
 """
 
-from typing import Optional
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from strawberry.fastapi import GraphQLRouter
-from strawberry.schema.config import StrawberryConfig
 
-from .schema import schema
 from .auth.context import get_context
-from .middleware.logging import LoggingExtension
-from .middleware.error_handling import ErrorFormattingExtension
 from .middleware.complexity import ComplexityExtension
+from .middleware.error_handling import ErrorFormattingExtension
+from .middleware.logging import LoggingExtension
+from .schema import schema
 
 
 def create_graphql_app(

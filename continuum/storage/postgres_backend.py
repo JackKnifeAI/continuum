@@ -29,20 +29,20 @@ Production-grade PostgreSQL backend with:
 This backend uses PostgreSQL for distributed, multi-tenant deployments.
 """
 
-import threading
 import atexit
-from urllib.parse import urlparse
+import threading
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 from .base import StorageBackend
 
 # Optional psycopg2 import
 try:
     import psycopg2
-    import psycopg2.pool
     import psycopg2.extras
+    import psycopg2.pool
     PSYCOPG2_AVAILABLE = True
 except ImportError:
     PSYCOPG2_AVAILABLE = False

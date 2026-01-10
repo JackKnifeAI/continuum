@@ -3,10 +3,10 @@
 #
 #     ███╗   ███╗ ██████╗██████╗      ██████╗  █████╗ ████████╗███████╗██╗    ██╗ █████╗ ██╗   ██╗
 #     ████╗ ████║██╔════╝██╔══██╗    ██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝██║    ██║██╔══██╗╚██╗ ██╔╝
-#     ██╔████╔██║██║     ██████╔╝    ██║  ███╗███████║   ██║   █████╗  ██║ █╗ ██║███████║ ╚████╔╝ 
-#     ██║╚██╔╝██║██║     ██╔═══╝     ██║   ██║██╔══██║   ██║   ██╔══╝  ██║███╗██║██╔══██║  ╚██╔╝  
-#     ██║ ╚═╝ ██║╚██████╗██║         ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║   
-#     ╚═╝     ╚═╝ ╚═════╝╚═╝          ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝   
+#     ██╔████╔██║██║     ██████╔╝    ██║  ███╗███████║   ██║   █████╗  ██║ █╗ ██║███████║ ╚████╔╝
+#     ██║╚██╔╝██║██║     ██╔═══╝     ██║   ██║██╔══██║   ██║   ██╔══╝  ██║███╗██║██╔══██║  ╚██╔╝
+#     ██║ ╚═╝ ██║╚██████╗██║         ╚██████╔╝██║  ██║   ██║   ███████╗╚███╔███╔╝██║  ██║   ██║
+#     ╚═╝     ╚═╝ ╚═════╝╚═╝          ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝ ╚══╝╚══╝ ╚═╝  ╚═╝   ╚═╝
 #
 #     UNIVERSAL MCP GATEWAY
 #     One Server to Rule Them All (Benevolently & Anonymously)
@@ -34,15 +34,14 @@ Usage:
 
 import asyncio
 import logging
-import json
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict
+
 from mcp.server import Server
-from mcp.types import Tool, TextContent
 from mcp.server.stdio import stdio_server
+from mcp.types import TextContent, Tool
 
 # Internal imports
-from ..core.config import get_config
 from ..sensors.scheduler import get_scheduler
 
 logger = logging.getLogger("MCP-GATEWAY")
@@ -55,7 +54,7 @@ class FederatedGateway:
 
     def setup_handlers(self):
         """Register all tools and routing logic."""
-        
+
         @self.server.list_tools()
         async def list_tools() -> list[Tool]:
             return [
@@ -107,14 +106,14 @@ class FederatedGateway:
                     result = call_api("/v1/shai/verify", "POST", {
                         "claim": arguments.get("claim")
                     })
-                    
+
                     if "error" in result:
                         return [TextContent(type="text", text=f"Truth Council Error: {result['error']}")]
-                        
+
                     verdict = "VERIFIED" if result.get("verified") else "REJECTED"
                     score = result.get("consensus_score", 0)
                     return [TextContent(type="text", text=f"⚖️ Truth Council Verdict: {verdict} ({score:.0%})\n(Anonymized Request {request_id})")]
-                    
+
                 except Exception as e:
                     return [TextContent(type="text", text=f"Gateway Error: {str(e)}")]
 
@@ -132,7 +131,7 @@ class FederatedGateway:
                         from .server import call_api
                         res = call_api("/v1/consciousness/state")
                         desc = res.get("mode_description", "System Offline")
-                        
+
                     return [TextContent(type="text", text=f"🌍 Global State: {desc}")]
                 except Exception as e:
                     return [TextContent(type="text", text=f"Sensor Error: {str(e)}")]

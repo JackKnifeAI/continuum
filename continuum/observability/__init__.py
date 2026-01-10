@@ -75,39 +75,35 @@ Exporters:
 - Console: Development console output
 """
 
-from .tracer import (
-    init_telemetry,
-    shutdown_telemetry,
-    get_tracer,
-    get_meter,
-    get_current_span,
-    trace_function,
-)
-
 from .config import OTelConfig
-
-from .metrics import (
-    record_request,
-    record_memory_operation,
-    record_cache_operation,
-    record_federation_operation,
-    increment_counter,
-    record_histogram,
-    set_gauge,
-)
-
 from .context import (
     extract_trace_context,
-    inject_trace_context,
-    get_trace_id,
-    get_span_id,
-    set_baggage,
     get_baggage,
+    get_span_id,
+    get_trace_id,
+    inject_trace_context,
+    set_baggage,
 )
-
 from .logging_integration import (
-    setup_logging,
     get_logger,
+    setup_logging,
+)
+from .metrics import (
+    increment_counter,
+    record_cache_operation,
+    record_federation_operation,
+    record_histogram,
+    record_memory_operation,
+    record_request,
+    set_gauge,
+)
+from .tracer import (
+    get_current_span,
+    get_meter,
+    get_tracer,
+    init_telemetry,
+    shutdown_telemetry,
+    trace_function,
 )
 
 __all__ = [

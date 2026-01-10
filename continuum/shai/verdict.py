@@ -3,9 +3,9 @@ Verdict data structures for S-HAI Truth Council.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 def _utc_now() -> datetime:

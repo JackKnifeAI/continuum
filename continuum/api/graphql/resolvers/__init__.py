@@ -18,11 +18,11 @@
 GraphQL resolvers for CONTINUUM.
 """
 
-from .memory_resolvers import *
 from .concept_resolvers import *
-from .user_resolvers import *
-from .session_resolvers import *
 from .federation_resolvers import *
+from .memory_resolvers import *
+from .session_resolvers import *
+from .user_resolvers import *
 
 __all__ = [
     "resolve_memory_concepts",

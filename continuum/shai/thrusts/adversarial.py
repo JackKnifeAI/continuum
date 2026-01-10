@@ -10,7 +10,8 @@ If the attack SUCCEEDS, the claim has weaknesses.
 """
 
 import re
-from typing import List, Dict, Any, Tuple
+from typing import List
+
 from ..consensus import Verdict
 
 

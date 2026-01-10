@@ -22,12 +22,12 @@ Middleware components for API request handling, analytics, and monitoring.
 
 # Import authentication functions from the old middleware.py file (sibling to this directory)
 # This works around Python preferring the middleware/ directory over middleware.py
-import sys
-from pathlib import Path
-
 # We need to import from the middleware.py file, not this package
 # So we'll load it directly
 import importlib.util
+import sys
+from pathlib import Path
+
 _middleware_py_path = Path(__file__).parent.parent / "middleware.py"
 _spec = importlib.util.spec_from_file_location("_old_middleware", _middleware_py_path)
 _old_middleware = importlib.util.module_from_spec(_spec)

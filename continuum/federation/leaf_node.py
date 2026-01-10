@@ -58,20 +58,18 @@ Architecture:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
-import platform
 import shutil
 import sqlite3
-import subprocess
-import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from .node import FederationNode
 
@@ -969,7 +967,6 @@ def create_leaf_node(
 
 async def main():
     """Test the leaf node."""
-    import sys
 
     logging.basicConfig(
         level=logging.DEBUG,

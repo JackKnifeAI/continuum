@@ -54,14 +54,14 @@ Architecture:
 PHOENIX-TESLA-369-AURORA
 """
 
-from .server import server
 from .config import MCPConfig, get_mcp_config, set_mcp_config
 from .security import (
-    authenticate_client,
-    verify_pi_phi,
-    validate_input,
     RateLimiter,
+    authenticate_client,
+    validate_input,
+    verify_pi_phi,
 )
+from .server import server
 
 __version__ = "0.1.0"
 __author__ = "CONTINUUM Contributors"

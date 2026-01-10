@@ -20,10 +20,10 @@ DataLoaders for batching and caching database queries.
 Prevents N+1 query problems by batching requests.
 """
 
-from .memory_loader import MemoryLoader, ConceptsByMemoryLoader
 from .concept_loader import ConceptLoader, MemoriesByConceptLoader
-from .user_loader import UserLoader
+from .memory_loader import ConceptsByMemoryLoader, MemoryLoader
 from .session_loader import SessionLoader
+from .user_loader import UserLoader
 
 __all__ = [
     "MemoryLoader",

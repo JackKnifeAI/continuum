@@ -30,8 +30,8 @@ Commands:
     doctor    - Diagnose issues
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 try:
@@ -40,19 +40,20 @@ except ImportError:
     print("Error: Click not installed. Install with: pip install click", file=sys.stderr)
     sys.exit(1)
 
-from continuum import __version__, PHOENIX_TESLA_369_AURORA
-from continuum.core.analytics import (
-    get_analytics,
-    track_cli_command,
-    track_session_start,
-    track_session_end,
-)
-from .config import get_cli_config
-from .utils import success, error, info, section, colorize, Colors
 import time
 
+from continuum import PHOENIX_TESLA_369_AURORA, __version__
+from continuum.core.analytics import (
+    track_cli_command,
+    track_session_end,
+    track_session_start,
+)
+
 # Initialize Sentry for CLI error tracking (only if SENTRY_DSN is set)
-from continuum.core.sentry_integration import init_sentry, capture_exception, is_enabled
+from continuum.core.sentry_integration import capture_exception, init_sentry, is_enabled
+
+from .config import get_cli_config
+from .utils import error, info, section, success
 
 # Initialize on module load if DSN is configured
 if os.environ.get("SENTRY_DSN"):
@@ -390,6 +391,7 @@ def learn(ctx, concept_name, description):
 
 # Register bootstrap command group
 from .bootstrap import bootstrap
+
 cli.add_command(bootstrap)
 
 

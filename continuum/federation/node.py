@@ -21,13 +21,13 @@ Each node has a unique ID, tracks its contribution score, and has
 access levels based on how much it contributes to the collective.
 """
 
-import uuid
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
-from pathlib import Path
 import json
 import math
 import socket
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 
 class FederationNode:

@@ -48,19 +48,19 @@ Heartbeat protocol:
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import Optional
-from datetime import datetime, timedelta
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from .sync import get_sync_manager, SyncManager
 from .events import (
     BaseEvent,
     EventType,
-    create_event,
     HeartbeatEvent,
+    create_event,
 )
+from .sync import SyncManager, get_sync_manager
 
 logger = logging.getLogger(__name__)
 

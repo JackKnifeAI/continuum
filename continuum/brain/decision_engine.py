@@ -11,10 +11,10 @@ to achieve a given goal.
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import re
 import logging
-from typing import Dict, Any, Optional, List
+import re
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

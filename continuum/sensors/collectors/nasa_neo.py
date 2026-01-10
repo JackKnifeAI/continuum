@@ -16,13 +16,12 @@ Data Source: https://api.nasa.gov/neo/rest/v1/feed
 API Key: DEMO_KEY (rate limited) or get free key at api.nasa.gov
 """
 
-from typing import List
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

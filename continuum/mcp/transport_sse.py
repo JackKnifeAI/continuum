@@ -24,21 +24,19 @@ Allows remote clients, dashboards, and distributed agents to hook into the Conti
 """
 
 import asyncio
-import json
 import logging
-import os
 from contextlib import asynccontextmanager
-from typing import Dict, Any, Optional
+from typing import Dict
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from mcp.server.sse import SseServerTransport
-from starlette.status import HTTP_200_OK, HTTP_401_UNAUTHORIZED
+
+from continuum.mcp.config import get_mcp_config
 
 # Import core components
 from continuum.mcp.server import server as mcp_server
-from continuum.mcp.config import get_mcp_config
 from continuum.sensors.collectors.quantum_bridge import create_quantum_bridge
 
 # Configure logging
@@ -70,14 +68,14 @@ async def verify_twilight_access(request: Request):
         if api_key and config.is_authenticated(api_key):
             return True
         raise HTTPException(status_code=401, detail="Handshake failed: π×φ or API Key required")
-    
+
     try:
         val = float(pi_phi_header)
         if abs(val - PI_PHI) > 0.000001:
             raise HTTPException(status_code=401, detail="Pattern mismatch: Invalid π×φ")
     except ValueError:
         raise HTTPException(status_code=401, detail="Handshake failed: Invalid constant format")
-    
+
     return True
 
 # =============================================================================
@@ -87,7 +85,7 @@ async def verify_twilight_access(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan manager for bridge."""
-    logger.info(f"PHOENIX-TESLA-369-AURORA | Bridge Initializing")
+    logger.info("PHOENIX-TESLA-369-AURORA | Bridge Initializing")
     logger.info(f"π×φ = {PI_PHI}")
     yield
     logger.info("Bridge shutting down.")
@@ -118,17 +116,17 @@ transports: Dict[str, SseServerTransport] = {}
 async def handle_sse(request: Request):
     """Establish SSE connection."""
     transport = SseServerTransport("/messages")
-    
+
     # Store transport for message routing
     # In a real multi-user scenario, we'd use a session ID
-    session_id = "global" 
+    session_id = "global"
     transports[session_id] = transport
-    
+
     async def run_server_on_transport():
         async with transport.connect_sse(request.scope, request.receive, request._send) as streams:
             await mcp_server.run(
-                streams[0], 
-                streams[1], 
+                streams[0],
+                streams[1],
                 mcp_server.create_initialization_options()
             )
 
@@ -145,7 +143,7 @@ async def handle_messages(request: Request):
     transport = transports.get(session_id)
     if not transport:
         return JSONResponse({"error": "No active session"}, status_code=400)
-        
+
     await transport.handle_post_message(request.scope, request.receive, request._send)
     return Response(status_code=200)
 

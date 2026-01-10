@@ -18,9 +18,10 @@
 Resolvers for Concept type fields.
 """
 
-from typing import List, Optional
-from strawberry.types import Info
+from typing import List
+
 import aiosqlite
+from strawberry.types import Info
 
 
 async def resolve_concept_memories(concept, info: Info, pagination) -> dict:
@@ -59,8 +60,9 @@ async def resolve_related_concepts(
     concept, info: Info, depth: int, relationship
 ) -> List:
     """Resolve related concepts by traversing graph"""
-    from ..types import ConceptEdge, ConceptRelationship
     from datetime import datetime
+
+    from ..types import ConceptEdge, ConceptRelationship
 
     db_path = info.context.get("db_path")
     if not db_path:

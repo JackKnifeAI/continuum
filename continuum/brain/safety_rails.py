@@ -14,12 +14,12 @@ Implements multiple levels of safety:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import re
 import logging
-from typing import Dict, Any, List, Set
+import re
 from dataclasses import dataclass
-from enum import Enum
 from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class SafetyRails:
 
         # 2. Check rate limit
         if not self._check_rate_limit():
-            logger.warning(f"🚫 Rate limit exceeded")
+            logger.warning("🚫 Rate limit exceeded")
             self.blocked_count += 1
             return SafetyResult(
                 allowed=False,

@@ -24,8 +24,8 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from .events import (
-    Action,
     AccessType,
+    Action,
     Actor,
     ActorType,
     AuditEventType,

@@ -20,10 +20,9 @@ CONTINUUM Shared Authentication
 Unified authentication utilities used by both CLI and MCP server.
 """
 
-import os
 import hashlib
-from typing import Optional, List
-from pathlib import Path
+import os
+from typing import List, Optional
 
 from .constants import PI_PHI
 

@@ -21,22 +21,22 @@ REST API for multi-tenant AI memory infrastructure.
 Provides endpoints for memory recall, learning, statistics, and message retrieval.
 """
 
-from .server import app
+from .middleware import AnalyticsMiddleware
 from .schemas import (
-    RecallRequest,
-    RecallResponse,
-    LearnRequest,
-    LearnResponse,
-    TurnRequest,
-    TurnResponse,
-    StatsResponse,
     EntitiesResponse,
     HealthResponse,
+    LearnRequest,
+    LearnResponse,
     MessageItem,
-    MessagesResponse,
     MessageSearchRequest,
+    MessagesResponse,
+    RecallRequest,
+    RecallResponse,
+    StatsResponse,
+    TurnRequest,
+    TurnResponse,
 )
-from .middleware import AnalyticsMiddleware
+from .server import app
 
 __all__ = [
     "app",

@@ -21,11 +21,11 @@ API middleware for authentication, rate limiting, and other cross-cutting concer
 import hashlib
 import hmac
 import sqlite3
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
-from fastapi import HTTPException, Header
 
+from fastapi import Header, HTTPException
 
 # =============================================================================
 # CONFIGURATION
@@ -221,9 +221,10 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi import Request, Response
 from typing import Optional
+
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
@@ -258,6 +259,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
 import time
 from collections import defaultdict
+
 
 class RateLimiter:
     """
@@ -294,14 +296,14 @@ class RateLimiter:
         now = time.time()
         # Filter out requests older than window
         self.requests[tenant_id] = [t for t in self.requests[tenant_id] if now - t < self.window_size]
-        
+
         if len(self.requests[tenant_id]) >= self.requests_per_minute:
             raise HTTPException(
                 status_code=429,
                 detail="Rate limit exceeded",
                 headers={"Retry-After": "60"}
             )
-            
+
         self.requests[tenant_id].append(now)
         return True
 

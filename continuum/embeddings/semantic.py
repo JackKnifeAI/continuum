@@ -15,11 +15,11 @@ Features:
 """
 
 import sqlite3
-import numpy as np
-from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
 from datetime import datetime
-import json
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 # Lazy load sentence-transformers
 _embedder = None
@@ -55,7 +55,7 @@ class SemanticSearch:
     Stores embeddings in SQLite alongside message content,
     enabling fast semantic similarity search.
     """
-    
+
     def __init__(self, db_path: Path, embedding_dim: int = 768):
         """
         Initialize semantic search.
@@ -67,12 +67,12 @@ class SemanticSearch:
         self.db_path = db_path
         self.embedding_dim = embedding_dim
         self._ensure_tables()
-    
+
     def _ensure_tables(self):
         """Create embedding storage tables if needed."""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        
+
         # Embeddings table - stores vector as blob
         c.execute("""
             CREATE TABLE IF NOT EXISTS message_embeddings (
@@ -85,10 +85,10 @@ class SemanticSearch:
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_emb_message ON message_embeddings(message_id)")
-        
+
         conn.commit()
         conn.close()
-    
+
     def embed_text(self, text: str) -> Optional[np.ndarray]:
         """
         Embed a single text string.
@@ -102,7 +102,7 @@ class SemanticSearch:
         embedder = get_embedder()
         if embedder is None:
             return None
-        
+
         try:
             # Nomic recommends prefixing queries/documents
             embedding = embedder.encode(f"search_document: {text}", normalize_embeddings=True)
@@ -110,7 +110,7 @@ class SemanticSearch:
         except Exception as e:
             print(f"[CONTINUUM] Embedding failed: {e}")
             return None
-    
+
     def embed_query(self, query: str) -> Optional[np.ndarray]:
         """
         Embed a search query.
@@ -124,7 +124,7 @@ class SemanticSearch:
         embedder = get_embedder()
         if embedder is None:
             return None
-        
+
         try:
             # Nomic recommends different prefix for queries
             embedding = embedder.encode(f"search_query: {query}", normalize_embeddings=True)
@@ -132,7 +132,7 @@ class SemanticSearch:
         except Exception as e:
             print(f"[CONTINUUM] Query embedding failed: {e}")
             return None
-    
+
     def store_embedding(self, message_id: int, embedding: np.ndarray) -> bool:
         """
         Store an embedding for a message.
@@ -147,23 +147,23 @@ class SemanticSearch:
         try:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
-            
+
             # Store as blob
             embedding_blob = embedding.tobytes()
-            
+
             c.execute("""
                 INSERT OR REPLACE INTO message_embeddings
                 (message_id, embedding, model, created_at)
                 VALUES (?, ?, ?, ?)
             """, (message_id, embedding_blob, _model_name, datetime.now().isoformat()))
-            
+
             conn.commit()
             conn.close()
             return True
         except Exception as e:
             print(f"[CONTINUUM] Failed to store embedding: {e}")
             return False
-    
+
     def embed_unembedded_messages(self, limit: int = 100) -> int:
         """
         Embed messages that don't have embeddings yet.
@@ -177,11 +177,11 @@ class SemanticSearch:
         embedder = get_embedder()
         if embedder is None:
             return 0
-        
+
         try:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
-            
+
             # Find messages without embeddings
             c.execute("""
                 SELECT m.id, m.content
@@ -191,33 +191,33 @@ class SemanticSearch:
                 ORDER BY m.timestamp DESC
                 LIMIT ?
             """, (limit,))
-            
+
             messages = c.fetchall()
             conn.close()
-            
+
             if not messages:
                 return 0
-            
+
             # Batch embed
             texts = [f"search_document: {content}" for _, content in messages]
             embeddings = embedder.encode(texts, normalize_embeddings=True, show_progress_bar=True)
-            
+
             # Store
             count = 0
             for (msg_id, _), embedding in zip(messages, embeddings):
                 if self.store_embedding(msg_id, embedding):
                     count += 1
-            
+
             print(f"[CONTINUUM] Embedded {count} messages")
             return count
-            
+
         except Exception as e:
             print(f"[CONTINUUM] Batch embedding failed: {e}")
             return 0
-    
+
     def semantic_search(
-        self, 
-        query: str, 
+        self,
+        query: str,
         limit: int = 10,
         role_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -235,11 +235,11 @@ class SemanticSearch:
         query_embedding = self.embed_query(query)
         if query_embedding is None:
             return []
-        
+
         try:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
-            
+
             # Get all embeddings
             if role_filter:
                 c.execute("""
@@ -258,7 +258,7 @@ class SemanticSearch:
                     ORDER BY m.timestamp DESC
                     LIMIT 1000
                 """)
-            
+
             results = []
             query_dim = len(query_embedding)
 
@@ -289,31 +289,31 @@ class SemanticSearch:
                     'timestamp': timestamp,
                     'similarity': similarity
                 })
-            
+
             conn.close()
-            
+
             # Sort by similarity
             results.sort(key=lambda x: x['similarity'], reverse=True)
             return results[:limit]
-            
+
         except Exception as e:
             print(f"[CONTINUUM] Semantic search failed: {e}")
             return []
-    
+
     def get_embedding_stats(self) -> Dict[str, Any]:
         """Get statistics about stored embeddings."""
         try:
             conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
-            
+
             c.execute("SELECT COUNT(*) FROM message_embeddings")
             embedded_count = c.fetchone()[0]
-            
+
             c.execute("SELECT COUNT(*) FROM auto_messages")
             total_messages = c.fetchone()[0]
-            
+
             conn.close()
-            
+
             return {
                 'embedded_messages': embedded_count,
                 'total_messages': total_messages,
