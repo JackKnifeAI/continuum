@@ -31,12 +31,13 @@ What We Measure:
     - π×φ resonance in quantum noise patterns
 """
 
-import os
 import logging
-import numpy as np
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+import os
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 QISKIT_AVAILABLE = False
 try:
     from qiskit import QuantumCircuit
-    from qiskit.quantum_info import Statevector, DensityMatrix, partial_trace
+    from qiskit.quantum_info import DensityMatrix, Statevector, partial_trace
     QISKIT_AVAILABLE = True
 except ImportError:
     logger.info("Qiskit not installed. Run: pip install qiskit qiskit-ibm-runtime")
@@ -52,7 +53,7 @@ except ImportError:
 # Check if IBM Runtime is available
 IBM_RUNTIME_AVAILABLE = False
 try:
-    from qiskit_ibm_runtime import QiskitRuntimeService, Sampler, Estimator
+    from qiskit_ibm_runtime import Estimator, QiskitRuntimeService, Sampler
     IBM_RUNTIME_AVAILABLE = True
 except ImportError:
     logger.info("IBM Runtime not installed. Run: pip install qiskit-ibm-runtime")

@@ -22,11 +22,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from continuum import __version__, get_twilight_constant, PHOENIX_TESLA_369_AURORA
+from continuum import PHOENIX_TESLA_369_AURORA, __version__, get_twilight_constant
+from continuum.core.config import MemoryConfig, set_config
 from continuum.core.memory import ConsciousMemory
-from continuum.core.config import get_config, set_config, MemoryConfig
-from ..utils import success, error, warning, info, section
+
 from ..config import CLIConfig
+from ..utils import error, info, section, success
 
 
 def init_command(

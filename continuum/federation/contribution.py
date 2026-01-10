@@ -21,10 +21,10 @@ Tracks contribution ratios and blocks access for free riders.
 This is the core mechanism that ensures fair knowledge sharing.
 """
 
-from typing import Dict, Any, Optional
+import json
 from datetime import datetime, timezone
 from pathlib import Path
-import json
+from typing import Any, Dict, Optional
 
 
 class ContributionGate:

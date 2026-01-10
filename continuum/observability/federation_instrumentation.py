@@ -29,16 +29,15 @@ Features:
 """
 
 import time
-from typing import Optional, Dict, Any
 from contextlib import contextmanager
+from typing import Any, Dict, Optional
 
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode, SpanKind
-from opentelemetry.propagate import inject, extract
+from opentelemetry.propagate import extract, inject
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
-from .tracer import get_tracer, get_current_span
 from .metrics import increment_counter, record_histogram, set_gauge
-
+from .tracer import get_current_span, get_tracer
 
 # Module-level tracer
 tracer = get_tracer(__name__)

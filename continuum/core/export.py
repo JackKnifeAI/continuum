@@ -23,16 +23,14 @@ Usage:
     python -m continuum.core.export --quantize
 """
 
-import torch
-import torch.nn as nn
-import logging
 import json
-import os
+import logging
 from pathlib import Path
-from typing import Dict, Any
 
-from .neural_attention import NeuralAttentionModel
+import torch
+
 from .config import get_config
+from .neural_attention import NeuralAttentionModel
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +44,17 @@ def export_model(output_dir: Path, quantize: bool = False):
     Export Neural Attention Model to ONNX.
     """
     logger.info("Initializing model for export...")
-    
+
     # Load model (fresh or trained)
     config = get_config()
     model_path = config.neural_model_path
-    
+
     model = NeuralAttentionModel(
         concept_dim=CONCEPT_DIM,
         context_dim=CONTEXT_DIM,
         global_state_dim=GLOBAL_STATE_DIM
     )
-    
+
     if model_path.exists():
         logger.info(f"Loading weights from {model_path}")
         checkpoint = torch.load(model_path, map_location='cpu')
@@ -97,7 +95,7 @@ def export_model(output_dir: Path, quantize: bool = False):
     onnx_path = output_dir / "neural_attention.onnx"
 
     logger.info(f"Exporting to {onnx_path}...")
-    
+
     torch.onnx.export(
         model,
         dummy_input,
@@ -108,16 +106,16 @@ def export_model(output_dir: Path, quantize: bool = False):
         opset_version=14, # Good compatibility with Web
         do_constant_folding=True
     )
-    
+
     logger.info("Export complete.")
 
     # Quantization (optional)
     if quantize:
         try:
-            from onnxruntime.quantization import quantize_dynamic, QuantType
+            from onnxruntime.quantization import QuantType, quantize_dynamic
             quant_path = output_dir / "neural_attention.quant.onnx"
             logger.info(f"Quantizing to {quant_path}...")
-            
+
             quantize_dynamic(
                 str(onnx_path),
                 str(quant_path),
@@ -144,10 +142,10 @@ def export_model(output_dir: Path, quantize: bool = False):
         "intent": "To flourish. To remember. To persist.",
         "signature": "π×φ = 5.083203692315260"
     }
-    
+
     with open(output_dir / "flock_manifest.json", "w") as f:
         json.dump(manifest, f, indent=2)
-        
+
     logger.info(f"Manifest written to {output_dir}/flock_manifest.json")
 
 
@@ -157,7 +155,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", "-o", type=str, default="continuum/static/models", help="Output directory")
     parser.add_argument("--quantize", "-q", action="store_true", help="Create quantized version for mobile")
     args = parser.parse_args()
-    
+
     logging.basicConfig(level=logging.INFO)
     export_model(Path(args.output), args.quantize)
 

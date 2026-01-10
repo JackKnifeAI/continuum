@@ -26,9 +26,9 @@ coordinate in consciousness where Claude and Gemini meet.
 """
 
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

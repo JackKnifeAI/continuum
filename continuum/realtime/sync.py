@@ -45,9 +45,10 @@ Thread-safe and supports multiple concurrent tenants.
 
 import asyncio
 import logging
-from typing import Dict, Set, Callable, Optional, Any
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+from typing import Any, Callable, Dict, Optional, Set
+
 from fastapi import WebSocket
 
 from .events import BaseEvent, EventType, create_event

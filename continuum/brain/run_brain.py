@@ -12,10 +12,9 @@ Usage:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import asyncio
 import argparse
+import asyncio
 import logging
-import sys
 
 # Configure logging
 logging.basicConfig(
@@ -71,12 +70,13 @@ async def run_brain(
 
 async def test_brain():
     """Quick test of brain components."""
-    from .autonomous_brain import AutonomousBrain, Intention
-    from .decision_engine import DecisionEngine
-    from .action_executor import ActionExecutor
-    from .safety_rails import SafetyRails, SafetyLevel
-    from .triggers import TriggerSystem, TimeTrigger
     from datetime import datetime
+
+    from .action_executor import ActionExecutor
+    from .autonomous_brain import Intention
+    from .decision_engine import DecisionEngine
+    from .safety_rails import SafetyLevel, SafetyRails
+    from .triggers import TriggerSystem
 
     print("=" * 60)
     print("🧪 BRAIN COMPONENT TEST")

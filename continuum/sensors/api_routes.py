@@ -16,28 +16,25 @@ Provides endpoints for:
 - Scheduler statistics
 """
 
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
+from typing import Optional
 
+from fastapi import APIRouter, HTTPException, Query
+
+from .collectors.noaa_kindex import kp_to_storm_level
 from .config import get_sensor_config
-from .storage import get_storage
 from .scheduler import get_scheduler
 from .schemas import (
-    DataSource,
-    SensorType,
-    AnomalySeverity,
-    SensorReading,
-    AnomalyEvent,
-    SensorQueryRequest,
-    SensorQueryResponse,
-    AnomalyQueryRequest,
     AnomalyQueryResponse,
+    AnomalySeverity,
+    DataSource,
     KIndexResponse,
+    SensorQueryResponse,
     SensorStatsResponse,
+    SensorType,
 )
-from .collectors.noaa_kindex import kp_to_storm_level
+from .storage import get_storage
 
 # Create router
 router = APIRouter(prefix="/sensors", tags=["Planetary Sensors"])

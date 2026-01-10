@@ -21,16 +21,18 @@ These routes are for regular API users (not admin dashboard).
 Used primarily for integration testing of billing/tier functionality.
 """
 
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
-from pydantic import BaseModel, Field
 import logging
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from continuum.billing.tiers import PricingTier
+from continuum.core.memory import TenantManager
+from continuum.federation.shared import SharedKnowledge
+from continuum.federation.tier_enforcer import create_enforcer
 
 from .middleware import get_tenant_from_key
-from continuum.core.memory import TenantManager
-from continuum.billing.tiers import PricingTier
-from continuum.federation.tier_enforcer import create_enforcer
-from continuum.federation.shared import SharedKnowledge
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +148,9 @@ async def create_memory(
             )
 
         # Store as a message
-        import time
         import json
         import sqlite3
+        import time
 
         timestamp = time.time()
         metadata_json = json.dumps(request_obj.metadata) if request_obj.metadata else None

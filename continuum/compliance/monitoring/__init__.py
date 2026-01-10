@@ -16,8 +16,8 @@
 
 """Compliance monitoring and alerting."""
 
-from .anomaly import AnomalyDetector, Anomaly, AnomalyType
-from .alerts import ComplianceAlertManager, Alert, AlertSeverity
+from .alerts import Alert, AlertSeverity, ComplianceAlertManager
+from .anomaly import Anomaly, AnomalyDetector, AnomalyType
 
 __all__ = [
     "AnomalyDetector",

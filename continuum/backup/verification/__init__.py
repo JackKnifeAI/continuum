@@ -26,7 +26,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from ..types import VerificationResult, BackupConfig
+from ..types import BackupConfig, VerificationResult
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,7 @@ async def test_restore(backup_id: str, config: BackupConfig) -> VerificationResu
         # Create temporary restore target
         import tempfile
         from pathlib import Path
+
         from ..types import RestoreTarget
 
         with tempfile.TemporaryDirectory() as tmpdir:

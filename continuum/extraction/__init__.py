@@ -75,28 +75,17 @@ Advanced Usage:
     ... )
 """
 
+from .attention_graph import AttentionGraphExtractor, CanonicalMapper
+from .auto_hook import AutoMemoryHook, get_stats, init_hook, save_message
 from .concept_extractor import ConceptExtractor, DecisionExtractor
-from .attention_graph import (
-    AttentionGraphExtractor,
-    CanonicalMapper
-)
-from .auto_hook import (
-    AutoMemoryHook,
-    init_hook,
-    save_message,
-    get_stats
-)
-from .semantic_extractor import (
-    SemanticConceptExtractor,
-    create_semantic_extractor
-)
 from .concept_voter import (
     ConceptVoter,
-    ExtractorResult,
     ConceptWithConfidence,
+    ExtractorResult,
     VotingStrategy,
-    create_default_voter
+    create_default_voter,
 )
+from .semantic_extractor import SemanticConceptExtractor, create_semantic_extractor
 
 __all__ = [
     # Concept extraction

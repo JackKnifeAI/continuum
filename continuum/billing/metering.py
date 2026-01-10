@@ -22,12 +22,12 @@ Enforces rate limits based on pricing tier.
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
-from collections import defaultdict
 import logging
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Dict, Optional, Tuple
 
-from .tiers import PricingTier, TierLimits, get_tier_limits
+from .tiers import PricingTier, get_tier_limits
 
 logger = logging.getLogger(__name__)
 

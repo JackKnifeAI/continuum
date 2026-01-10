@@ -33,7 +33,8 @@ simpler methods if not available.
 import sqlite3
 import warnings
 from pathlib import Path
-from typing import List, Set, Dict, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
 import numpy as np
 
 # Attempt to import embedding infrastructure
@@ -41,7 +42,7 @@ try:
     from ..embeddings.providers import (
         EmbeddingProvider,
         SentenceTransformerProvider,
-        get_default_provider
+        get_default_provider,
     )
     from ..embeddings.utils import cosine_similarity, normalize_vector
     EMBEDDINGS_AVAILABLE = True

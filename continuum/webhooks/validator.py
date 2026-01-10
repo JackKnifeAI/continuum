@@ -34,11 +34,11 @@ Usage:
         raise ValueError(error)
 """
 
-import socket
 import ipaddress
-from urllib.parse import urlparse
-from typing import Tuple, Optional
 import os
+import socket
+from typing import Optional, Tuple
+from urllib.parse import urlparse
 
 
 class URLValidator:

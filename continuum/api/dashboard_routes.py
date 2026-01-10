@@ -19,10 +19,15 @@ Public Dashboard Routes
 
 No authentication required - these are for the customer-facing dashboard.
 """
-from fastapi import APIRouter, Query
 from typing import Optional
 
+from fastapi import APIRouter, HTTPException, Query
+
+from continuum.billing.tiers import PricingTier, get_tier_limits
+from continuum.core.memory import TenantManager
+
 router = APIRouter()
+tenant_manager = TenantManager()
 
 
 @router.get("/stats")
@@ -35,27 +40,43 @@ async def get_dashboard_stats(
     This is a public endpoint for the customer dashboard (no auth required).
     Returns memory stats and tier information.
     """
-    # TODO: Look up actual stats from database based on tenant_id
-    # For now, return sample data structure
+    try:
+        # Get tenant's memory instance and query actual stats from database
+        memory = tenant_manager.get_tenant(tenant_id)
+        stats = await memory.aget_stats()
 
-    return {
-        "tenant_id": tenant_id or "demo-tenant",
-        "instance_id": "web-dashboard",
-        "entities": 0,
-        "messages": 0,
-        "decisions": 0,
-        "attention_links": 0,
-        "compound_concepts": 0,
-        "tier": "FREE",
-        "api_calls_today": 0,
-        "tier_info": {
-            "name": "FREE",
-            "limits": {
-                "memories": 1000,
-                "api_calls_per_day": 100
+        # Look up tenant's pricing tier (default to FREE for now)
+        # In production, this would query the subscription/billing database
+        tier = PricingTier.FREE
+        tier_limits = get_tier_limits(tier)
+
+        # TODO: Implement API call metering to track api_calls_today
+        # This would query a metering/usage database table
+        api_calls_today = 0
+
+        return {
+            "tenant_id": stats["tenant_id"],
+            "instance_id": stats["instance_id"],
+            "entities": stats["entities"],
+            "messages": stats.get("messages", 0) + stats.get("auto_messages", 0),
+            "decisions": stats["decisions"],
+            "attention_links": stats["attention_links"],
+            "compound_concepts": stats["compound_concepts"],
+            "tier": tier.value.upper(),
+            "api_calls_today": api_calls_today,
+            "tier_info": {
+                "name": tier.value.upper(),
+                "limits": {
+                    "memories": tier_limits.max_memories,
+                    "api_calls_per_day": tier_limits.api_calls_per_day
+                }
             }
         }
-    }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve dashboard stats: {str(e)}"
+        ) from e
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

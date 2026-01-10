@@ -35,10 +35,10 @@ Usage (Flask):
     app.wsgi_app = AnalyticsMiddleware(app.wsgi_app)
 """
 
-import time
 import logging
-from typing import Callable, Optional, Any
-from urllib.parse import urlparse
+import time
+from typing import Any, Optional
+
 from continuum.core.analytics import get_analytics, track_api_request, track_error
 
 logger = logging.getLogger(__name__)

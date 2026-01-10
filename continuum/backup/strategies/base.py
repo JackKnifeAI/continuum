@@ -22,7 +22,7 @@ Abstract base class for all backup strategies.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 
 class BackupStrategyBase(ABC):

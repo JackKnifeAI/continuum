@@ -13,14 +13,14 @@ Unified configuration for the planetary sensor system.
 Follows the same pattern as continuum.core.config.
 """
 
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Optional
 import json
 import os
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Optional
 
 # Import core constants
-from continuum.core.constants import PI_PHI, DEFAULT_TENANT
+from continuum.core.constants import PI_PHI
 
 
 @dataclass

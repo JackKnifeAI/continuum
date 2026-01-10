@@ -10,11 +10,11 @@ Stores claims and verdicts for:
 """
 
 import json
-import sqlite3
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+import sqlite3
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from .consensus import TruthVerdict
 

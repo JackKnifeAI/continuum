@@ -22,9 +22,9 @@ Health checks, metrics, and alerting for backup system.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Any, Dict
 
-from ..types import BackupHealth, BackupConfig
+from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
 

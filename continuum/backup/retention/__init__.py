@@ -24,7 +24,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List
 
-from ..types import RetentionResult, BackupConfig, BackupMetadata
+from ..types import BackupConfig, BackupMetadata, RetentionResult
 
 logger = logging.getLogger(__name__)
 

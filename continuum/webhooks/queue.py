@@ -41,9 +41,8 @@ Usage:
 import asyncio
 import json
 import logging
-from typing import Optional, AsyncIterator
 from datetime import datetime, timedelta
-from uuid import UUID
+from typing import AsyncIterator, Optional
 
 try:
     import redis.asyncio as redis
@@ -52,7 +51,7 @@ except ImportError:
     REDIS_AVAILABLE = False
     redis = None
 
-from .models import WebhookDelivery, DeliveryStatus
+from .models import WebhookDelivery
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +229,7 @@ class DeliveryQueue:
             # Remove from delayed queue
             await self.redis.zrem(self.DELAYED_QUEUE, delivery_data)
 
-            logger.debug(f"Moved delayed delivery to normal queue")
+            logger.debug("Moved delayed delivery to normal queue")
 
     async def move_to_dlq(self, delivery: WebhookDelivery):
         """

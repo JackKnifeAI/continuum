@@ -14,9 +14,9 @@ For now, we provide a curated knowledge base of verified facts
 and common counterexamples to universal claims.
 """
 
-from typing import Dict, Any, List, Optional, Tuple
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass

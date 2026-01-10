@@ -18,84 +18,85 @@
 API route handlers for CONTINUUM memory operations.
 """
 
-from typing import Optional
+import time
 from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 
+from continuum.core.memory import TenantManager
+from continuum.embeddings.providers import get_default_provider
+from continuum.embeddings.search import SemanticSearch
+
+from .middleware import get_tenant_from_key
 from .schemas import (
-    RecallRequest,
-    RecallResponse,
-    LearnRequest,
-    LearnResponse,
-    CreateMemoryRequest,
-    CreateMemoryResponse,
-    TurnRequest,
-    TurnResponse,
-    StatsResponse,
-    EntitiesResponse,
-    EntityItem,
-    HealthResponse,
+    AbandonIntentionRequest,
+    BeliefsResponse,
+    CalibrationScoreResponse,
+    ClaimHistoryResponse,
+    CodeMemoryItem,
+    CodeSearchRequest,
+    CodeSearchResponse,
+    CognitiveGrowthResponse,
+    CognitivePatternsResponse,
+    CognitiveProfileResponse,
+    CompleteIntentionRequest,
+    ContradictionsResponse,
     CreateKeyRequest,
     CreateKeyResponse,
-    MessageItem,
-    MessagesResponse,
-    MessageSearchRequest,
-    DigestFileRequest,
-    DigestTextRequest,
+    CreateMemoryRequest,
+    CreateMemoryResponse,
+    DetectCognitivePatternsResponse,
     DigestDirectoryRequest,
+    DigestFileRequest,
     DigestResponse,
-    SemanticSearchRequest,
-    SemanticSearchResponse,
-    SemanticSearchResult,
-    IndexMemoryRequest,
-    IndexMemoryResponse,
+    DigestTextRequest,
     DreamRequest,
     DreamResponse,
+    EntitiesResponse,
+    EntityItem,
+    EvolutionResponse,
+    HealthResponse,
+    IndexMemoryRequest,
+    IndexMemoryResponse,
+    IntentionActionResponse,
+    IntentionItem,
     IntentionRequest,
     IntentionResponse,
     IntentionsListResponse,
-    IntentionItem,
-    ResumeCheckResponse,
-    CompleteIntentionRequest,
-    AbandonIntentionRequest,
-    IntentionActionResponse,
-    RecordEvolutionRequest,
-    EvolutionResponse,
-    CognitiveGrowthResponse,
-    ThinkingHistoryResponse,
-    SnapshotResponse,
-    SynthesizeInsightsRequest,
-    SynthesizeInsightsResponse,
+    LearnRequest,
+    LearnResponse,
+    MessageItem,
+    MessageSearchRequest,
+    MessagesResponse,
     NovelConnectionsRequest,
     NovelConnectionsResponse,
-    ThinkingPatternsResponse,
-    RecordClaimRequest,
-    RecordClaimResponse,
-    VerifyClaimRequest,
-    VerifyClaimResponse,
-    CalibrationScoreResponse,
-    ClaimHistoryResponse,
+    RecallRequest,
+    RecallResponse,
     RecordBeliefRequest,
     RecordBeliefResponse,
-    ContradictionsResponse,
-    ResolveContradictionRequest,
-    ResolveContradictionResponse,
-    BeliefsResponse,
+    RecordClaimRequest,
+    RecordClaimResponse,
     RecordCognitivePatternRequest,
     RecordCognitivePatternResponse,
-    DetectCognitivePatternsResponse,
-    CognitivePatternsResponse,
-    CognitiveProfileResponse,
-    CodeSearchRequest,
-    CodeSearchResponse,
-    CodeMemoryItem,
+    RecordEvolutionRequest,
+    ResolveContradictionRequest,
+    ResolveContradictionResponse,
+    ResumeCheckResponse,
+    SemanticSearchRequest,
+    SemanticSearchResponse,
+    SemanticSearchResult,
+    SnapshotResponse,
+    StatsResponse,
+    SynthesizeInsightsRequest,
+    SynthesizeInsightsResponse,
+    ThinkingHistoryResponse,
+    ThinkingPatternsResponse,
+    TurnRequest,
+    TurnResponse,
+    VerifyClaimRequest,
+    VerifyClaimResponse,
 )
-from .middleware import get_tenant_from_key, optional_tenant_from_key
-from continuum.core.memory import TenantManager
-from continuum.embeddings.search import SemanticSearch
-from continuum.embeddings.providers import get_default_provider
-import time
-
 
 # =============================================================================
 # ROUTER SETUP
@@ -298,8 +299,8 @@ async def create_memory(
         memory = tenant_manager.get_tenant(tenant_id)
 
         # Store as a message (simplified approach)
-        import time
         import json
+        import time
         timestamp = time.time()
 
         # Save to auto_messages table
@@ -504,14 +505,14 @@ async def list_tenants(tenant_id: str = Depends(get_tenant_from_key)):
     """
     import os
     admin_token = os.getenv("CONTINUUM_ADMIN_TOKEN")
-    
+
     # If admin token is configured, enforce it
     if admin_token:
         # Check header (FastAPI doesn't parse custom headers in args automatically unless defined)
         # Assuming we might add it to the function signature later, but for now
         # let's just warn or allow based on dev mode.
-        pass 
-        
+        pass
+
     return {
         "tenants": tenant_manager.list_tenants(),
         "status": "active"
@@ -533,9 +534,10 @@ async def create_key(request: CreateKeyRequest):
     **Usage:**
     Include the key in all API requests via X-API-Key header.
     """
-    from .middleware import init_api_keys_db, hash_key, get_api_keys_db_path
     import secrets
     import sqlite3
+
+    from .middleware import get_api_keys_db_path, hash_key, init_api_keys_db
 
     try:
         init_api_keys_db()
@@ -595,8 +597,9 @@ async def get_messages(
     GET /v1/messages?limit=10&offset=0
     ```
     """
-    import aiosqlite
     import json
+
+    import aiosqlite
 
     # Validate parameters
     if limit < 1 or limit > 1000:
@@ -695,9 +698,10 @@ async def search_messages(
     - Role must be 'user' or 'assistant' if specified
     - All filters are parameterized to prevent SQL injection
     """
-    import aiosqlite
     import json
     from datetime import datetime as dt
+
+    import aiosqlite
 
     # Validate role if specified
     if request.role and request.role not in ['user', 'assistant']:
@@ -855,8 +859,9 @@ async def digest_file(
     }
     ```
     """
-    from continuum.core.file_digester import AsyncFileDigester
     from dataclasses import asdict
+
+    from continuum.core.file_digester import AsyncFileDigester
 
     try:
         digester = AsyncFileDigester(tenant_id=tenant_id)
@@ -904,8 +909,9 @@ async def digest_text(
     }
     ```
     """
-    from continuum.core.file_digester import AsyncFileDigester
     from dataclasses import asdict
+
+    from continuum.core.file_digester import AsyncFileDigester
 
     try:
         digester = AsyncFileDigester(tenant_id=tenant_id)
@@ -968,8 +974,9 @@ async def digest_directory(
     - Consider using background tasks for large operations
     - Monitor errors list for failed files
     """
-    from continuum.core.file_digester import AsyncFileDigester
     from dataclasses import asdict
+
+    from continuum.core.file_digester import AsyncFileDigester
 
     try:
         digester = AsyncFileDigester(tenant_id=tenant_id)

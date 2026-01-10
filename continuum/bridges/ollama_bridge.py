@@ -33,11 +33,11 @@ This bridge enables:
 - Offline AI with persistent memory
 """
 
-import json
 import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from .base import MemoryBridge, MemoryFormat, BridgeStats, BridgeError
+
+from .base import BridgeError, BridgeStats, MemoryBridge, MemoryFormat
 
 
 class OllamaBridge(MemoryBridge):

@@ -29,14 +29,15 @@ Sampling Strategies:
 """
 
 from typing import Optional, Sequence
+
 from opentelemetry.sdk.trace.sampling import (
+    ALWAYS_OFF,
+    ALWAYS_ON,
+    Decision,
+    ParentBased,
     Sampler,
     SamplingResult,
-    Decision,
     TraceIdRatioBased,
-    ParentBased,
-    ALWAYS_ON,
-    ALWAYS_OFF,
 )
 from opentelemetry.trace import Link, SpanKind
 from opentelemetry.trace.span import TraceState
@@ -220,8 +221,8 @@ class AdaptiveSampler(Sampler):
         """
         Determine if trace should be sampled, adjusting rate adaptively.
         """
-        import time
         import random
+        import time
 
         current_time = time.time()
 

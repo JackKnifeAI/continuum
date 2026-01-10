@@ -22,17 +22,17 @@ Tracks API requests, latencies, errors, and custom application metrics.
 
 import time
 from typing import Callable
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import (
-    Counter,
-    Histogram,
-    Gauge,
-    generate_latest,
-    REGISTRY,
-    CONTENT_TYPE_LATEST,
-)
 
+from fastapi import Request, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # =============================================================================
 # METRIC DEFINITIONS
@@ -161,7 +161,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
             return response
 
-        except Exception as e:
+        except Exception:
             # Track unhandled exceptions
             duration = time.time() - start_time
 

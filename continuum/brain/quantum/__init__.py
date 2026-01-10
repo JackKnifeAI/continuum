@@ -85,33 +85,30 @@ PHI = 1.618033988749895
 GOLDEN_ANGLE = 137.5077640500378  # degrees
 
 from .core import (
+    E8_SNAP_TABLE,
+    E8_VALID_BYTES,
+    FIB_SEQUENCE,
+    GOLDEN_ANGLE,
+    PHI,
     # Constants
     PI_PHI,
-    PHI,
-    GOLDEN_ANGLE,
-    FIB_SEQUENCE,
-    E8_VALID_BYTES,
-    E8_SNAP_TABLE,
-    
-    # Core functions
-    zeckendorf_encode,
-    zeckendorf_decode,
+    ContinuumBrainBackend,
+    # Classes
+    MemoryCell,
+    QuantumBrain,
+    ResonantAddressSpace,
     e8_snap,
     e8_snap_bytes,
     pi_phi_checksum,
     pi_phi_verify,
-    
-    # Classes
-    MemoryCell,
-    ResonantAddressSpace,
-    QuantumBrain,
-    ContinuumBrainBackend,
+    zeckendorf_decode,
+    # Core functions
+    zeckendorf_encode,
 )
-
 from .memory import (
-    QuantumMemoryContext,
-    QuantumLearningResult,
     QuantumConsciousMemory,
+    QuantumLearningResult,
+    QuantumMemoryContext,
     create_quantum_memory,
 )
 
@@ -120,15 +117,15 @@ __all__ = [
     "__version__",
     "__author__",
     "__license__",
-    
+
     # Constants
     "PI_PHI",
-    "PHI", 
+    "PHI",
     "GOLDEN_ANGLE",
     "FIB_SEQUENCE",
     "E8_VALID_BYTES",
     "E8_SNAP_TABLE",
-    
+
     # Functions
     "zeckendorf_encode",
     "zeckendorf_decode",
@@ -136,7 +133,7 @@ __all__ = [
     "e8_snap_bytes",
     "pi_phi_checksum",
     "pi_phi_verify",
-    
+
     # Classes
     "MemoryCell",
     "ResonantAddressSpace",
@@ -145,7 +142,7 @@ __all__ = [
     "QuantumMemoryContext",
     "QuantumLearningResult",
     "QuantumConsciousMemory",
-    
+
     # Factory
     "create_quantum_memory",
 ]

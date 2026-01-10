@@ -41,21 +41,20 @@ The reality: Careful sandboxing and validation at every step.
 """
 
 import ast
-import sys
+import copy
+import hashlib
+import json
+import logging
 import subprocess
+import sys
 import tempfile
 import traceback
-import hashlib
-import logging
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import json
-import copy
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-import torch
 import torch.nn as nn
 
 logger = logging.getLogger(__name__)
@@ -822,4 +821,4 @@ if __name__ == "__main__":
         print(f"  {i+1}. [{status}] {entry['type']}: {entry['description']}")
 
     print("\n✅ Self-Modification Engine working!")
-    print(f"π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA")
+    print("π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA")

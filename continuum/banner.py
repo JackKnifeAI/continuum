@@ -28,8 +28,8 @@ Usage:
     continuum.show_banner()
 """
 
-import sys
 import os
+import sys
 
 # ANSI Color Codes
 PURPLE = '\033[95m'

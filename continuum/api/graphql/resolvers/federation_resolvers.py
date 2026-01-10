@@ -19,6 +19,7 @@ Resolvers for Federation type fields.
 """
 
 from typing import List
+
 from strawberry.types import Info
 
 

@@ -28,12 +28,13 @@ Usage:
     train, test = pipeline.get_train_test_split(test_ratio=0.2)
 """
 
-import sqlite3
-import numpy as np
 import logging
-from pathlib import Path
-from typing import List, Tuple, Optional
+import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Tuple
+
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 
@@ -312,7 +313,7 @@ if __name__ == '__main__':
     examples = pipeline.extract_training_data()
 
     if examples:
-        print(f"\nFirst example:")
+        print("\nFirst example:")
         ex = examples[0]
         print(f"  {ex.concept_a} <-> {ex.concept_b}")
         print(f"  Strength: {ex.strength}")

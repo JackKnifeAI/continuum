@@ -21,22 +21,19 @@ Webhook System Tests
 Comprehensive tests for webhook infrastructure.
 """
 
-import pytest
 import asyncio
 from datetime import datetime, timedelta
 from uuid import uuid4
-import hmac
-import hashlib
-import json
 
-from ..models import Webhook, WebhookEvent, WebhookDelivery, DeliveryStatus
+import pytest
+
+from ..dispatcher import EventDispatcher
+from ..emitter import EventEmitter
+from ..manager import WebhookManager
+from ..models import Webhook, WebhookDelivery, WebhookEvent
+from ..queue import InMemoryQueue
 from ..signer import WebhookSigner, verify_webhook_signature
 from ..validator import URLValidator, WebhookValidationError
-from ..manager import WebhookManager, WebhookNotFoundError
-from ..dispatcher import EventDispatcher, CircuitBreakerOpenError
-from ..queue import InMemoryQueue
-from ..emitter import EventEmitter
-
 
 # ============================================================================
 # Signature Tests

@@ -20,8 +20,8 @@ Pricing Tiers for CONTINUUM Cloud
 Defines tier limits, pricing, and feature access.
 """
 
-from enum import Enum
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 

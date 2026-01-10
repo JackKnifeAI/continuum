@@ -35,8 +35,9 @@ This bridge enables:
 import json
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from .base import MemoryBridge, MemoryFormat, BridgeStats, BridgeError
+from typing import Any, Dict, Optional
+
+from .base import BridgeError, BridgeStats, MemoryBridge, MemoryFormat
 
 
 class LangChainBridge(MemoryBridge):
@@ -358,7 +359,7 @@ class LangChainBridge(MemoryBridge):
             ImportError: If langchain is not installed
         """
         try:
-            from langchain.memory import ConversationEntityMemory, ConversationBufferMemory
+            from langchain.memory import ConversationBufferMemory, ConversationEntityMemory
         except ImportError:
             raise BridgeError("langchain package not installed. Install with: pip install langchain")
 

@@ -20,14 +20,13 @@ Storage Backends
 Multiple storage backend support for backup redundancy.
 """
 
-from .base import StorageBackendBase
-from .local import LocalStorageBackend
-from .s3 import S3StorageBackend
-from .gcs import GCSStorageBackend
-from .azure import AzureStorageBackend
-from .multi import MultiDestinationStorage
-
 from ..types import StorageBackend, StorageConfig
+from .azure import AzureStorageBackend
+from .base import StorageBackendBase
+from .gcs import GCSStorageBackend
+from .local import LocalStorageBackend
+from .multi import MultiDestinationStorage
+from .s3 import S3StorageBackend
 
 
 def get_storage_backend(config: StorageConfig) -> StorageBackendBase:

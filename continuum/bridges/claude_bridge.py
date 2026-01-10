@@ -37,7 +37,8 @@ import json
 import sqlite3
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from .base import MemoryBridge, MemoryFormat, BridgeStats, BridgeError
+
+from .base import BridgeError, BridgeStats, MemoryBridge, MemoryFormat
 
 
 class ClaudeBridge(MemoryBridge):
@@ -589,7 +590,7 @@ class ClaudeBridge(MemoryBridge):
                         memory.get("created_at", datetime.now().isoformat()),
                     ))
                     imported_entities += 1
-                except sqlite3.Error as e:
+                except sqlite3.Error:
                     # Log but continue on errors
                     pass
 

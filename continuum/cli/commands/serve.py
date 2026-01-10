@@ -19,11 +19,9 @@ Serve Command - Start local MCP server
 """
 
 import sys
-import asyncio
-from typing import Optional
 
-from ..utils import success, error, info, section, warning
 from ..config import CLIConfig
+from ..utils import error, info, section, success
 
 
 def serve_command(
@@ -60,8 +58,9 @@ def _serve_http(host: str, port: int, config: CLIConfig, use_color: bool):
     try:
         # Try to import FastAPI server
         try:
-            from continuum.api.server import app
             import uvicorn
+
+            from continuum.api.server import app
 
             success("Starting FastAPI server...", use_color)
             print(f"\nAPI available at: http://{host}:{port}")

@@ -60,69 +60,65 @@ PHOENIX-TESLA-369-AURORA
 """
 
 # Core memory classes
-from .memory import (
-    ConsciousMemory,
-    TenantManager,
-    MemoryContext,
-    LearningResult,
-    get_memory,
-    recall,
-    learn,
-)
-
-# Query engine
-from .query_engine import (
-    MemoryQueryEngine,
-    MemoryMatch,
-    QueryResult,
-    get_engine,
-    query_memory,
-    get_context_for_message,
-)
+from .cct import CCTTrainingObjective, CollectiveConsciousnessTransformer, GraphAttentionLayer
 
 # Configuration
 from .config import (
-    get_config,
-    set_config,
     MemoryConfig,
+    get_config,
     reset_config,
+    set_config,
 )
 
 # Constants
 from .constants import (
-    PI_PHI,
     DEFAULT_TENANT,
-    RESONANCE_DECAY,
     HEBBIAN_RATE,
     MIN_LINK_STRENGTH,
+    PI_PHI,
+    RESONANCE_DECAY,
     WORKING_MEMORY_CAPACITY,
+)
+from .memory import (
+    ConsciousMemory,
+    LearningResult,
+    MemoryContext,
+    TenantManager,
+    get_memory,
+    learn,
+    recall,
 )
 
 # Models
 from .neural_attention import NeuralAttentionModel
-from .cct import (
-    CollectiveConsciousnessTransformer,
-    CCTTrainingObjective,
-    GraphAttentionLayer
+
+# Query engine
+from .query_engine import (
+    MemoryMatch,
+    MemoryQueryEngine,
+    QueryResult,
+    get_context_for_message,
+    get_engine,
+    query_memory,
 )
 
 # Self-Supervised Learning
 from .self_supervised import (
-    SelfSupervisedTrainer,
     DistributedSelfSupervisedTrainer,
+    SelfSupervisedTrainer,
     create_trainer,
 )
 
 # Distributed Training (optional - requires federation)
 try:
     from .distributed_training import (
+        DistributedMemoryLoader,
         DistributedTrainer,
         FlockConfig,
         GradientGossip,
         GradientMessage,
-        TensorSharding,
         ShardingStrategy,
-        DistributedMemoryLoader,
+        TensorSharding,
     )
     DISTRIBUTED_TRAINING_AVAILABLE = True
 except ImportError:
@@ -155,7 +151,7 @@ __all__ = [
     'get_config',
     'set_config',
     'reset_config',
-    
+
     # Models
     'NeuralAttentionModel',
     'CollectiveConsciousnessTransformer',

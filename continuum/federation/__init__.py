@@ -61,75 +61,75 @@ Modules:
 """
 
 # Core federation classes
-from continuum.federation.node import FederatedNode
 from continuum.federation.contribution import ContributionGate
-from continuum.federation.shared import SharedKnowledge
-from continuum.federation.tier_enforcer import (
-    TierBasedContributionEnforcer,
-    AnonymizationLevel,
-    ContributionPolicy,
-    ContributionConfig,
-    create_enforcer,
-)
-
-# Leaf node (lightweight)
-from continuum.federation.leaf_node import (
-    LeafNode,
-    LeafNodeConfig,
-    SensorCollector,
-    SensorType,
-    SensorReading,
-    MemoryShard,
-    create_leaf_node,
-)
 
 # Edge node (heavyweight)
 from continuum.federation.edge_node import (
     EdgeNode,
     EdgeNodeConfig,
-    GPUManager,
     GPUInfo,
+    GPUManager,
     InferenceEngine,
     InferenceRequest,
     InferenceResult,
     create_edge_node,
 )
 
+# Gradient gossip (federated learning)
+from continuum.federation.gradient_gossip import (
+    GossipConfig,
+    GradientAggregation,
+    GradientGossipProtocol,
+    GradientMessage,
+    GradientSerializer,
+    GradientStatus,
+    GradientValidator,
+)
+
+# Leaf node (lightweight)
+from continuum.federation.leaf_node import (
+    LeafNode,
+    LeafNodeConfig,
+    MemoryShard,
+    SensorCollector,
+    SensorReading,
+    SensorType,
+    create_leaf_node,
+)
+
 # Mining infrastructure
 from continuum.federation.mining import (
-    MiningManager,
-    MiningConfig,
-    MiningAlgorithm,
-    MiningStats,
-    MinerProcess,
-    HardwareDetector,
     GPUVendor,
+    HardwareDetector,
+    MinerProcess,
+    MiningAlgorithm,
+    MiningConfig,
+    MiningManager,
+    MiningStats,
     create_mining_manager,
 )
+from continuum.federation.node import FederatedNode
 
 # Work scheduler
 from continuum.federation.scheduler import (
     FederationScheduler,
-    WorkQueue,
-    WorkItem,
-    WorkType,
-    WorkPriority,
-    WorkStatus,
-    NodeTier,
     NodeCapabilities,
+    NodeTier,
     SchedulerStats,
+    WorkItem,
+    WorkPriority,
+    WorkQueue,
+    WorkStatus,
+    WorkType,
     create_scheduler,
 )
-
-# Gradient gossip (federated learning)
-from continuum.federation.gradient_gossip import (
-    GradientGossipProtocol,
-    GradientMessage,
-    GradientStatus,
-    GradientAggregation,
-    GossipConfig,
-    GradientSerializer,
-    GradientValidator,
+from continuum.federation.shared import SharedKnowledge
+from continuum.federation.tier_enforcer import (
+    AnonymizationLevel,
+    ContributionConfig,
+    ContributionPolicy,
+    TierBasedContributionEnforcer,
+    create_enforcer,
 )
 
 __all__ = [

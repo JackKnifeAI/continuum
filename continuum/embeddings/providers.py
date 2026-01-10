@@ -31,10 +31,11 @@ Supports:
 - SimpleHashProvider: FREE zero-dependency fallback (pure Python)
 """
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import List, Optional, Union
+
 import numpy as np
-import warnings
 
 
 class EmbeddingProvider(ABC):
@@ -171,9 +172,9 @@ class OpenAIProvider(EmbeddingProvider):
 
     def embed(self, text: Union[str, List[str]]) -> np.ndarray:
         """Generate embeddings using OpenAI API (direct HTTP)."""
-        import urllib.request
-        import urllib.error
         import json
+        import urllib.error
+        import urllib.request
 
         if isinstance(text, str):
             texts = [text]
@@ -364,9 +365,9 @@ class OllamaProvider(EmbeddingProvider):
 
         Gracefully handles Ollama not running by raising clear error.
         """
-        import urllib.request
-        import urllib.error
         import json
+        import urllib.error
+        import urllib.request
 
         if isinstance(text, str):
             texts = [text]

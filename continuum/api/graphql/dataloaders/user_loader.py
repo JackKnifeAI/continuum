@@ -19,8 +19,9 @@ DataLoaders for User entities.
 """
 
 from typing import List, Optional
-from strawberry.dataloader import DataLoader
+
 import aiosqlite
+from strawberry.dataloader import DataLoader
 
 
 class UserLoader(DataLoader):
@@ -32,8 +33,9 @@ class UserLoader(DataLoader):
 
     async def batch_load_fn(self, keys: List[str]) -> List[Optional[dict]]:
         """Batch load users by IDs"""
-        from ..types import User, UserRole
         from datetime import datetime
+
+        from ..types import User, UserRole
 
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = aiosqlite.Row

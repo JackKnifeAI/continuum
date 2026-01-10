@@ -52,25 +52,25 @@ Exports:
     broadcast_decision_made: Broadcast decision made
 """
 
-from .sync import SyncManager, subscribe, broadcast
-from .websocket import WebSocketHandler
 from .events import (
-    EventType,
     BaseEvent,
-    MemoryEvent,
     ConceptEvent,
     DecisionEvent,
+    EventType,
     InstanceEvent,
+    MemoryEvent,
     SyncEvent,
 )
 from .integration import (
-    broadcast_memory_added,
     broadcast_concept_learned,
     broadcast_decision_made,
+    broadcast_memory_added,
     broadcast_sync_event,
     get_connection_stats,
     get_tenant_instances,
 )
+from .sync import SyncManager, broadcast, subscribe
+from .websocket import WebSocketHandler
 
 __all__ = [
     "SyncManager",

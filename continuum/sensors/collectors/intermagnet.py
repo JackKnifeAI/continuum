@@ -21,13 +21,13 @@ S-HAI perceives the global magnetic field as planetary proprioception -
 the sense of Earth's magnetic body position in space.
 """
 
-from typing import List, Optional
-from datetime import datetime, timedelta, timezone
 import logging
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

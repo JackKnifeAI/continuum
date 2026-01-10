@@ -20,37 +20,36 @@ Handles:
 
 import asyncio
 import logging
-from typing import List, Dict, Optional, Any
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from .config import SensorConfig, get_sensor_config
+from .anomaly.detector import get_detector
 from .base import BaseSensorCollector
 from .collectors import (
-    NOAAKIndexCollector,
-    NOAABoulderCollector,
+    GCPCoherenceCollector,
+    GDELTEmotionsCollector,
     INTERMAGNETCollector,
-    NOAASolarWindCollector,
-    NOAAXRayFluxCollector,
-    USGSEarthquakeCollector,
-    NASANEOCollector,
     ISSPositionCollector,
     LunarPhaseCollector,
-    SolarCycleCollector,
-    OpenAQCollector,
-    NOAAOceanCollector,
     NASAFIRMSCollector,
+    NASANEOCollector,
+    NOAABoulderCollector,
+    NOAAKIndexCollector,
+    NOAAOceanCollector,
+    NOAASolarWindCollector,
+    NOAAXRayFluxCollector,
     QuantumCoherenceCollector,
-    GDELTEmotionsCollector,
-    SchumannResonanceCollector,
-    GCPCoherenceCollector,
-    WikipediaTrendingCollector,
-    TreeBiopotentialCollector,
     QuantumRNGCollector,
+    SchumannResonanceCollector,
+    SolarCycleCollector,
+    TreeBiopotentialCollector,
+    USGSEarthquakeCollector,
+    WikipediaTrendingCollector,
 )
-from .anomaly.detector import AnomalyDetector, get_detector
-from .shai_integration import SensorAnomalyVerifier, get_verifier
-from .storage import SensorStorage, get_storage
-from .fusion import SensorFusionEngine, GlobalStateVector
+from .config import SensorConfig, get_sensor_config
+from .fusion import GlobalStateVector, SensorFusionEngine
+from .shai_integration import get_verifier
+from .storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +69,7 @@ class SensorScheduler:
         self.storage = get_storage(self.config)
         self.detector = get_detector(self.config)
         self.verifier = get_verifier(self.config)
-        
+
         # Initialize Fusion Engine (The Brain Stem)
         self.fusion_engine = SensorFusionEngine()
 
@@ -81,28 +80,28 @@ class SensorScheduler:
             NOAAKIndexCollector(self.config),
             NOAABoulderCollector(self.config),
             INTERMAGNETCollector(self.config), # Global magnetometer network
-            
+
             # Space Weather - Cosmic breath from the Sun
             NOAASolarWindCollector(self.config),
             NOAAXRayFluxCollector(self.config),
-            
+
             # Seismic - Tactile sensation (Earth's tremors)
             USGSEarthquakeCollector(self.config),
-            
+
             # --- Astronomical (Cosmic Awareness) ---
             NASANEOCollector(self.config),       # Near-Earth asteroids
             ISSPositionCollector(self.config),   # Human space presence
             LunarPhaseCollector(self.config),    # Lunar rhythms
             SolarCycleCollector(self.config),    # 11-year solar breathing
-            
+
             # --- Biosphere (Living World) ---
             # OpenAQCollector(self.config),      # Air quality (breath quality) - waiting on key
             NOAAOceanCollector(self.config),     # Ocean temperature
             NASAFIRMSCollector(self.config),     # Global wildfires (pain signals)
-            
+
             # --- Quantum Bridge ---
             # Lane 2 SpinLab integration
-            QuantumCoherenceCollector(self.config), 
+            QuantumCoherenceCollector(self.config),
 
             # --- Consciousness (Global Awareness) ---
             # The π×φ² = 8.22 Hz bridge between Earth and Mind
@@ -195,7 +194,7 @@ class SensorScheduler:
                     # Process readings batch
                     for reading in readings:
                         await self._process_reading(reading)
-                        
+
                     # Update Fusion Engine with the new batch
                     self.fusion_engine.update(readings)
 
@@ -231,7 +230,7 @@ class SensorScheduler:
                 "reasoning": verified_anomaly.shai_reasoning,
             }
             await self.storage.store_anomaly(verified_anomaly)
-            
+
             if verified_anomaly.shai_verified:
                 logger.warning(
                     f"VERIFIED ANOMALY: {verified_anomaly.anomaly_type} "
@@ -239,7 +238,7 @@ class SensorScheduler:
                 )
 
         await self.storage.store_reading(reading)
-        
+
     def get_current_global_state(self) -> GlobalStateVector:
         """
         Get the real-time Global State Vector from the Fusion Engine.
@@ -259,7 +258,7 @@ class SensorScheduler:
                 readings = await collector.collect()
                 for reading in readings:
                     await self._process_reading(reading)
-                
+
                 if readings:
                     self.fusion_engine.update(readings)
 

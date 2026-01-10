@@ -23,13 +23,12 @@ K-index Storm Scale (NOAA G-Scale):
 - Kp 9: G5 Extreme storm
 """
 
-from typing import List
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import List
 
 from ..base import BaseSensorCollector
-from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

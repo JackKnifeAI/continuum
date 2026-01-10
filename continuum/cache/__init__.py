@@ -65,9 +65,9 @@ Performance:
 
 # Import cache components with graceful fallback
 try:
+    from .distributed import ClusterConfig, DistributedCache
+    from .memory_cache import CacheStats, MemoryCache
     from .redis_cache import RedisCache, RedisCacheConfig
-    from .memory_cache import MemoryCache, CacheStats
-    from .distributed import DistributedCache, ClusterConfig
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
@@ -82,11 +82,11 @@ except ImportError:
 # Import Upstash adapter with graceful fallback
 try:
     from .upstash_adapter import (
+        CacheBackend,
+        ConnectionMode,
+        RateLimiter,
         UpstashCache,
         UpstashConfig,
-        RateLimiter,
-        ConnectionMode,
-        CacheBackend
     )
     UPSTASH_AVAILABLE = True
 except ImportError:
@@ -97,7 +97,7 @@ except ImportError:
     ConnectionMode = None
     CacheBackend = None
 
-from .strategies import CacheStrategy, LRUStrategy, TTLStrategy, PreemptiveRefreshStrategy
+from .strategies import CacheStrategy, LRUStrategy, PreemptiveRefreshStrategy, TTLStrategy
 
 __all__ = [
     # Traditional Redis

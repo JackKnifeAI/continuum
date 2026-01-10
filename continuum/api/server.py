@@ -29,40 +29,41 @@ Provides REST endpoints for:
 Authentication via X-API-Key header (configurable).
 """
 
-import sys
 import os
-from pathlib import Path
-from datetime import datetime
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, Query, Request, Response
+from fastapi import FastAPI, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .routes import router
-from .billing_routes import router as billing_router
-from .middleware import init_api_keys_db, REQUIRE_API_KEY, AuthenticationMiddleware
+from continuum.billing.metering import RateLimiter, UsageMetering
 from continuum.billing.middleware import BillingMiddleware
-from continuum.billing.metering import UsageMetering, RateLimiter
+
+from .admin_memories_routes import router as admin_memories_router
 
 # Admin routes
 from .auth_routes import router as auth_router
-from .users_routes import router as users_router
-from .system_routes import router as system_router
-from .logs_routes import router as logs_router
-from .admin_memories_routes import router as admin_memories_router
-from .dashboard_routes import router as dashboard_router
-
-# Public API routes (non-admin, for testing billing/tiers)
-from .public_memories_routes import router as public_memories_router, settings_router, user_router
-
-# S-HAI Truth Council API
-from .shai_routes import router as shai_router
+from .billing_routes import router as billing_router
 
 # Consciousness API
 from .consciousness_routes import router as consciousness_router
+from .dashboard_routes import router as dashboard_router
+from .logs_routes import router as logs_router
+from .middleware import REQUIRE_API_KEY, AuthenticationMiddleware, init_api_keys_db
+
+# Public API routes (non-admin, for testing billing/tiers)
+from .public_memories_routes import router as public_memories_router
+from .public_memories_routes import settings_router, user_router
+from .routes import router
+
+# S-HAI Truth Council API
+from .shai_routes import router as shai_router
+from .system_routes import router as system_router
+from .users_routes import router as users_router
 
 # Autonomous Brain API
 try:
@@ -90,7 +91,8 @@ except ImportError:
     create_graphql_app = None
 
 # Sentry integration for error tracking
-from continuum.core.sentry_integration import init_sentry, close as close_sentry, get_status
+from continuum.core.sentry_integration import close as close_sentry
+from continuum.core.sentry_integration import init_sentry
 
 # =============================================================================
 # DONATION NAG MIDDLEWARE (FREE TIER)
@@ -147,7 +149,7 @@ async def lifespan(app: FastAPI):
     init_api_keys_db()
 
     # Initialize admin database and ensure default admin user
-    from .admin_db import init_admin_db, ensure_default_admin
+    from .admin_db import ensure_default_admin, init_admin_db
     init_admin_db()
     ensure_default_admin()
 
@@ -172,11 +174,11 @@ async def lifespan(app: FastAPI):
     print("=" * 70)
     print("CONTINUUM - AI Memory Infrastructure")
     print("=" * 70)
-    print(f"Version: 0.1.0")
-    print(f"Docs: http://localhost:8420/docs")
-    print(f"ReDoc: http://localhost:8420/redoc")
+    print("Version: 0.1.0")
+    print("Docs: http://localhost:8420/docs")
+    print("ReDoc: http://localhost:8420/redoc")
     print(f"GraphQL: {'http://localhost:8420/graphql' if GRAPHQL_AVAILABLE else 'Not Available (pip install strawberry-graphql[fastapi])'}")
-    print(f"WebSocket: ws://localhost:8420/ws/sync")
+    print("WebSocket: ws://localhost:8420/ws/sync")
     print(f"API Auth: {'Required' if REQUIRE_API_KEY else 'Optional'}")
     print(f"Sentry: {'Enabled' if sentry_enabled else 'Disabled'}")
     print(f"Sensors: {'Enabled' if SENSORS_AVAILABLE and sensor_scheduler else 'Disabled'}")
@@ -256,7 +258,6 @@ app = FastAPI(
 
 # CORS - configure origins appropriately for production
 # SECURITY FIX: Restrict origins via environment variable
-import os
 ALLOWED_ORIGINS = os.environ.get(
     "CONTINUUM_CORS_ORIGINS",
     "http://localhost:3000,http://localhost:8080"

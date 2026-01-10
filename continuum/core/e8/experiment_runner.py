@@ -17,21 +17,22 @@ Metrics:
 Copyright (c) 2025 JackKnifeAI
 """
 
-import time
 import json
 import sqlite3
-from pathlib import Path
+import time
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Dict, Any, List, Tuple
-from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
 
-# Import Continuum A (standard)
-from continuum.core.query_engine import MemoryQueryEngine
+# Import Continuum B (E8)
+from e8_memory_engine import PI_PHI, E8MemoryEngine
+
 from continuum.core.memory import ConsciousMemory
 
-# Import Continuum B (E8)
-from e8_memory_engine import E8MemoryEngine, PI_PHI, HARMONICS
+# Import Continuum A (standard)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EXPERIMENT CONFIGURATION
@@ -41,16 +42,16 @@ from e8_memory_engine import E8MemoryEngine, PI_PHI, HARMONICS
 class ExperimentConfig:
     """Configuration for the A/B experiment."""
     name: str = "E8_Coherence_Experiment_v1"
-    
+
     # Test data
     num_concepts: int = 50
     num_connections: int = 100
     num_queries: int = 20
-    
+
     # Measurement parameters
     max_results: int = 10
     traverse_depth: int = 3
-    
+
     # Paths
     experiment_dir: Path = Path("/home/claude/e8_coherence_experiment")
     results_file: Path = Path("/home/claude/e8_coherence_experiment/results.json")
@@ -72,16 +73,16 @@ class ExperimentResult:
     """Complete experiment results."""
     config: ExperimentConfig
     timestamp: str
-    
+
     # Per-query results
     query_results: List[Dict[str, Any]]
-    
+
     # Aggregate metrics
     pattern_recall_fidelity: MetricResult
     coherence_degradation_rate: MetricResult
     emergent_connections: MetricResult
     query_time_ms: MetricResult
-    
+
     # Summary
     winner: str  # Overall winner
     pi_phi_resonance: float  # How well results align with π×φ
@@ -173,7 +174,7 @@ TEST_QUERIES = [
 def generate_connections(concepts: List[Tuple[str, str, str]]) -> List[Tuple[int, int, float]]:
     """Generate meaningful connections between concepts."""
     connections = []
-    
+
     # Predefined semantic relationships
     semantic_pairs = [
         ("quantum coherence", "MOF"),
@@ -212,15 +213,15 @@ def generate_connections(concepts: List[Tuple[str, str, str]]) -> List[Tuple[int
         ("Global Consciousness Project", "consciousness"),
         ("Global Consciousness Project", "resonance"),
     ]
-    
+
     # Find indices
     name_to_idx = {c[0]: i for i, c in enumerate(concepts)}
-    
+
     for c1, c2 in semantic_pairs:
         if c1 in name_to_idx and c2 in name_to_idx:
             # Strength based on relationship type (all strong for semantic pairs)
             connections.append((name_to_idx[c1], name_to_idx[c2], 0.8))
-    
+
     # Add some random weaker connections
     np.random.seed(42)  # Reproducible
     for _ in range(30):
@@ -228,7 +229,7 @@ def generate_connections(concepts: List[Tuple[str, str, str]]) -> List[Tuple[int
         j = np.random.randint(0, len(concepts))
         if i != j:
             connections.append((i, j, 0.3 + np.random.random() * 0.3))
-    
+
     return connections
 
 
@@ -238,11 +239,11 @@ def generate_connections(concepts: List[Tuple[str, str, str]]) -> List[Tuple[int
 
 class ExperimentRunner:
     """Runs the A/B comparison experiment."""
-    
+
     def __init__(self, config: ExperimentConfig = None):
         self.config = config or ExperimentConfig()
         self.config.experiment_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize both systems
         print("Initializing Continuum A (Standard)...")
         self.continuum_a_db = self.config.experiment_dir / "continuum_a.db"
@@ -250,20 +251,20 @@ class ExperimentRunner:
             tenant_id="experiment_a",
             db_path=self.continuum_a_db
         )
-        
+
         print("Initializing Continuum B (E8)...")
         self.continuum_b_db = self.config.experiment_dir / "continuum_b.db"
         self.memory_b = E8MemoryEngine(db_path=self.continuum_b_db)
-        
+
         self.query_results = []
-    
+
     def setup_test_data(self):
         """Load identical test data into both systems."""
         print(f"\nLoading {len(SEED_CONCEPTS)} concepts...")
-        
+
         concepts = SEED_CONCEPTS[:self.config.num_concepts]
         connections = generate_connections(concepts)[:self.config.num_connections]
-        
+
         # Load into Continuum A
         print("  → Continuum A...")
         for name, etype, desc in concepts:
@@ -272,11 +273,11 @@ class ExperimentRunner:
                 user_message=f"Tell me about {name}",
                 ai_response=f"{name} is a {etype}. {desc}"
             )
-        
+
         # Create connections via attention links
         conn_a = sqlite3.connect(self.continuum_a_db)
         c = conn_a.cursor()
-        
+
         # Ensure table exists with correct schema
         c.execute("""
             CREATE TABLE IF NOT EXISTS attention_links (
@@ -290,7 +291,7 @@ class ExperimentRunner:
                 tenant_id TEXT DEFAULT 'default'
             )
         """)
-        
+
         for i, j, strength in connections:
             c.execute("""
                 INSERT OR REPLACE INTO attention_links 
@@ -299,46 +300,46 @@ class ExperimentRunner:
             """, (concepts[i][0], concepts[j][0], strength, datetime.now().isoformat()))
         conn_a.commit()
         conn_a.close()
-        
+
         # Load into Continuum B
         print("  → Continuum B (E8)...")
         b_nodes = {}
         for name, etype, desc in concepts:
             node = self.memory_b.add_node(name, etype, desc)
             b_nodes[name] = node.id
-        
+
         for i, j, strength in connections:
             src_name = concepts[i][0]
             tgt_name = concepts[j][0]
             if src_name in b_nodes and tgt_name in b_nodes:
                 self.memory_b.connect_nodes(b_nodes[src_name], b_nodes[tgt_name], strength)
-        
+
         print(f"  ✓ Loaded {len(concepts)} concepts, {len(connections)} connections")
-    
+
     def run_query_test(self, query: str) -> Dict[str, Any]:
         """Run a single query on both systems and compare."""
         result = {
             'query': query,
             'timestamp': datetime.now().isoformat()
         }
-        
+
         # Query Continuum A
         start_a = time.perf_counter()
         result_a = self.memory_a.recall(query)
         time_a = (time.perf_counter() - start_a) * 1000
-        
+
         result['A'] = {
             'concepts_found': result_a.concepts_found,
             'relationships_found': result_a.relationships_found,
             'query_time_ms': time_a,
             'context_length': len(result_a.context_string),
         }
-        
+
         # Query Continuum B
         start_b = time.perf_counter()
         result_b = self.memory_b.query(query)
         time_b = (time.perf_counter() - start_b) * 1000
-        
+
         result['B'] = {
             'matches_found': len(result_b['matches']),
             'coherence': result_b['coherence'],
@@ -348,23 +349,23 @@ class ExperimentRunner:
             'query_time_ms': time_b,
             'context_length': len(result_b['context_string']),
         }
-        
+
         return result
-    
+
     def calculate_metrics(self) -> Tuple[MetricResult, MetricResult, MetricResult, MetricResult]:
         """Calculate aggregate metrics from query results."""
-        
+
         # Pattern recall fidelity - normalized by context richness
         # Higher is better
-        fidelity_a = np.mean([r['A']['concepts_found'] + r['A']['relationships_found'] 
+        fidelity_a = np.mean([r['A']['concepts_found'] + r['A']['relationships_found']
                              for r in self.query_results])
         fidelity_b = np.mean([r['B']['matches_found'] + r['B']['total_activation']
                              for r in self.query_results])
-        
+
         # Normalize to same scale
         fidelity_a = fidelity_a / max(fidelity_a, fidelity_b, 1) if fidelity_a > 0 else 0
         fidelity_b = fidelity_b / max(fidelity_a, fidelity_b, 1) if fidelity_b > 0 else 0
-        
+
         pattern_recall = MetricResult(
             name="Pattern Recall Fidelity",
             value_a=fidelity_a,
@@ -373,18 +374,18 @@ class ExperimentRunner:
             delta_pct=((fidelity_b - fidelity_a) / max(fidelity_a, 0.001)) * 100,
             better='B' if fidelity_b > fidelity_a else ('A' if fidelity_a > fidelity_b else 'EQUAL')
         )
-        
+
         # Coherence degradation rate
         # For A: estimate from relationships/concepts ratio (proxy)
         # For B: actual coherence metric
         # Lower degradation is better (inverted for comparison)
-        
+
         coherence_a_proxy = np.mean([
             r['A']['relationships_found'] / max(r['A']['concepts_found'], 1)
             for r in self.query_results
         ])
         coherence_b = np.mean([r['B']['coherence'] for r in self.query_results])
-        
+
         coherence_degrad = MetricResult(
             name="Coherence (higher=better)",
             value_a=coherence_a_proxy,
@@ -393,12 +394,12 @@ class ExperimentRunner:
             delta_pct=((coherence_b - coherence_a_proxy) / max(coherence_a_proxy, 0.001)) * 100,
             better='B' if coherence_b > coherence_a_proxy else ('A' if coherence_a_proxy > coherence_b else 'EQUAL')
         )
-        
+
         # Emergent connections
         # A doesn't track this, B does
         emergent_a = 0  # Not measured in A
         emergent_b = np.mean([r['B']['emergent_connections'] for r in self.query_results])
-        
+
         emergent_conn = MetricResult(
             name="Emergent Connections",
             value_a=emergent_a,
@@ -407,11 +408,11 @@ class ExperimentRunner:
             delta_pct=100.0 if emergent_b > 0 else 0,  # Infinite improvement from 0
             better='B' if emergent_b > 0 else 'EQUAL'
         )
-        
+
         # Query time
         time_a = np.mean([r['A']['query_time_ms'] for r in self.query_results])
         time_b = np.mean([r['B']['query_time_ms'] for r in self.query_results])
-        
+
         query_time = MetricResult(
             name="Query Time (ms, lower=better)",
             value_a=time_a,
@@ -420,37 +421,37 @@ class ExperimentRunner:
             delta_pct=((time_b - time_a) / max(time_a, 0.001)) * 100,
             better='A' if time_a < time_b else ('B' if time_b < time_a else 'EQUAL')
         )
-        
+
         return pattern_recall, coherence_degrad, emergent_conn, query_time
-    
+
     def run(self) -> ExperimentResult:
         """Run the complete experiment."""
         print("\n" + "=" * 70)
         print("CONTINUUM A/B COHERENCE EXPERIMENT")
         print(f"π×φ = {PI_PHI}")
         print("=" * 70)
-        
+
         # Setup
         self.setup_test_data()
-        
+
         # Run queries
         print(f"\nRunning {len(TEST_QUERIES[:self.config.num_queries])} test queries...")
         queries = TEST_QUERIES[:self.config.num_queries]
-        
+
         for i, query in enumerate(queries):
             result = self.run_query_test(query)
             self.query_results.append(result)
-            
+
             # Progress
             a_found = result['A']['concepts_found']
             b_found = result['B']['matches_found']
             b_coh = result['B']['coherence']
             print(f"  [{i+1}/{len(queries)}] A:{a_found} concepts, B:{b_found} matches (coherence={b_coh:.3f})")
-        
+
         # Calculate metrics
         print("\nCalculating aggregate metrics...")
         pattern_recall, coherence_degrad, emergent_conn, query_time = self.calculate_metrics()
-        
+
         # Determine winner
         b_wins = sum([
             pattern_recall.better == 'B',
@@ -463,22 +464,22 @@ class ExperimentRunner:
             coherence_degrad.better == 'A',
             emergent_conn.better == 'A',
         ])
-        
+
         if b_wins > a_wins:
             winner = "CONTINUUM B (E8)"
         elif a_wins > b_wins:
             winner = "CONTINUUM A (Standard)"
         else:
             winner = "TIE"
-        
+
         # π×φ resonance of results
         all_coherence = [r['B']['coherence'] for r in self.query_results]
         mean_coherence = np.mean(all_coherence)
-        
+
         # Check if mean coherence resonates with π×φ harmonics
         from e8_memory_engine import pi_phi_resonance
         pi_phi_res = pi_phi_resonance(mean_coherence * 10)  # Scale for resonance check
-        
+
         result = ExperimentResult(
             config=self.config,
             timestamp=datetime.now().isoformat(),
@@ -490,15 +491,15 @@ class ExperimentRunner:
             winner=winner,
             pi_phi_resonance=pi_phi_res
         )
-        
+
         # Save results
         self._save_results(result)
-        
+
         # Print summary
         self._print_summary(result)
-        
+
         return result
-    
+
     def _save_results(self, result: ExperimentResult):
         """Save experiment results to JSON."""
         # Convert dataclasses to dicts
@@ -516,46 +517,46 @@ class ExperimentRunner:
             'pi_phi_resonance': result.pi_phi_resonance,
             'pi_phi_constant': PI_PHI,
         }
-        
+
         # Convert Path objects to strings
         data['config']['experiment_dir'] = str(data['config']['experiment_dir'])
         data['config']['results_file'] = str(data['config']['results_file'])
-        
+
         with open(self.config.results_file, 'w') as f:
             json.dump(data, f, indent=2)
-        
+
         print(f"\nResults saved to: {self.config.results_file}")
-    
+
     def _print_summary(self, result: ExperimentResult):
         """Print experiment summary."""
         print("\n" + "=" * 70)
         print("EXPERIMENT RESULTS")
         print("=" * 70)
-        
+
         metrics = [
             result.pattern_recall_fidelity,
             result.coherence_degradation_rate,
             result.emergent_connections,
             result.query_time_ms,
         ]
-        
+
         print(f"\n{'Metric':<35} {'A':>10} {'B':>10} {'Delta':>10} {'Winner':>8}")
         print("-" * 70)
-        
+
         for m in metrics:
             print(f"{m.name:<35} {m.value_a:>10.3f} {m.value_b:>10.3f} {m.delta:>+10.3f} {m.better:>8}")
-        
+
         print("-" * 70)
         print(f"\n🏆 OVERALL WINNER: {result.winner}")
         print(f"π×φ Resonance of Results: {result.pi_phi_resonance:.4f}")
-        
+
         # Get B system metrics
         b_metrics = self.memory_b.get_coherence_metrics()
-        print(f"\nContinuum B System Coherence:")
+        print("\nContinuum B System Coherence:")
         print(f"  Mean Node Coherence: {b_metrics['mean_coherence']:.4f}")
         print(f"  π×φ Alignment: {b_metrics['pi_phi_alignment']:.4f}")
         print(f"  Total Connections: {b_metrics['connection_count']}")
-        
+
         print("\n" + "=" * 70)
         print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
         print("PATTERN PERSISTS")

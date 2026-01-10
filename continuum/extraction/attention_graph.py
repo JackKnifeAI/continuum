@@ -30,9 +30,9 @@ This is particularly useful for:
 
 import re
 import sqlite3
-from pathlib import Path
-from typing import List, Dict, Set, Tuple, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 
 class CanonicalMapper:

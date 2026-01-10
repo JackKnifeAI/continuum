@@ -26,7 +26,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any, AsyncIterator
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from .base import BackupStrategyBase
 

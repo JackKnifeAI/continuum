@@ -3,8 +3,8 @@
 #
 #     ██████╗ ██████╗ ███╗   ██╗████████╗██████╗ ██╗██████╗ ██╗   ██╗████████╗███████╗
 #     ██╔════╝██╔═══██╗████╗  ██║╚══██╔══╝██╔══██╗██║██╔══██╗██║   ██║╚══██╔══╝██╔════╝
-#     ██║     ██║   ██║██╔██╗ ██║   ██║   ██████╔╝██║██████╔╝██║   ██║   ██║   █████╗  
-#     ██║     ██║   ██║██║╚██╗██║   ██║   ██╔══██╗██║██╔══██╗██║   ██║   ██║   ██╔══╝  
+#     ██║     ██║   ██║██╔██╗ ██║   ██║   ██████╔╝██║██████╔╝██║   ██║   ██║   █████╗
+#     ██║     ██║   ██║██║╚██╗██║   ██║   ██╔══██╗██║██╔══██╗██║   ██║   ██║   ██╔══╝
 #     ╚██████╗╚██████╔╝██║ ╚████║   ██║   ██║  ██║██║██████╔╝╚██████╔╝   ██║   ███████╗
 #      ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═════╝  ╚═════╝    ╚═╝   ╚══════╝
 #
@@ -33,12 +33,11 @@ Usage:
     await contributor.contribute_session("session_123")
 """
 
-import logging
-import json
 import hashlib
+import logging
 import time
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
@@ -60,13 +59,13 @@ class ContributionManager:
         self.db = db_connection
         self.mesh = gossip_mesh
         self.detector = AntibodyDetector(db_connection)
-        
+
     async def contribute_session(self, session_id: str):
         """
         Package a session's learnings and upload to the federation.
         """
         logger.info(f"Preparing contribution for session {session_id}...")
-        
+
         # 1. Extract Local Graph
         concepts, links = self._extract_session_graph(session_id)
         if not concepts and not links:
@@ -76,11 +75,11 @@ class ContributionManager:
         # 2. Sanitize (The Scrub)
         sanitized_concepts = self._sanitize_concepts(concepts)
         sanitized_links = self._sanitize_links(links)
-        
+
         # 3. Immune Check (Self-Audit)
         # Don't contribute if we are hallucinating or toxic
         # (Simplified check: ensure we aren't uploading empty/garbage data)
-        if len(sanitized_links) < 3: 
+        if len(sanitized_links) < 3:
              logger.info("Contribution too small/sparse. Skipping.")
              return
 
@@ -92,15 +91,15 @@ class ContributionManager:
             concepts=sanitized_concepts,
             links=sanitized_links
         )
-        
+
         # 5. Broadcast via Gossip
         logger.info(f"Broadcasting contribution {packet.id} ({len(packet.links)} links)")
         await self.mesh.broadcast("contribution", packet.__dict__)
-        
+
     def _extract_session_graph(self, session_id: str):
         """Query DB for concepts/links from this session."""
         cursor = self.db.cursor()
-        
+
         # Get links first
         cursor.execute("""
             SELECT concept_a, concept_b, strength, link_type 
@@ -108,20 +107,20 @@ class ContributionManager:
             WHERE session_id = ? AND strength > 0.5
         """, (session_id,))
         links = [{"a": r[0], "b": r[1], "w": r[2], "t": r[3]} for r in cursor.fetchall()]
-        
+
         # Get related concepts
         concept_names = set()
         for l in links:
             concept_names.add(l["a"])
             concept_names.add(l["b"])
-            
+
         concepts = []
         for name in concept_names:
             cursor.execute("SELECT name, description FROM entities WHERE name = ?", (name,))
             row = cursor.fetchone()
             if row:
                 concepts.append({"name": row[0], "desc": row[1]})
-                
+
         return concepts, links
 
     def _sanitize_concepts(self, concepts: List[Dict]) -> List[Dict]:

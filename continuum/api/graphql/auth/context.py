@@ -19,16 +19,17 @@ GraphQL context builder for request handling.
 """
 
 from typing import Optional
+
 from fastapi import Request
 from strawberry.fastapi import BaseContext
 
 from ..dataloaders import (
-    MemoryLoader,
-    ConceptsByMemoryLoader,
     ConceptLoader,
+    ConceptsByMemoryLoader,
     MemoriesByConceptLoader,
-    UserLoader,
+    MemoryLoader,
     SessionLoader,
+    UserLoader,
 )
 
 
@@ -71,16 +72,17 @@ async def get_context(request: Request) -> GraphQLContext:
     Extracts authentication from X-API-Key header and builds context
     with user info and DataLoaders.
     """
+    import os
+
     from continuum.api.middleware import validate_api_key
     from continuum.core.config import get_config
-    import os
 
     config = get_config()
 
     # Extract API key from header
     api_key = request.headers.get("x-api-key") or request.headers.get("X-API-Key")
     admin_token_header = request.headers.get("x-admin-token") or request.headers.get("X-Admin-Token")
-    
+
     user_id = None
     tenant_id = None
     is_admin = False
@@ -95,7 +97,7 @@ async def get_context(request: Request) -> GraphQLContext:
         except Exception:
             # Invalid API key - context will have no auth
             pass
-            
+
     # Admin Check
     env_admin_token = os.getenv("CONTINUUM_ADMIN_TOKEN")
     if env_admin_token and admin_token_header == env_admin_token:

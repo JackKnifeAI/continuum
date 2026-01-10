@@ -12,10 +12,11 @@ Pydantic Schemas for Sensor Data
 Unified data models for sensor readings, anomaly events, and API requests/responses.
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class SensorType(str, Enum):

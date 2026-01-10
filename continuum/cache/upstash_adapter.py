@@ -41,14 +41,13 @@ Usage:
     cache = UpstashCache(fallback=True)
 """
 
+import json
+import logging
 import os
 import time
-import json
-import hashlib
-import logging
-from typing import Any, Optional, List, Dict, Union
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 

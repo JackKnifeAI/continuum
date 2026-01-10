@@ -41,16 +41,16 @@ Usage:
 
 import os
 import sys
-from typing import Optional, Dict, Any, Callable
 from functools import wraps
 from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
 try:
     import sentry_sdk
-    from sentry_sdk.integrations.fastapi import FastApiIntegration
-    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-    from sentry_sdk.integrations.redis import RedisIntegration
     from sentry_sdk.integrations.asyncio import AsyncioIntegration
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.redis import RedisIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
     SENTRY_AVAILABLE = True
 except ImportError:
     SENTRY_AVAILABLE = False

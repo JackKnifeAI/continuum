@@ -27,12 +27,11 @@ References:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from typing import List, Dict, Any, Optional, Tuple, Callable
-from dataclasses import dataclass
-from datetime import datetime, timezone
-import math
-import random
 import logging
+import math
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
+
 import numpy as np
 
 logger = logging.getLogger(__name__)

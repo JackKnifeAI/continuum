@@ -22,8 +22,9 @@ Exposes endpoints to:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -514,8 +515,9 @@ async def submit_intention(request: SubmitIntentionRequest):
     The brain will evaluate this intention in its next decision cycle
     and act on it when triggers match or priority is high enough.
     """
-    import aiohttp
     from uuid import uuid4
+
+    import aiohttp
 
     brain = get_brain()
 

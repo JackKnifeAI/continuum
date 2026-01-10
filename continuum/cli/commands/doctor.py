@@ -18,13 +18,12 @@
 Doctor Command - Diagnose and fix common issues
 """
 
-import sys
 import sqlite3
-from pathlib import Path
+import sys
 from typing import List, Tuple
 
-from ..utils import success, error, info, section, warning, colorize, Colors
 from ..config import CLIConfig
+from ..utils import Colors, colorize, error, info, section, success, warning
 
 
 def doctor_command(fix: bool, config: CLIConfig, use_color: bool):
@@ -171,7 +170,7 @@ def doctor_command(fix: bool, config: CLIConfig, use_color: bool):
 
         federation_dir = config.config_dir / "federation"
         if federation_dir.exists():
-            success(f"Federation directory exists", use_color)
+            success("Federation directory exists", use_color)
 
             node_config = federation_dir / "node_config.json"
             if node_config.exists():
@@ -195,8 +194,8 @@ def doctor_command(fix: bool, config: CLIConfig, use_color: bool):
 
     # Check MCP module
     try:
-        from continuum.mcp.server import create_mcp_server
         from continuum.mcp.config import get_mcp_config
+        from continuum.mcp.server import create_mcp_server
 
         success("MCP server module available", use_color)
 

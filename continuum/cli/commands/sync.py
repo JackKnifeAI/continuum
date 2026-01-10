@@ -18,13 +18,14 @@
 Sync Command - Sync memories with federation
 """
 
-import sys
 import math
+import sys
 from typing import Optional
 
 from continuum.core.memory import get_memory
-from ..utils import success, error, info, section, warning
+
 from ..config import CLIConfig
+from ..utils import error, info, section, success, warning
 
 
 def sync_command(
@@ -51,8 +52,8 @@ def sync_command(
     section("Syncing with Federation", use_color)
 
     try:
-        from continuum.federation.node import FederatedNode
         from continuum.federation.contribution import ContributionGate
+        from continuum.federation.node import FederatedNode
         from continuum.federation.shared import SharedKnowledge
 
         # Initialize federation components
@@ -71,7 +72,7 @@ def sync_command(
         access = gate.can_access(node.node_id)
         current_stats = gate.get_stats(node.node_id)
 
-        print(f"\nCurrent Status:")
+        print("\nCurrent Status:")
         print(f"  Contributed: {current_stats['contributed']}")
         print(f"  Consumed: {current_stats['consumed']}")
         print(f"  Ratio: {current_stats['ratio']:.2f}")
@@ -102,7 +103,7 @@ def sync_command(
 
         # Show updated stats
         updated_stats = gate.get_stats(node.node_id)
-        print(f"\nUpdated Status:")
+        print("\nUpdated Status:")
         print(f"  Contributed: {updated_stats['contributed']}")
         print(f"  Consumed: {updated_stats['consumed']}")
         print(f"  Ratio: {updated_stats['ratio']:.2f}")
@@ -127,8 +128,9 @@ def sync_command(
 
 def _get_or_create_node(config: CLIConfig, verify_constant: Optional[float]):
     """Get or create federated node"""
-    from continuum.federation.node import FederatedNode
     import json
+
+    from continuum.federation.node import FederatedNode
 
     node_config_file = config.config_dir / "federation" / "node_config.json"
 
@@ -158,7 +160,6 @@ def _get_or_create_node(config: CLIConfig, verify_constant: Optional[float]):
 def _push_memories(node_id: str, knowledge, gate, use_color: bool) -> int:
     """Push local memories to federation"""
     import sqlite3
-    from continuum.core.memory import get_memory
 
     memory = get_memory()
     conn = sqlite3.connect(memory.db_path)
@@ -204,7 +205,6 @@ def _push_memories(node_id: str, knowledge, gate, use_color: bool) -> int:
 
 def _pull_memories(node_id: str, knowledge, gate, use_color: bool) -> int:
     """Pull federated memories to local"""
-    from continuum.core.memory import get_memory
     import sqlite3
 
     memory = get_memory()

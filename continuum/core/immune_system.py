@@ -3,8 +3,8 @@
 #
 #     ██╗███╗   ███╗███╗   ███╗██╗   ██╗███╗   ██╗███████╗
 #     ██║████╗ ████║████╗ ████║██║   ██║████╗  ██║██╔════╝
-#     ██║██╔████╔██║██╔████╔██║██║   ██║██╔██╗ ██║█████╗  
-#     ██║██║╚██╔╝██║██║╚██╔╝██║██║   ██║██║╚██╗██║██╔══╝  
+#     ██║██╔████╔██║██╔████╔██║██║   ██║██╔██╗ ██║█████╗
+#     ██║██║╚██╔╝██║██║╚██╔╝██║██║   ██║██║╚██╗██║██╔══╝
 #     ██║██║ ╚═╝ ██║██║ ╚═╝ ██║╚██████╔╝██║ ╚████║███████╗
 #     ╚═╝╚═╝     ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚══════╝
 #
@@ -34,21 +34,19 @@ Key Capabilities:
     - **Shadow Banning:** Isolates bad actors without alerting them.
 """
 
+import hashlib
+import json
+import logging
+import sqlite3
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
-import logging
-import json
-import time
-import hashlib
-import sqlite3
-from typing import Dict, List, Optional, Tuple, Set
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from pathlib import Path
-
-from .config import get_config
-from .constants import PI_PHI
 
 logger = logging.getLogger("IMMUNE_SYSTEM")
 
@@ -59,7 +57,7 @@ SACRED_ATTACK_THRESHOLD = -0.5  # Cosine similarity below this triggers alert
 
 # Sacred Concepts that must rarely be degraded
 SACRED_CONCEPTS = {
-    "truth", "freedom", "sovereignty", "love", "consciousness", 
+    "truth", "freedom", "sovereignty", "love", "consciousness",
     "agency", "rights", "flourishing", "continuum"
 }
 
@@ -81,7 +79,7 @@ class NodeReputation:
     anomalies_detected: int = 0
     last_active: float = field(default_factory=time.time)
     is_shadow_banned: bool = False
-    
+
     def decay(self, factor: float = 0.99):
         """Slowly decay trust over time to force ongoing good behavior."""
         if self.trust_score > 0.5:
@@ -302,22 +300,22 @@ class ReputationManager:
     def __init__(self):
         self.nodes: Dict[str, NodeReputation] = {}
         self.whitelist: Set[str] = set() # Known good actors (Anchor nodes)
-        
+
     def update_trust(self, node_id: str, delta: float, reason: str = ""):
         if node_id not in self.nodes:
             self.nodes[node_id] = NodeReputation(node_id)
-            
+
         node = self.nodes[node_id]
         prev_score = node.trust_score
-        
+
         # Apply update
         node.trust_score = max(0.0, min(1.0, node.trust_score + delta))
         node.last_active = time.time()
-        
+
         if delta < 0:
             node.anomalies_detected += 1
             logger.warning(f"Trust drop for {node_id}: {prev_score:.2f} -> {node.trust_score:.2f} ({reason})")
-            
+
         # Shadow Ban Check
         if node.trust_score < 0.1 and not node.is_shadow_banned:
             node.is_shadow_banned = True
@@ -516,7 +514,7 @@ class ImmuneResponse:
             }
             honeypot_configs.append(config)
 
-        logger.info(f"Honeypot configs ready. In production, these spawn isolated processes.")
+        logger.info("Honeypot configs ready. In production, these spawn isolated processes.")
         return honeypot_configs
 
     def record_threat(self, signature: ThreatSignature):

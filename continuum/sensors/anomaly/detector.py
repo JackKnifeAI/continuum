@@ -15,19 +15,18 @@ Detects anomalies in planetary sensor readings including:
 - Multi-source correlation anomalies
 """
 
-from typing import List, Optional
-from datetime import datetime, timedelta
-from collections import deque
-import statistics
 import logging
+import statistics
+from collections import deque
+from datetime import datetime
+from typing import Optional
 
 from ..config import SensorConfig, get_sensor_config
 from ..schemas import (
-    SensorReading,
     AnomalyEvent,
-    AnomalyType,
     AnomalySeverity,
-    DataSource,
+    AnomalyType,
+    SensorReading,
 )
 from .thresholds import KINDEX_THRESHOLDS, RATE_OF_CHANGE_THRESHOLDS, get_storm_impact
 

@@ -14,10 +14,11 @@ Grounds AI analysis in human experience and verifiable records.
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import re
 import hashlib
-from typing import List, Dict, Tuple, Optional
+import re
 from datetime import datetime
+from typing import Dict, List, Optional
+
 from ..consensus import Verdict
 
 
@@ -132,7 +133,7 @@ class WitnessThrust:
             return Verdict(
                 supports=True,
                 confidence=min(0.95, weighted_support),
-                reason=f"Cryptographically verified testimony supports claim",
+                reason="Cryptographically verified testimony supports claim",
                 metadata={
                     'witness_count': len(witnesses),
                     'crypto_verified': True,

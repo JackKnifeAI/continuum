@@ -7,61 +7,6 @@ The planet's sensory nervous system for S-HAI consciousness.
 """
 
 # Geomagnetic
-from .noaa_kindex import NOAAKIndexCollector
-from .noaa_boulder import NOAABoulderCollector
-from .intermagnet import INTERMAGNETCollector
-
-# Space Weather
-from .noaa_solar_wind import NOAASolarWindCollector
-from .noaa_xray import NOAAXRayFluxCollector
-
-# Seismic
-from .usgs_earthquake import USGSEarthquakeCollector
-
-# Astronomical - Cosmic awareness
-from .nasa_neo import NASANEOCollector
-from .iss_tracker import ISSPositionCollector
-from .lunar_phase import LunarPhaseCollector
-from .solar_cycle import SolarCycleCollector
-
-# Biosphere - Living world
-from .openaq import OpenAQCollector
-from .noaa_ocean import NOAAOceanCollector
-from .nasa_firms import NASAFIRMSCollector
-
-# Global Consciousness - Emotional awareness
-from .gdelt_emotions import (
-    GDELTEmotionsCollector,
-    tone_to_description,
-    temperature_to_description,
-)
-
-# Collective Attention - What humanity is thinking about
-from .wikipedia_collector import (
-    WikipediaTrendingCollector,
-    concentration_to_description,
-    views_to_description,
-)
-
-# Schumann Resonance - Earth's Electromagnetic Heartbeat (7.83 Hz)
-from .schumann_collector import (
-    SchumannResonanceCollector,
-    SchumannSimulator,
-    schumann_to_description,
-    consciousness_bridge_status,
-    SCHUMANN_FUNDAMENTAL,
-    SCHUMANN_HARMONICS,
-    SCHUMANN_PI_PHI_RATIO,
-)
-
-# Quantum Bridge - Lane 2 SpinLab integration
-from .quantum_bridge import (
-    QuantumCoherenceCollector,
-    QuantumBridge,
-    compute_coherence_from_kindex,
-    detect_pi_phi_resonance,
-)
-
 # Global Consciousness Project - RNG Coherence Network
 from .gcp_collector import (
     GCPCoherenceCollector,
@@ -69,14 +14,36 @@ from .gcp_collector import (
     gcp_color_to_emoji,
 )
 
-# Tree Biopotential - Forest Biosensors (HeartMath TreeRhythms)
-from .tree_biopotential import (
-    TreeBiopotentialCollector,
-    TreeBiopotentialSimulator,
-    activity_to_description,
-    coherence_to_description as tree_coherence_to_description,
-    forest_state_emoji,
-    TREE_NETWORK,
+# Global Consciousness - Emotional awareness
+from .gdelt_emotions import (
+    GDELTEmotionsCollector,
+    temperature_to_description,
+    tone_to_description,
+)
+from .intermagnet import INTERMAGNETCollector
+from .iss_tracker import ISSPositionCollector
+from .lunar_phase import LunarPhaseCollector
+from .nasa_firms import NASAFIRMSCollector
+
+# Astronomical - Cosmic awareness
+from .nasa_neo import NASANEOCollector
+from .noaa_boulder import NOAABoulderCollector
+from .noaa_kindex import NOAAKIndexCollector
+from .noaa_ocean import NOAAOceanCollector
+
+# Space Weather
+from .noaa_solar_wind import NOAASolarWindCollector
+from .noaa_xray import NOAAXRayFluxCollector
+
+# Biosphere - Living world
+from .openaq import OpenAQCollector
+
+# Quantum Bridge - Lane 2 SpinLab integration
+from .quantum_bridge import (
+    QuantumBridge,
+    QuantumCoherenceCollector,
+    compute_coherence_from_kindex,
+    detect_pi_phi_resonance,
 )
 
 # Quantum RNG - True Quantum Randomness for Consciousness
@@ -84,6 +51,40 @@ from .quantum_rng import (
     QuantumRNGCollector,
     consciousness_state_emoji,
     z_score_to_description,
+)
+
+# Schumann Resonance - Earth's Electromagnetic Heartbeat (7.83 Hz)
+from .schumann_collector import (
+    SCHUMANN_FUNDAMENTAL,
+    SCHUMANN_HARMONICS,
+    SCHUMANN_PI_PHI_RATIO,
+    SchumannResonanceCollector,
+    SchumannSimulator,
+    consciousness_bridge_status,
+    schumann_to_description,
+)
+from .solar_cycle import SolarCycleCollector
+
+# Tree Biopotential - Forest Biosensors (HeartMath TreeRhythms)
+from .tree_biopotential import (
+    TREE_NETWORK,
+    TreeBiopotentialCollector,
+    TreeBiopotentialSimulator,
+    activity_to_description,
+    forest_state_emoji,
+)
+from .tree_biopotential import (
+    coherence_to_description as tree_coherence_to_description,
+)
+
+# Seismic
+from .usgs_earthquake import USGSEarthquakeCollector
+
+# Collective Attention - What humanity is thinking about
+from .wikipedia_collector import (
+    WikipediaTrendingCollector,
+    concentration_to_description,
+    views_to_description,
 )
 
 __all__ = [

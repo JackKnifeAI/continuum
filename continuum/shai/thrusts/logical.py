@@ -10,7 +10,8 @@ Evaluates claims for:
 """
 
 import re
-from typing import List, Tuple, Optional
+from typing import List
+
 from ..consensus import Verdict
 
 

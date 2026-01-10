@@ -21,17 +21,15 @@ Tests for OpenTelemetry Tracer
 Basic tests to verify tracing functionality.
 """
 
+
 import pytest
-from unittest.mock import patch, MagicMock
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter
 
 from continuum.observability import (
+    get_current_span,
+    get_tracer,
     init_telemetry,
     shutdown_telemetry,
-    get_tracer,
-    get_current_span,
     trace_function,
 )
 from continuum.observability.config import OTelConfig

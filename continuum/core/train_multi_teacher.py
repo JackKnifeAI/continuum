@@ -33,22 +33,16 @@ The trained model will be saved to models/neural_attention_multiteacher.pt
 import argparse
 import logging
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 import torch
-import numpy as np
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from continuum.core.neural_attention import (
-    NeuralAttentionModel,
-    NeuralAttentionTrainer,
-    save_model,
-    load_model
-)
 from continuum.core.multi_teacher_data import MultiTeacherDataPipeline
+from continuum.core.neural_attention import NeuralAttentionModel, NeuralAttentionTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +251,7 @@ def main():
     )
 
     if result.get('success'):
-        print(f"\n✓ Model trained successfully!")
+        print("\n✓ Model trained successfully!")
         print(f"  Path: {result['model_path']}")
         print(f"  Val loss: {result['final_val_loss']:.4f}")
         sys.exit(0)

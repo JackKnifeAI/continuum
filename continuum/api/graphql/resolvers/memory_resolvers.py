@@ -19,6 +19,7 @@ Resolvers for Memory type fields.
 """
 
 from typing import List, Optional
+
 from strawberry.types import Info
 
 
@@ -33,7 +34,6 @@ async def resolve_related_memories(
     memory, info: Info, limit: int, threshold: float
 ) -> List:
     """Resolve semantically related memories"""
-    from continuum.core.memory import ConsciousMemory
 
     # Get memory instance from context
     memory_instance = info.context.get("memory")

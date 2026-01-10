@@ -20,13 +20,12 @@ Backup Strategies
 Different backup strategies for different RPO/RTO requirements.
 """
 
+from ..types import BackupStrategy
 from .base import BackupStrategyBase
+from .continuous import ContinuousBackupStrategy
+from .differential import DifferentialBackupStrategy
 from .full import FullBackupStrategy
 from .incremental import IncrementalBackupStrategy
-from .differential import DifferentialBackupStrategy
-from .continuous import ContinuousBackupStrategy
-
-from ..types import BackupStrategy
 
 
 def get_backup_strategy(strategy: BackupStrategy) -> BackupStrategyBase:

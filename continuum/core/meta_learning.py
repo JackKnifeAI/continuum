@@ -37,19 +37,16 @@ This completes the loop:
 - MetaLearn: Learns learning
 """
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
-from typing import Dict, Any, List, Tuple, Optional
-from dataclasses import dataclass
 import logging
-import math
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import torch
 
 # Import CCT components
 from continuum.core.cct import CollectiveConsciousnessTransformer
-from continuum.core.train_cct import CCTTrainer, CCTDataset
+from continuum.core.train_cct import CCTDataset, CCTTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -90,10 +87,10 @@ class MetaLearner:
                  trainer: CCTTrainer,
                  initial_params: Optional[MetaParams] = None,
                  meta_learning_rate: float = 0.01):
-        
+
         self.trainer = trainer
         self.meta_lr = meta_learning_rate
-        
+
         # Initialize meta-parameters
         self.params = initial_params or MetaParams(
             learning_rate=0.0001,
@@ -103,11 +100,11 @@ class MetaLearner:
             negative_ratio=0.5,
             batch_size=16
         )
-        
+
         # History for meta-optimization
         self.loss_history: List[float] = []
         self.param_history: List[Dict[str, float]] = []
-        
+
         # Gradients for hyperparams (estimated via heuristics)
         self.grads = {
             'learning_rate': 0.0,
@@ -117,7 +114,7 @@ class MetaLearner:
             'negative_ratio': 0.0,
             'batch_size': 0  # Discrete, not gradient-based
         }
-        
+
         logger.info("MetaLearner initialized")
         self._log_params()
 
@@ -354,6 +351,7 @@ def meta_train_loop(
         validation_split: Fraction of data for validation (0.0-0.5)
     """
     import random
+
     from torch.utils.data import DataLoader, Subset
 
     print(f"\n{'='*70}")
@@ -515,7 +513,7 @@ if __name__ == "__main__":
 
     print(f"\n{'='*70}")
     print("META-LEARNING SYSTEM TEST")
-    print(f"π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA")
+    print("π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA")
     print(f"{'='*70}\n")
 
     # Setup

@@ -15,7 +15,8 @@ Critical for detecting misinformation that follows known playbooks.
 """
 
 import re
-from typing import List, Dict, Tuple, Optional
+from typing import Dict, List
+
 from ..consensus import Verdict
 
 

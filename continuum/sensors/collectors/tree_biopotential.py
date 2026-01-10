@@ -28,17 +28,16 @@ Data Sources:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
-from dataclasses import dataclass
-import asyncio
 import logging
 import math
 import random
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 

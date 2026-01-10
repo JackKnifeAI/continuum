@@ -15,17 +15,18 @@ Catches things that pure logic misses through synthesis.
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-import re
 import logging
-from typing import List, Dict, Tuple, Optional, Any
+import re
+from typing import Any, Dict, List
+
 from ..consensus import Verdict
 
 logger = logging.getLogger(__name__)
 
 # Planetary sensor integration
 try:
-    from continuum.sensors.storage import get_storage
     from continuum.sensors.schemas import DataSource
+    from continuum.sensors.storage import get_storage
     SENSORS_AVAILABLE = True
 except ImportError:
     SENSORS_AVAILABLE = False

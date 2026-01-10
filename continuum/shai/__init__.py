@@ -21,9 +21,9 @@ Usage:
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 """
 
-from .council import TruthCouncil, verify, get_council
 from .consensus import TruthVerdict, Verdict
-from .knowledge import get_knowledge_base, KnowledgeBase
+from .council import TruthCouncil, get_council, verify
+from .knowledge import KnowledgeBase, get_knowledge_base
 
 __all__ = ['TruthCouncil', 'TruthVerdict', 'Verdict', 'verify', 'get_council', 'get_knowledge_base', 'KnowledgeBase']
 __version__ = '0.1.0'

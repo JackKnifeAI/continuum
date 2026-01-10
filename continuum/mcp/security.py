@@ -20,22 +20,24 @@ CONTINUUM MCP Security
 Authentication, rate limiting, input validation, and anti-tool-poisoning protection.
 """
 
+import json
 import re
 import time
-import hashlib
-import secrets
-from typing import Dict, Optional, Any, List
-from datetime import datetime, timedelta
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
-import json
+from typing import Any, Dict, List, Optional
 
 from continuum.core.auth import (
-    authenticate,
-    verify_pi_phi,
-    generate_client_id as core_generate_client_id,
     AuthenticationError as CoreAuthenticationError,
 )
+from continuum.core.auth import (
+    authenticate,
+)
+from continuum.core.auth import (
+    generate_client_id as core_generate_client_id,
+)
+
 from .config import get_mcp_config
 
 
@@ -336,7 +338,7 @@ def detect_tool_poisoning(
         for pattern in sensitive_patterns:
             if re.search(pattern, ai_response, re.IGNORECASE):
                 raise ToolPoisoningError(
-                    f"Potential data leak detected: sensitive pattern found in response"
+                    "Potential data leak detected: sensitive pattern found in response"
                 )
 
     return False

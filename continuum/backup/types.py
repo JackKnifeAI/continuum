@@ -24,8 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Dict, Any
-from decimal import Decimal
+from typing import Dict, List, Optional
 
 
 class BackupStrategy(str, Enum):

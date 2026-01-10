@@ -16,11 +16,11 @@
 
 """Advanced audit log search with analytics."""
 
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from collections import defaultdict
 
-from .events import AuditLogEntry, AuditEventType, Outcome
+from .events import AuditEventType, AuditLogEntry
 from .storage import AuditLogStorage
 
 

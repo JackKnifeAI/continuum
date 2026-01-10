@@ -21,11 +21,11 @@ Python Webhook Signature Verification Example
 Demonstrates how to verify CONTINUUM webhook signatures in Python.
 """
 
-import hmac
 import hashlib
+import hmac
 import json
 import time
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 def verify_continuum_webhook(
@@ -96,8 +96,9 @@ def verify_continuum_webhook(
 
 def flask_example():
     """Flask webhook receiver example."""
-    from flask import Flask, request, jsonify
     import os
+
+    from flask import Flask, jsonify, request
 
     app = Flask(__name__)
     WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', 'your_secret_here')
@@ -151,8 +152,9 @@ def flask_example():
 
 def fastapi_example():
     """FastAPI webhook receiver example."""
-    from fastapi import FastAPI, Request, HTTPException
     import os
+
+    from fastapi import FastAPI, HTTPException, Request
 
     app = FastAPI()
     WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', 'your_secret_here')
@@ -198,10 +200,11 @@ def fastapi_example():
 def django_example():
     """Django webhook receiver example."""
     import json
-    from django.http import JsonResponse, HttpResponseForbidden
+    import os
+
+    from django.http import HttpResponseForbidden, JsonResponse
     from django.views.decorators.csrf import csrf_exempt
     from django.views.decorators.http import require_POST
-    import os
 
     WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', 'your_secret_here')
 

@@ -21,14 +21,14 @@ Defines the protocol for secure communication between federation nodes.
 Includes rate limiting to prevent abuse.
 """
 
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone, timedelta
-from enum import Enum
-from dataclasses import dataclass, field
 import hashlib
 import hmac
 import json
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 
 class MessageType(str, Enum):

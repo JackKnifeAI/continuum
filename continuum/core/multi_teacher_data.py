@@ -33,26 +33,23 @@ Usage:
     # Train student on multi-teacher targets
 """
 
-import sqlite3
-import numpy as np
-import networkx as nx
 import logging
-import torch
-from torch.utils.data import Dataset, DataLoader
-from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import networkx as nx
+import numpy as np
+import torch
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, Dataset
 
 from .multi_teacher_attention import (
     MultiTeacherEnsemble,
-    HebbianTeacher,
-    SemanticTeacher,
-    TemporalTeacher,
-    GraphTeacher,
-    create_default_ensemble
+    create_default_ensemble,
 )
 
 logger = logging.getLogger(__name__)
@@ -465,12 +462,12 @@ if __name__ == '__main__':
 
         # Show first example
         ex = examples[0]
-        print(f"\nFirst example:")
+        print("\nFirst example:")
         print(f"  Concepts: {ex.concept_a} ↔ {ex.concept_b}")
         print(f"  Raw strength: {ex.raw_strength:.4f}")
         print(f"  Teacher strength: {ex.teacher_strength:.4f}")
         print(f"  Confidence: {ex.teacher_confidence:.4f}")
-        print(f"  Teacher breakdown:")
+        print("  Teacher breakdown:")
         for t_name, t_val in ex.teacher_breakdown.items():
             print(f"    {t_name}: {t_val:.4f}")
 
@@ -492,7 +489,7 @@ if __name__ == '__main__':
         # Show a batch
         for batch in train_loader:
             a, b, c, target = batch
-            print(f"\n  Batch shapes:")
+            print("\n  Batch shapes:")
             print(f"    concept_a: {a.shape}")
             print(f"    concept_b: {b.shape}")
             print(f"    context: {c.shape}")

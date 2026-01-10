@@ -16,15 +16,15 @@ Allows Claude to:
 - Get K-index and storm level information
 """
 
-from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
+from typing import Any, Dict
 
-from .config import get_sensor_config
-from .storage import get_storage
-from .scheduler import get_scheduler
-from .schemas import DataSource, AnomalySeverity
 from .collectors.noaa_kindex import kp_to_storm_level
+from .config import get_sensor_config
+from .scheduler import get_scheduler
+from .schemas import DataSource
+from .storage import get_storage
 
 logger = logging.getLogger(__name__)
 

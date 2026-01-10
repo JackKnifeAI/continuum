@@ -37,16 +37,14 @@ Usage:
 """
 
 import asyncio
-import signal
 import logging
-from typing import Optional
+import signal
 from datetime import datetime, timedelta
-import sys
+from typing import Optional
 
-from .queue import DeliveryQueue, InMemoryQueue
-from .dispatcher import EventDispatcher, CircuitBreakerOpenError
-from .manager import WebhookManager
 from ..storage.base import StorageBackend
+from .dispatcher import CircuitBreakerOpenError, EventDispatcher
+from .queue import DeliveryQueue, InMemoryQueue
 
 logger = logging.getLogger(__name__)
 
@@ -252,8 +250,9 @@ class WebhookWorker:
                     rows = cursor.fetchall()
 
                 # Re-queue for processing
-                from .models import WebhookDelivery, WebhookEvent, DeliveryStatus
                 from uuid import UUID
+
+                from .models import DeliveryStatus, WebhookDelivery, WebhookEvent
 
                 for row in rows:
                     delivery = WebhookDelivery(

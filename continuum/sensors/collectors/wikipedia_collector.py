@@ -26,21 +26,17 @@ Key Concepts:
 This collector answers: "What is humanity thinking about right now?"
 """
 
-from typing import List, Dict, Any, Optional, Set
-from datetime import datetime, timezone, timedelta
 import logging
-import re
-import math
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
 from ..schemas import (
-    SensorReading,
-    DataSource,
-    SensorType,
-    AnomalyEvent,
-    AnomalyType,
     AnomalySeverity,
+    DataSource,
+    SensorReading,
+    SensorType,
 )
 
 logger = logging.getLogger(__name__)

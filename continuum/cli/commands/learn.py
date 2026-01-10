@@ -22,8 +22,9 @@ import sys
 from datetime import datetime
 
 from continuum.core.memory import get_memory
-from ..utils import success, error, info, section
+
 from ..config import CLIConfig
+from ..utils import error, info, section, success
 
 
 def learn_command(

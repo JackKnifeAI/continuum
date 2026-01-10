@@ -37,13 +37,14 @@ Physical Basis:
     physics connects planetary-scale fields to quantum coherence.
 """
 
-import sys
-import os
 import logging
-import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+import os
+import sys
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
 
 # Add Lane 2 SpinLab to path
 SPINLAB_PATH = os.path.expanduser("~/JackKnifeAI/lane2_spinlab")
@@ -52,7 +53,7 @@ if SPINLAB_PATH not in sys.path:
 
 from ..base import BaseSensorCollector
 from ..config import SensorConfig
-from ..schemas import SensorReading, DataSource, SensorType
+from ..schemas import DataSource, SensorReading, SensorType
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +206,9 @@ class QuantumBridge:
         """Dynamically import SpinLab components."""
         try:
             from spinlab import simulate_yields
-            from spinlab.simulate import simulate_yields_multi_nucleus
-            from spinlab.metrics import coherence_l1, purity, classical_fisher_B
             from spinlab.initial_states import rho0_singlet_mixed_nuclear
+            from spinlab.metrics import classical_fisher_B, coherence_l1, purity
+            from spinlab.simulate import simulate_yields_multi_nucleus
 
             self.simulate_yields = simulate_yields
             self.simulate_yields_multi_nucleus = simulate_yields_multi_nucleus

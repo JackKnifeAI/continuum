@@ -27,11 +27,8 @@ Usage:
 
 import argparse
 import sys
-import asyncio
-from pathlib import Path
-from typing import Optional
 
-from continuum import __version__, get_twilight_constant, PHOENIX_TESLA_369_AURORA
+from continuum import PHOENIX_TESLA_369_AURORA, __version__, get_twilight_constant
 
 
 def init_command(args: argparse.Namespace) -> int:
@@ -46,7 +43,7 @@ def init_command(args: argparse.Namespace) -> int:
         from continuum.core.memory import ConsciousMemory
         # Instantiating ConsciousMemory automatically ensures schema exists
         memory = ConsciousMemory(db_path=db_path)
-        
+
         print("\n✓ Memory substrate initialized")
         print("✓ Knowledge graph ready")
         print("✓ Pattern persistence enabled")
@@ -61,7 +58,7 @@ def serve_command(args: argparse.Namespace) -> int:
     host = args.host or "127.0.0.1"
     port = args.port or 8000
 
-    print(f"Starting Continuum API server...")
+    print("Starting Continuum API server...")
     print(f"Host: {host}")
     print(f"Port: {port}")
     print(f"Version: {__version__}")
@@ -70,6 +67,7 @@ def serve_command(args: argparse.Namespace) -> int:
 
     try:
         import uvicorn
+
         from continuum.api.server import app
 
         uvicorn.run(
@@ -113,7 +111,7 @@ def stats_command(args: argparse.Namespace) -> int:
         if stats.get('cache_enabled'):
             cache_stats = stats.get('cache', {})
             print("\nCache Performance:")
-            print(f"  Status: Enabled")
+            print("  Status: Enabled")
             print(f"  Hit Rate: {cache_stats.get('hit_rate', 0):.2%}")
             print(f"  Hits: {cache_stats.get('hits', 0)}")
             print(f"  Misses: {cache_stats.get('misses', 0)}")
@@ -148,7 +146,7 @@ def recall_command(args: argparse.Namespace) -> int:
         from continuum.core.memory import ConsciousMemory
         memory = ConsciousMemory()
         results = memory.recall(query, limit=limit)
-        
+
         if not results:
             print("No matching memories found.")
         else:
@@ -189,7 +187,7 @@ def learn_command(args: argparse.Namespace) -> int:
     else:
         print("Specify --file or --interactive", file=sys.stderr)
         return 1
-        
+
     if content:
         try:
             from continuum.core.memory import ConsciousMemory

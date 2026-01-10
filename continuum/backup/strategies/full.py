@@ -25,7 +25,7 @@ import asyncio
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from .base import BackupStrategyBase
 

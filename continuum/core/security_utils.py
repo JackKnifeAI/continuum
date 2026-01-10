@@ -29,16 +29,14 @@ Provides:
 - Constant-time comparison
 """
 
+import hashlib
+import hmac
+import logging
 import os
 import re
-import hmac
-import hashlib
 import secrets
-import logging
-from typing import Any, Optional, Dict, List
 from pathlib import Path
-from dataclasses import dataclass
-
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

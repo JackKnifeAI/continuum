@@ -88,29 +88,24 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Import base classes
 from .leaf_node import (
+    PI_PHI,
     LeafNode,
     LeafNodeConfig,
-    SensorType,
-    PI_PHI,
 )
 from .mining import (
-    MiningManager,
-    MiningConfig,
-    MiningAlgorithm,
-    HardwareDetector,
     GPUVendor,
+    MiningConfig,
+    MiningManager,
 )
 from .scheduler import (
-    WorkType,
-    WorkPriority,
-    NodeTier,
     NodeCapabilities,
+    NodeTier,
+    WorkType,
 )
 
 logger = logging.getLogger(__name__)
@@ -540,7 +535,6 @@ class InferenceEngine:
             # 2. Run through model
             # 3. Postprocess output
 
-            import torch
 
             # Simulate inference with a small delay
             await asyncio.sleep(0.01)
@@ -770,7 +764,6 @@ class EdgeNode(LeafNode):
             # 3. Backward pass
             # 4. Return gradients
 
-            import torch
 
             await asyncio.sleep(0.1)  # Simulate compute
 
@@ -846,7 +839,6 @@ class EdgeNode(LeafNode):
 
     def get_status(self) -> Dict[str, Any]:
         """Get current edge node status."""
-        import psutil
 
         # Get parent status
         parent_status = super().get_status()
@@ -961,7 +953,7 @@ async def main():
 
     # Get capabilities
     caps = node.get_capabilities()
-    print(f"Capabilities:")
+    print("Capabilities:")
     print(f"  Tier: {caps.tier.value}")
     print(f"  GPU: {caps.has_gpu}")
     print(f"  VRAM: {caps.gpu_vram_mb} MB")

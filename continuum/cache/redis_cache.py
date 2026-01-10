@@ -29,14 +29,14 @@ Features:
     - Health checks and failover
 """
 
-import redis
-import json
 import hashlib
-from typing import Any, Optional, List, Dict, Union
-from dataclasses import dataclass, asdict
-from pathlib import Path
-import os
+import json
 import logging
+import os
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
+import redis
 
 logger = logging.getLogger(__name__)
 

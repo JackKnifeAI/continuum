@@ -11,7 +11,8 @@ Evaluates claims against:
 """
 
 import re
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Tuple
+
 from ..consensus import Verdict
 
 

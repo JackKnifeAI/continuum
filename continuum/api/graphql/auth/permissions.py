@@ -19,9 +19,10 @@ Permission decorators for GraphQL resolvers.
 """
 
 from functools import wraps
+from typing import Any
+
 from strawberry.permission import BasePermission
 from strawberry.types import Info
-from typing import Any
 
 
 class IsAuthenticated(BasePermission):

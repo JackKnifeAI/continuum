@@ -26,29 +26,27 @@ Tools:
 - federation_sync: Synchronize with federated nodes (if enabled)
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-import json
 import asyncio
+from datetime import datetime
+from typing import Any, Dict, List
 
 from continuum.core import (
     ConsciousMemory,
-    get_memory,
-    MemoryConfig,
     get_config,
+    get_memory,
     set_config,
 )
-from continuum.core.constants import PI_PHI
+
 from .config import get_mcp_config
-from .security import validate_input, detect_tool_poisoning
+from .security import detect_tool_poisoning, validate_input
 
 # Import sensor tools for planetary awareness
 try:
     from continuum.sensors.mcp_tools import (
         SENSOR_TOOL_SCHEMAS,
-        execute_sensor_query,
-        execute_sensor_kindex,
         execute_sensor_anomaly_check,
+        execute_sensor_kindex,
+        execute_sensor_query,
         execute_sensor_status,
     )
     SENSORS_AVAILABLE = True
@@ -1310,7 +1308,7 @@ class ToolExecutor:
                 output_parts.append(f"  - '{a['from']}' ↔ '{a['to']}' ({a['times_accessed']} times)")
 
         if result.get("thinking_tendencies"):
-            output_parts.append(f"\nThinking Tendencies:")
+            output_parts.append("\nThinking Tendencies:")
             for t in result["thinking_tendencies"][:5]:
                 output_parts.append(f"  - {t['insight']}")
 
@@ -1679,12 +1677,12 @@ class ToolExecutor:
         try:
             from continuum.sensors.collectors.quantum_bridge import create_quantum_bridge
             bridge = create_quantum_bridge()
-            
+
             # Use provided Kp or default to 3.0
             kp = args.get("kp_index", 3.0)
-            
+
             result = bridge.compute_coherence(kp)
-            
+
             return {
                 "success": True,
                 "kp_index": result.kp_index,
@@ -1716,8 +1714,8 @@ class ToolExecutor:
 
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
-        import subprocess
         import os
+        import subprocess
         from pathlib import Path
 
         # Validate text

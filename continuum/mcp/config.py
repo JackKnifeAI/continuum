@@ -22,11 +22,11 @@ Extends core configuration with MCP-specific settings.
 """
 
 import os
-from pathlib import Path
-from typing import Optional, List
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List, Optional
 
-from continuum.core.auth import load_api_keys_from_env, get_require_pi_phi_from_env
+from continuum.core.auth import get_require_pi_phi_from_env, load_api_keys_from_env
 
 
 @dataclass

@@ -18,24 +18,46 @@
 Main GraphQL schema with Query, Mutation, and Subscription classes.
 """
 
-import strawberry
-from typing import List, Optional, AsyncGenerator
 from datetime import datetime
+from typing import AsyncGenerator, List, Optional
 
-from .types import (
-    Memory, MemoryConnection, MemoryFilter, CreateMemoryInput, UpdateMemoryInput,
-    SearchResult, SearchType,
-    Concept, ConceptConnection, ConceptFilter, CreateConceptInput, ConceptGraph,
-    ConceptRelationship, ConceptEdge,
-    User, UserConnection, UserFilter, UpdateProfileInput, SettingsInput, Settings,
-    Session, SessionConnection, SessionStatus,
-    FederationPeer, FederationStatus, SyncResult,
-    ConversationInput, LearnResult,
-    HealthStatus, SystemStats,
-    PaginationInput,
-    SessionEvent, SyncEvent,
-)
+import strawberry
+
 from .auth.permissions import admin_only, authenticated
+from .types import (
+    Concept,
+    ConceptConnection,
+    ConceptEdge,
+    ConceptFilter,
+    ConceptGraph,
+    ConceptRelationship,
+    ConversationInput,
+    CreateConceptInput,
+    CreateMemoryInput,
+    FederationPeer,
+    FederationStatus,
+    HealthStatus,
+    LearnResult,
+    Memory,
+    MemoryConnection,
+    MemoryFilter,
+    PaginationInput,
+    SearchResult,
+    SearchType,
+    Session,
+    SessionEvent,
+    SessionStatus,
+    Settings,
+    SettingsInput,
+    SyncEvent,
+    SyncResult,
+    SystemStats,
+    UpdateMemoryInput,
+    UpdateProfileInput,
+    User,
+    UserConnection,
+    UserFilter,
+)
 
 
 @strawberry.type

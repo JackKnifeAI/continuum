@@ -39,8 +39,8 @@ This module provides convenience functions to:
 - Trigger sync events from memory operations
 """
 
-from typing import Optional, Dict, Any
 import logging
+from typing import Any, Dict, Optional
 
 from .events import EventType, create_event
 from .sync import get_sync_manager

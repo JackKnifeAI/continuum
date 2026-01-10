@@ -20,6 +20,7 @@ Tests for GraphQL mutations.
 
 import pytest
 from httpx import AsyncClient
+
 from continuum.api.graphql import create_standalone_app
 
 

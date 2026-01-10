@@ -20,13 +20,11 @@ Stripe API Client for CONTINUUM
 Handles customer management, subscriptions, usage-based billing, and webhooks.
 """
 
-import os
-import hmac
-import hashlib
-from typing import Optional, Dict, Any, List
-from enum import Enum
-from datetime import datetime, timezone
 import logging
+import os
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

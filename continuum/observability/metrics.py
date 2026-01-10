@@ -29,11 +29,10 @@ All metrics are prefixed with "continuum_" for easy identification.
 """
 
 from typing import Dict, Optional
-from opentelemetry import metrics
+
 from opentelemetry.metrics import Counter, Histogram, UpDownCounter
 
 from .tracer import get_meter
-
 
 # Global metric instruments (lazily initialized)
 _metrics_cache: Dict[str, any] = {}

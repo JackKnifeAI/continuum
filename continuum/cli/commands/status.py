@@ -18,13 +18,14 @@
 Status Command - Show connection status and contribution ratio
 """
 
-import sys
 import json
+import sys
 from typing import Optional
 
 from continuum.core.memory import get_memory
-from ..utils import success, error, info, section, print_json, print_table
+
 from ..config import CLIConfig
+from ..utils import error, info, section, success
 
 
 def status_command(
@@ -99,7 +100,7 @@ def status_command(
                 fed_stats = _get_federation_stats(config)
 
                 if fed_stats:
-                    print(f"  Status: Connected")
+                    print("  Status: Connected")
                     print(f"  Node ID: {fed_stats.get('node_id', 'N/A')}")
                     print(f"  Contributed: {fed_stats.get('contributed', 0)}")
                     print(f"  Consumed: {fed_stats.get('consumed', 0)}")

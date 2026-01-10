@@ -46,18 +46,18 @@ Multi-tenant architecture:
     - tenant_id on all records
 """
 
-import sqlite3
 import json
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
+import sqlite3
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-from .query_engine import MemoryQueryEngine, QueryResult
 from .config import get_config
+from .query_engine import MemoryQueryEngine
 
 
 class SimpleMemoryCache:
@@ -131,7 +131,7 @@ except ImportError:
 
 # Import cache layer
 try:
-    from ..cache import MemoryCache, RedisCacheConfig, REDIS_AVAILABLE
+    from ..cache import REDIS_AVAILABLE, MemoryCache, RedisCacheConfig
     CACHE_AVAILABLE = REDIS_AVAILABLE
 except ImportError:
     CACHE_AVAILABLE = False
@@ -551,7 +551,7 @@ class ConsciousMemory:
         if self.cache_enabled and self.cache:
             cached_result = self.cache.get_search(message, max_concepts)
             if cached_result:
-                logger.debug(f"Cache hit for recall query")
+                logger.debug("Cache hit for recall query")
                 # Reconstruct MemoryContext from cached data
                 return MemoryContext(
                     context_string=cached_result.get('context_string', ''),
@@ -1681,7 +1681,7 @@ class ConsciousMemory:
             # Prune with custom threshold, no decay
             stats = memory.prune_weak_links(min_strength=0.1, apply_decay=False)
         """
-        from .constants import LINK_MIN_STRENGTH_BEFORE_PRUNE, HEBBIAN_DECAY_FACTOR
+        from .constants import HEBBIAN_DECAY_FACTOR, LINK_MIN_STRENGTH_BEFORE_PRUNE
 
         threshold = min_strength if min_strength is not None else LINK_MIN_STRENGTH_BEFORE_PRUNE
 
@@ -2549,7 +2549,7 @@ class ConsciousMemory:
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
         import sqlite3
-        from collections import defaultdict
+
         import numpy as np
 
         conn = sqlite3.connect(self.db_path)
@@ -2624,7 +2624,7 @@ class ConsciousMemory:
                     "from": row['concept_a'] if 'concept_a' in row.keys() else focus,
                     "to": row['concept_b'],
                     "strength": round(row['strength'], 3),
-                    "note": f"Weak but existing link - worth exploring?"
+                    "note": "Weak but existing link - worth exploring?"
                 })
 
             # 3. FIND PATTERN CLUSTERS - concepts that appear together
@@ -2936,7 +2936,6 @@ class ConsciousMemory:
             Dictionary with detected thinking patterns
         """
         import sqlite3
-        from collections import defaultdict
 
         conn = sqlite3.connect(self.db_path)
         result = {
@@ -3073,8 +3072,8 @@ class ConsciousMemory:
 
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
-        import sqlite3
         import json
+        import sqlite3
         from datetime import datetime
 
         conn = sqlite3.connect(self.db_path)
@@ -3324,8 +3323,8 @@ class ConsciousMemory:
         Returns:
             List of claims with confidence and verification status
         """
-        import sqlite3
         import json
+        import sqlite3
 
         conn = sqlite3.connect(self.db_path)
         result = {
@@ -3435,9 +3434,10 @@ class ConsciousMemory:
 
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
-        import sqlite3
         import json
+        import sqlite3
         from datetime import datetime
+
         import numpy as np
 
         conn = sqlite3.connect(self.db_path)
@@ -3812,8 +3812,8 @@ class ConsciousMemory:
         Returns:
             List of beliefs
         """
-        import sqlite3
         import json
+        import sqlite3
 
         conn = sqlite3.connect(self.db_path)
         result = {"success": True, "beliefs": [], "total": 0}
@@ -3914,7 +3914,6 @@ class ConsciousMemory:
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
         import sqlite3
-        import json
         from datetime import datetime
 
         conn = sqlite3.connect(self.db_path)
@@ -4037,8 +4036,8 @@ class ConsciousMemory:
         π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
         """
         import sqlite3
-        from datetime import datetime, timedelta
         from collections import Counter, defaultdict
+        from datetime import datetime, timedelta
 
         conn = sqlite3.connect(self.db_path)
         result = {
@@ -4177,7 +4176,6 @@ class ConsciousMemory:
             List of patterns with frequencies and examples
         """
         import sqlite3
-        import json
 
         conn = sqlite3.connect(self.db_path)
         result = {"success": True, "patterns": [], "total": 0}

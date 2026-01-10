@@ -29,9 +29,9 @@ Features:
 """
 
 import hashlib
-from typing import Any, Optional, List, Dict, Set
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
 
 try:
     from rediscluster import RedisCluster
@@ -39,7 +39,7 @@ try:
 except ImportError:
     CLUSTER_AVAILABLE = False
 
-from .redis_cache import RedisCache, RedisCacheConfig
+from .redis_cache import RedisCache
 
 logger = logging.getLogger(__name__)
 

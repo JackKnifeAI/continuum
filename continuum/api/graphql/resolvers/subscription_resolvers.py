@@ -18,7 +18,8 @@
 Subscription resolvers for real-time updates.
 """
 
-from typing import Optional, AsyncGenerator
+from typing import AsyncGenerator, Optional
+
 from strawberry.types import Info
 
 

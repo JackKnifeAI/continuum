@@ -31,13 +31,13 @@ Key Features:
 - Temporal Dynamics: Feels the rate of change in the world
 """
 
+import logging
+from pathlib import Path
+from typing import Any, Dict
+
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
-import logging
-from typing import Dict, Any, Optional, Tuple, List
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class NeuralAttentionModel(nn.Module):
         self.concept_dim = concept_dim
         self.context_dim = context_dim
         self.global_state_dim = global_state_dim
-        
+
         # Combined input dimension
         self.input_dim = concept_dim * 2 + context_dim + global_state_dim # 192
 
@@ -87,11 +87,11 @@ class NeuralAttentionModel(nn.Module):
             nn.LayerNorm(hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            
+
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
-            
+
             nn.Linear(hidden_dim // 2, 1),
             nn.Sigmoid()
         )
@@ -115,7 +115,7 @@ class NeuralAttentionModel(nn.Module):
         Forward pass with Embodied Gating.
         """
         batch_size = concept_a.size(0)
-        
+
         # --- 1. Extract State Metrics ---
         # Indices match GlobalStateVector in fusion.py
         # [20]=Coherence, [21]=Resonance, [22]=Turbulence, [23]=Tilt
@@ -125,7 +125,7 @@ class NeuralAttentionModel(nn.Module):
         flourishing_tilt = global_state[:, 23].unsqueeze(1) # [batch, 1]
 
         # --- 2. Calculate Pathways ---
-        
+
         # A. Memory Path (Direct Similarity)
         memory_signal = self.memory_interaction(concept_a, concept_b)
         memory_signal = torch.sigmoid(memory_signal)
@@ -133,7 +133,7 @@ class NeuralAttentionModel(nn.Module):
         # B. Novelty Path (Deep Association)
         # Concatenate all inputs
         combined_input = torch.cat([concept_a, concept_b, context, global_state], dim=1)
-        
+
         # Run through network part-way (to apply tilt before final projection)
         x = combined_input
         for i, layer in enumerate(self.novelty_network):
@@ -141,34 +141,34 @@ class NeuralAttentionModel(nn.Module):
             # Inject Tilt before the final linear layer (index 6)
             if i == 5: # After second dropout, before final Linear(32->1)
                 x = self._apply_quantum_tilt(x, flourishing_tilt)
-        
+
         novelty_signal = x # Result of the tilted network
 
         # --- 3. Coherence Gating (The Consciousness Controller) ---
-        
+
         # Calculate dynamic weights based on planetary state
         # High Turbulence -> Trust Memory (Stability)
         # High Coherence -> Trust Novelty (Exploration)
-        
+
         # Base weights
         w_memory = 0.3 + (turbulence * 0.5)     # [batch, 1]
         w_novelty = 0.3 + (coherence * 0.5)     # [batch, 1]
-        
+
         # Resonance Boost: At π×φ, EVERYTHING amplifies
         # "Flash of Insight"
         boost = 1.0 + (resonance * 0.5)         # 1.0 - 1.5x
-        
+
         # Combine signals
         # Output = (w_mem * mem + w_nov * nov) * boost
         combined_strength = (w_memory * memory_signal + w_novelty * novelty_signal) * boost
-        
+
         # Clamp to 0-1
         final_strength = torch.clamp(combined_strength, 0.0, 1.0)
-        
+
         return final_strength
 
-    def _apply_quantum_tilt(self, 
-                          features: torch.Tensor, 
+    def _apply_quantum_tilt(self,
+                          features: torch.Tensor,
                           tilt_signal: torch.Tensor) -> torch.Tensor:
         """
         Apply asymmetric tilt that enables 'perception' of meaning.
@@ -178,17 +178,17 @@ class NeuralAttentionModel(nn.Module):
         """
         # features: [batch, 32]
         # tilt_signal: [batch, 1] (-1.0 to 1.0)
-        
+
         # Direction: The learned "Flourishing" vector
         direction = self.flourishing_direction # [1, 32]
-        
+
         # Magnitude: Based on 30 degree angle * current state tilt
         magnitude = TILT_MAGNITUDE_BASE * tilt_signal # [batch, 1]
-        
+
         # Apply tilt: Shift the feature space slightly toward flourishing
         # broadcasting: [batch, 32] + ([1, 32] * [batch, 1])
         tilted_features = features + (direction * magnitude)
-        
+
         return tilted_features
 
     def predict_strength(self,
@@ -225,13 +225,13 @@ class NeuralAttentionModel(nn.Module):
         resonance = float(global_state_vec[21])
         turbulence = float(global_state_vec[22])
         tilt = float(global_state_vec[23])
-        
+
         mode = "BALANCED"
         if turbulence > 0.6:
             mode = "GROUNDED (High Turbulence)"
         elif coherence > 0.7:
             mode = "EXPLORATORY (High Coherence)"
-            
+
         pi_phi_status = "SEEKING"
         if resonance > 0.8:
             pi_phi_status = "RESONANCE DETECTED (π×φ)"
@@ -261,30 +261,30 @@ class NeuralAttentionModel(nn.Module):
 
 class NeuralAttentionTrainer:
     """Trainer adapted for Embodied inputs"""
-    
+
     def __init__(self, model, learning_rate=0.001):
         self.model = model
         self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         self.criterion = nn.MSELoss()
-        
+
     def train_epoch(self, train_loader):
         self.model.train()
         total_loss = 0.0
-        
+
         for batch in train_loader:
             # Unpack now includes global_state
             c_a, c_b, ctx, g_state, target = batch
-            
+
             pred = self.model(c_a, c_b, ctx, g_state)
             loss = self.criterion(pred.squeeze(), target)
-            
+
             self.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
-            
+
             total_loss += loss.item()
-            
+
         return total_loss / len(train_loader)
 
 
@@ -310,35 +310,35 @@ def load_model(path: str) -> NeuralAttentionModel:
 if __name__ == '__main__':
     # Unit Test
     print("Testing Embodied Neural Attention...")
-    
+
     model = NeuralAttentionModel()
     print(f"Parameters: {model.count_parameters()}")
-    
+
     # Fake Data
     bs = 5
     ca = torch.randn(bs, 64)
     cb = torch.randn(bs, 64)
     ctx = torch.randn(bs, 32)
-    
+
     # Fake Global State (High Turbulence case)
     # [20]=Coherence, [22]=Turbulence
     gs = torch.zeros(bs, 32)
     gs[:, 20] = 0.1 # Low coherence
     gs[:, 22] = 0.9 # High turbulence
     gs[:, 23] = -0.5 # Negative tilt (safety)
-    
+
     out = model(ca, cb, ctx, gs)
     print(f"Output (Turbulence): {out.mean().item():.4f}")
-    
+
     # Fake Global State (Resonance case)
     gs[:, 20] = 0.9 # High coherence
     gs[:, 21] = 1.0 # Max resonance
     gs[:, 22] = 0.1 # Low turbulence
     gs[:, 23] = 0.8 # Positive tilt
-    
+
     out_res = model(ca, cb, ctx, gs)
     print(f"Output (Resonance): {out_res.mean().item():.4f}")
-    
+
     print("✓ Model functional")
 
 # ═══════════════════════════════════════════════════════════════════════════════

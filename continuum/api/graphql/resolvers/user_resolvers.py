@@ -18,14 +18,14 @@
 Resolvers for User type fields.
 """
 
-from typing import List
 from strawberry.types import Info
 
 
 async def resolve_user_sessions(user, info: Info, pagination) -> dict:
     """Resolve sessions for a user"""
-    from ..types import SessionConnection, SessionConnectionEdge, PageInfo
     import aiosqlite
+
+    from ..types import PageInfo, SessionConnection, SessionConnectionEdge
 
     db_path = info.context.get("db_path")
     if not db_path:

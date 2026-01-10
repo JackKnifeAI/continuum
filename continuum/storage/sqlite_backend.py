@@ -28,13 +28,13 @@ High-performance SQLite backend with:
 This is the default storage backend for CONTINUUM.
 """
 
+import atexit
 import sqlite3
 import threading
-import atexit
-from pathlib import Path
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from .base import StorageBackend
 

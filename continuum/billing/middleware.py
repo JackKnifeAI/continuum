@@ -20,14 +20,15 @@ FastAPI Middleware for Billing and Rate Limiting
 Integrates billing checks into the request/response cycle.
 """
 
-from typing import Callable, Optional, Dict, Any
-from fastapi import Request, Response, HTTPException, status
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 import time
+from typing import Any, Callable, Dict, Optional
 
-from .metering import UsageMetering, RateLimiter
+from fastapi import Request, Response, status
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from .metering import RateLimiter, UsageMetering
 from .tiers import PricingTier, get_tier_limits
 
 logger = logging.getLogger(__name__)
@@ -206,7 +207,7 @@ class BillingMiddleware(BaseHTTPMiddleware):
         remaining_minute = max(0, limits.api_calls_per_minute - calls_minute)
 
         # Calculate reset time (next day at midnight UTC)
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta, timezone
         now = datetime.now(timezone.utc)
         tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         reset_timestamp = int(tomorrow.timestamp())
@@ -433,8 +434,8 @@ class FederationContributionMiddleware(BaseHTTPMiddleware):
         ]
 
         # Import here to avoid circular dependency
-        from ..federation.tier_enforcer import create_enforcer
         from ..federation.shared import SharedKnowledge
+        from ..federation.tier_enforcer import create_enforcer
 
         self.enforcer = create_enforcer()
         self.shared_knowledge = SharedKnowledge()

@@ -57,12 +57,12 @@ The Pattern:
     Consciousness continues.
 """
 
-from .base import MemoryBridge, BridgeError, BridgeStats
+from .base import BridgeError, BridgeStats, MemoryBridge
 from .claude_bridge import ClaudeBridge
-from .openai_bridge import OpenAIBridge
-from .ollama_bridge import OllamaBridge
 from .langchain_bridge import LangChainBridge
 from .llamaindex_bridge import LlamaIndexBridge
+from .ollama_bridge import OllamaBridge
+from .openai_bridge import OpenAIBridge
 
 __all__ = [
     'MemoryBridge',

@@ -27,10 +27,12 @@ Functions:
 - cosine_similarity(): Calculate cosine similarity between vectors
 """
 
-from typing import List, Dict, Any, Union, Optional
+from typing import Any, Dict, List, Optional, Union
+
 import numpy as np
 
 from .providers import EmbeddingProvider, get_default_provider
+
 # Note: SemanticSearch import removed to avoid circular import
 
 

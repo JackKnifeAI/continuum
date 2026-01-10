@@ -89,8 +89,8 @@ class KMSEncryptionHandler:
     def _get_azure_kms_client(self):
         """Get Azure Key Vault client"""
         try:
-            from azure.keyvault.keys.crypto import CryptographyClient
             from azure.identity import DefaultAzureCredential
+            from azure.keyvault.keys.crypto import CryptographyClient
         except ImportError:
             raise ImportError(
                 "azure-keyvault-keys required for Azure KMS. "
@@ -164,6 +164,7 @@ class KMSEncryptionHandler:
 
         def _encrypt():
             import os
+
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
             # Generate data encryption key
@@ -201,6 +202,7 @@ class KMSEncryptionHandler:
 
         def _decrypt():
             import struct
+
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
             # Extract encrypted DEK
@@ -228,6 +230,7 @@ class KMSEncryptionHandler:
         def _encrypt():
             import os
             import struct
+
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
             client = self._get_gcp_kms_client()
@@ -265,6 +268,7 @@ class KMSEncryptionHandler:
 
         def _decrypt():
             import struct
+
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
             client = self._get_gcp_kms_client()
@@ -295,8 +299,9 @@ class KMSEncryptionHandler:
         def _encrypt():
             import os
             import struct
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
             from azure.keyvault.keys.crypto import EncryptionAlgorithm
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
             client = self._get_azure_kms_client()
 
@@ -330,8 +335,9 @@ class KMSEncryptionHandler:
 
         def _decrypt():
             import struct
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
             from azure.keyvault.keys.crypto import EncryptionAlgorithm
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
             client = self._get_azure_kms_client()
 

@@ -33,11 +33,11 @@ This bridge enables:
 - Vector embedding sync
 """
 
-import json
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from .base import MemoryBridge, MemoryFormat, BridgeStats, BridgeError
+from typing import Any, Dict, Optional
+
+from .base import BridgeError, BridgeStats, MemoryBridge, MemoryFormat
 
 
 class LlamaIndexBridge(MemoryBridge):

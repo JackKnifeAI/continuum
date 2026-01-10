@@ -28,11 +28,11 @@ Features:
 """
 
 import fcntl
-import time
 import functools
-from pathlib import Path
+import time
 from contextlib import contextmanager
-from typing import Optional, Callable
+from pathlib import Path
+from typing import Callable
 
 
 class FileLock:

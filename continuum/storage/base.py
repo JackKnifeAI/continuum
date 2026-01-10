@@ -25,7 +25,6 @@ Allows CONTINUUM to support multiple database backends (SQLite, PostgreSQL, etc.
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
-from pathlib import Path
 
 
 class StorageBackend(ABC):

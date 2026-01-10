@@ -28,15 +28,15 @@ Features:
 - Automatic correlation with traces
 """
 
-import logging
 import json
-from typing import Optional, Dict, Any
+import logging
 from datetime import datetime
+from typing import Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from .context import get_trace_id, get_span_id
+from .context import get_span_id, get_trace_id
 
 
 class TraceContextFilter(logging.Filter):

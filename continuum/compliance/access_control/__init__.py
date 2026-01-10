@@ -16,9 +16,9 @@
 
 """Role-Based Access Control (RBAC) system."""
 
-from .rbac import RBACManager, Role, Permission, RoleAssignment
-from .policies import AccessPolicy, PolicyEngine
 from .enforcement import AccessEnforcer
+from .policies import AccessPolicy, PolicyEngine
+from .rbac import Permission, RBACManager, Role, RoleAssignment
 
 __all__ = [
     "RBACManager",

@@ -39,10 +39,9 @@ Usage:
 """
 
 import sqlite3
-from pathlib import Path
-from typing import Optional, Callable, Dict, Any, List, Tuple
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Callable, Dict, List, Optional
 
 # Optional psycopg2 import
 try:
@@ -335,7 +334,7 @@ def migrate_sqlite_to_postgres(
         sqlite_conn = sqlite3.connect(sqlite_path)
         sqlite_conn.row_factory = sqlite3.Row
 
-        log(f"Connecting to PostgreSQL...")
+        log("Connecting to PostgreSQL...")
         pg_conn = psycopg2.connect(postgres_connection)
         pg_cursor = pg_conn.cursor()
 

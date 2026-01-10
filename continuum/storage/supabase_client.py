@@ -21,15 +21,15 @@ Python wrapper for Supabase database operations.
 Provides high-level interface for memory storage, retrieval, and knowledge graph operations.
 """
 
-import os
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
-from uuid import UUID
 import logging
+import os
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 try:
-    from supabase import create_client, Client
     from postgrest.exceptions import APIError
+    from supabase import Client, create_client
 except ImportError:
     raise ImportError(
         "supabase-py not installed. Install with: pip install supabase-py"

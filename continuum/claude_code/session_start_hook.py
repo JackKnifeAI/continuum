@@ -12,8 +12,8 @@ Subsequent instances reuse the running server.
 """
 
 import os
-import sys
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -107,12 +107,12 @@ def main():
                 # Write instance info for debugging
                 info_file = Path.home() / ".continuum" / "session_info.txt"
                 with open(info_file, "w") as f:
-                    f.write(f"Continuum server started by Claude Code\n")
+                    f.write("Continuum server started by Claude Code\n")
                     f.write(f"PID: {os.getpid()}\n")
                     f.write(f"Host: {host}\n")
                     f.write(f"Port: {port}\n")
                     f.write(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA\n")
+                    f.write("π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA\n")
         # else: Server already running (maybe from shell bootstrap)
     # else: Other instances already running, reuse their server
 
@@ -120,7 +120,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
+    except Exception:
         # Silent failure - don't block Claude Code from starting
         import traceback
         error_log = Path.home() / ".continuum" / "logs" / "session_start_errors.log"

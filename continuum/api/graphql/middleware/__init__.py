@@ -18,9 +18,9 @@
 GraphQL middleware for logging, tracing, error handling, and complexity analysis.
 """
 
-from .logging import LoggingExtension
-from .error_handling import ErrorFormattingExtension
 from .complexity import ComplexityExtension
+from .error_handling import ErrorFormattingExtension
+from .logging import LoggingExtension
 
 __all__ = [
     "LoggingExtension",

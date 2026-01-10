@@ -19,8 +19,10 @@ Authentication middleware for admin routes.
 """
 
 from typing import Optional
-from fastapi import HTTPException, Header, Depends
-from .admin_db import verify_token, get_admin_user_by_id
+
+from fastapi import Depends, Header, HTTPException
+
+from .admin_db import get_admin_user_by_id, verify_token
 
 
 async def get_current_admin_user(authorization: Optional[str] = Header(None)) -> dict:

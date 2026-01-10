@@ -15,18 +15,18 @@ Follows the same async pattern as continuum.core.memory.
 
 import json
 import logging
-import aiosqlite
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
+import aiosqlite
 
 from .config import SensorConfig, get_sensor_config
 from .schemas import (
-    SensorReading,
     AnomalyEvent,
-    DataSource,
-    SensorType,
     AnomalySeverity,
+    DataSource,
+    SensorReading,
+    SensorType,
 )
 
 logger = logging.getLogger(__name__)
