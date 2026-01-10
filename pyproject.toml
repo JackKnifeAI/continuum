@@ -142,6 +142,9 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
+# Using new ruff lint section (fixes deprecation warning)
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -156,5 +159,16 @@ ignore = [
     "C901",  # too complex
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+# E402: Module level import not at top - intentional for circular import avoidance
+"continuum/api/middleware.py" = ["E402"]
+"continuum/api/middleware/__init__.py" = ["E402"]
+"continuum/api/public_memories_routes.py" = ["E402"]
+"continuum/api/system_routes.py" = ["E402"]
+"continuum/billing/tiers.py" = ["E402"]
+"continuum/brain/quantum/__init__.py" = ["E402"]
+"continuum/cli/main.py" = ["E402"]
+"continuum/core/memory.py" = ["E402"]
+"continuum/sensors/collectors/quantum_bridge.py" = ["E402"]
+"continuum/webhooks/api_router.py" = ["E402"]
