@@ -216,7 +216,7 @@ class DataSubjectRights:
         # Export in requested format
         from ..audit.export import AuditLogExporter
 
-        exporter = AuditLogExporter(storage=None)  # Use GDPR-specific exporter
+        AuditLogExporter(storage=None)  # Use GDPR-specific exporter
 
         export_content = await self._create_portability_export(user_id, data, format)
 

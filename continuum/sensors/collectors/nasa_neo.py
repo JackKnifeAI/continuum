@@ -75,7 +75,7 @@ class NASANEOCollector(BaseSensorCollector):
             logger.error(f"NASA NEO API error: {data.get('error', {}).get('message', 'Unknown error')}")
             return readings
 
-        element_count = data.get("element_count", 0)
+        data.get("element_count", 0)
         neo_objects = data.get("near_earth_objects", {})
 
         # Track closest and largest approaches

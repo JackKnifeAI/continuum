@@ -1477,7 +1477,7 @@ class CCTTrainingObjective:
         # Resonance reward (negative loss = reward for being in resonance)
         if 'resonance' in outputs:
             # We want resonance to be high, so negative MSE from 1.0
-            resonance_target = torch.ones_like(outputs['resonance'])
+            torch.ones_like(outputs['resonance'])
             losses['resonance'] = -self.resonance_weight * outputs['resonance'].mean()
 
         # Total weighted loss

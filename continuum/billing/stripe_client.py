@@ -474,7 +474,7 @@ class StripeClient:
                 event = json.loads(payload.decode('utf-8'))
                 return event
             except Exception as e:
-                raise ValueError(f"Invalid webhook payload in mock mode: {e}")
+                raise ValueError(f"Invalid webhook payload in mock mode: {e}") from e
 
         if not self.webhook_secret:
             raise ValueError("Webhook secret not configured")
@@ -495,7 +495,7 @@ class StripeClient:
             raise
         except stripe.error.SignatureVerificationError as e:
             logger.error(f"Webhook signature verification failed: {e}")
-            raise ValueError("Invalid signature")
+            raise ValueError("Invalid signature") from e
 
     async def handle_webhook_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
         """

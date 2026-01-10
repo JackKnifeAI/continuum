@@ -217,9 +217,9 @@ class OpenAIProvider(EmbeddingProvider):
 
         except urllib.error.HTTPError as e:
             error_body = e.read().decode() if e.fp else str(e)
-            raise RuntimeError(f"OpenAI API error ({e.code}): {error_body}")
+            raise RuntimeError(f"OpenAI API error ({e.code}): {error_body}") from e
         except Exception as e:
-            raise RuntimeError(f"OpenAI embedding failed: {str(e)}")
+            raise RuntimeError(f"OpenAI embedding failed: {str(e)}") from e
 
     def get_dimension(self) -> int:
         """Get embedding dimension."""

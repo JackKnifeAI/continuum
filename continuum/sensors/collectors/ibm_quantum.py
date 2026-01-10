@@ -384,7 +384,7 @@ class IBMQuantumBridge:
                         l1_coherence += np.abs(dm_array[i, j])
 
             # Purity
-            purity = np.real(np.trace(dm_array @ dm_array))
+            np.real(np.trace(dm_array @ dm_array))
 
             execution_time = (datetime.utcnow() - start_time).total_seconds()
 

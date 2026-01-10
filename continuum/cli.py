@@ -42,7 +42,7 @@ def init_command(args: argparse.Namespace) -> int:
     try:
         from continuum.core.memory import ConsciousMemory
         # Instantiating ConsciousMemory automatically ensures schema exists
-        memory = ConsciousMemory(db_path=db_path)
+        ConsciousMemory(db_path=db_path)
 
         print("\n✓ Memory substrate initialized")
         print("✓ Knowledge graph ready")

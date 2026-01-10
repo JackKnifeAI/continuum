@@ -253,7 +253,7 @@ class TreeBiopotentialCollector(BaseSensorCollector):
         """Fetch from TreeRhythms.net (when API available)."""
         # TreeRhythms.net doesn't have public API yet
         # This is a placeholder for when it becomes available
-        treerhythms_url = getattr(
+        getattr(
             self.config,
             'treerhythms_url',
             'https://treerhythms.net/api/trees'

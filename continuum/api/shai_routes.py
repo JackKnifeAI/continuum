@@ -147,7 +147,7 @@ async def verify_claim(request: VerifyRequest, req: Request) -> CouncilVerdict:
     try:
         verdict = council.verify(request.claim)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}") from e
 
     # Convert to response model
     verdicts = []
@@ -358,7 +358,7 @@ async def red_team_analysis(request: RedTeamRequest) -> Dict[str, Any]:
             defenses.append("Claim passed adversarial testing")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Red team analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Red team analysis failed: {str(e)}") from e
 
     return {
         "claim": request.claim,

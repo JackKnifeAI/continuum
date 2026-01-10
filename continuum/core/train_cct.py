@@ -417,7 +417,7 @@ class CCTDataset(Dataset):
 
             for msg in messages:
                 content = msg['content'].lower()
-                role = msg.get('role', 'unknown')
+                msg.get('role', 'unknown')
 
                 # Find concepts mentioned in this message
                 for name in self.concept_names:

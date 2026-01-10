@@ -380,7 +380,7 @@ def example_cost_optimization():
     pipe = cache.pipeline()
     for i in range(10):
         pipe.set(f"cost:key:{i}", f"value_{i}", ex=60)
-    results = pipe.execute()
+    pipe.execute()
     print("  10 operations executed as 1 pipeline command")
 
     # Technique 3: Aggressive TTLs to reduce storage

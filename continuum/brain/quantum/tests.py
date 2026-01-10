@@ -244,7 +244,7 @@ def test_brain_noise_resilience():
     recovered = 0
     for name, original_activation in test_values.items():
         addr = addresses[name]
-        current_activation = brain.cells[addr].activation
+        brain.cells[addr].activation
         # Just check if concept is still accessible (address still valid)
         recovery_check = brain.cells[addr].coherence() > 0.5
         if recovery_check:

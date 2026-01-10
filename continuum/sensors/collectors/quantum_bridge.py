@@ -296,13 +296,11 @@ class QuantumBridge:
                 By = field_tesla * np.sin(theta) * np.sin(phi)
                 Bz = field_tesla * np.cos(theta)
                 B_vec = np.array([Bx, By, Bz])
-                theta_deg = np.degrees(theta)
-                phi_deg = np.degrees(phi)
+                np.degrees(theta)
+                np.degrees(phi)
             else:
                 # Default: B along z-axis
                 B_vec = np.array([0.0, 0.0, field_tesla])
-                theta_deg = 0.0
-                phi_deg = 0.0
 
             # Default gamma near Phase B peak (γ/k_S ≈ 2.5)
             if gamma is None:
@@ -449,7 +447,7 @@ class QuantumBridge:
         field_ratio = field_ut / (EARTH_FIELD_QUIET_UT / PI_PHI)
 
         # Method 2: Coherence / purity ratio (when applicable)
-        coherence_ratio = yield_ratio * PI_PHI
+        yield_ratio * PI_PHI
 
         # Combined resonance metric
         resonance_metric = (
@@ -595,13 +593,12 @@ class QuantumCoherenceCollector(BaseSensorCollector):
         # Create sensor reading (C-5.1: multi-nucleus + orientation support)
         # NOTE: Vector orientation from mobile sensors is a v2 feature
         # For now, use default N=2 anisotropic configuration
-        nuclei_default = [
+        [
             {"A_tensor": np.diag([1.0, 1.0, 2.0]) * 2 * np.pi * 1e6, "coupling_electron": 0},
             {"A_iso": 0.5 * 2 * np.pi * 1e6, "coupling_electron": 1},
         ]
 
         # Default orientation: z-aligned (theta=0, phi=0)
-        B_orientation_default = None  # None = z-aligned
         theta_deg = 0.0
         phi_deg = 0.0
         B_vec_tesla = [0.0, 0.0, result.magnetic_field_tesla]

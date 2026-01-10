@@ -236,7 +236,7 @@ class MemoryBridge(ABC):
 
         except Exception as e:
             self.stats.errors += 1
-            raise BridgeError(f"Sync failed: {str(e)}")
+            raise BridgeError(f"Sync failed: {str(e)}") from e
         finally:
             self.stats.mark_end()
 

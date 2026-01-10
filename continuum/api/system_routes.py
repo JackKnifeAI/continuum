@@ -206,7 +206,7 @@ def get_tenant_stats() -> Dict[str, Any]:
 
         for tenant_id in tenants:
             try:
-                memory = tenant_manager.get_tenant(tenant_id)
+                tenant_manager.get_tenant(tenant_id)
                 # This would require sync call, skip for now
                 # stats = await memory.aget_stats()
                 # total_memories += stats.get('messages', 0)

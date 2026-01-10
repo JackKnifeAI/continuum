@@ -190,7 +190,7 @@ class SensorAnomalyVerifier:
             Verdict dictionary
         """
         # Simple heuristic: verify if we have corroborating baseline data
-        trigger_values = context.get("trigger_values", {})
+        context.get("trigger_values", {})
         baseline_values = context.get("baseline_values", {})
 
         # Check if we have enough baseline data

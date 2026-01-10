@@ -659,7 +659,7 @@ class FederationScheduler:
                 continue
 
             # Submit mining work (low priority)
-            work_id = self.submit_work(
+            self.submit_work(
                 work_type=WorkType.MINING,
                 payload={"node_id": node_id},
                 priority=WorkPriority.IDLE,

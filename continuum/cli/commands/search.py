@@ -108,7 +108,7 @@ def _search_federated(query: str, limit: int, output_json: bool, use_color: bool
         from continuum.federation.shared import SharedKnowledge
 
         knowledge = SharedKnowledge()
-        gate = ContributionGate()
+        ContributionGate()
 
         # Check access
         # Note: Need node_id from config

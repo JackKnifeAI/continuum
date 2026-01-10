@@ -552,7 +552,7 @@ async def submit_intention(request: SubmitIntentionRequest):
 
     except Exception as e:
         logger.error(f"Failed to submit intention: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/triggers")
@@ -560,7 +560,7 @@ async def get_trigger_info():
     """
     Get information about available trigger types.
     """
-    brain = get_brain()
+    get_brain()
 
     return {
         "trigger_types": [

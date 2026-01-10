@@ -250,7 +250,7 @@ async def create_checkout_session(
         error_msg = str(e)
         if "stripe" in str(type(e).__module__):
             error_msg = f"Stripe error: {error_msg}"
-        raise HTTPException(status_code=500, detail=f"Checkout session creation failed: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Checkout session creation failed: {error_msg}") from e
 
 
 # =============================================================================
@@ -281,7 +281,7 @@ async def get_subscription_status(tenant_id: str = Depends(get_tenant_from_key))
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Status retrieval failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Status retrieval failed: {str(e)}") from e
 
 
 @router.post("/cancel-subscription")
@@ -316,7 +316,7 @@ async def cancel_subscription(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Cancellation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Cancellation failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -357,7 +357,7 @@ async def stripe_webhook(request: Request):
         event = stripe_client.verify_webhook_signature(payload, signature)
 
         # Handle the event
-        result = await stripe_client.handle_webhook_event(event)
+        await stripe_client.handle_webhook_event(event)
 
         return WebhookEventResponse(
             status="success",
@@ -365,9 +365,9 @@ async def stripe_webhook(request: Request):
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid webhook: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid webhook: {str(e)}") from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -410,7 +410,7 @@ async def report_usage(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Usage reporting failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Usage reporting failed: {str(e)}") from e
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

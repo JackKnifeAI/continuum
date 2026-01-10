@@ -168,7 +168,6 @@ class WebhookWorker:
 
                 # Get webhook configuration
                 # Note: This is simplified - in production, fetch from database
-                webhook_id = delivery.webhook_id
 
                 logger.debug(f"Worker {worker_id} processing delivery {delivery.id}")
 

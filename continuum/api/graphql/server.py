@@ -67,7 +67,7 @@ def create_graphql_app(
     """
 
     # Create extensions list
-    extensions = [
+    [
         LoggingExtension,
         ErrorFormattingExtension,
         ComplexityExtension(max_depth=max_depth, max_complexity=max_complexity),

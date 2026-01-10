@@ -282,7 +282,7 @@ async def point_in_time_restore(
         from ..catalog import BackupCatalog
         from ..storage import get_storage_backend
 
-        storage = get_storage_backend(config.primary_storage)
+        get_storage_backend(config.primary_storage)
         catalog = BackupCatalog(config.catalog_path)
 
         # 1. Find last full backup before target_time

@@ -197,7 +197,7 @@ class ComplianceReportGenerator:
         )
 
         # Get processing activities
-        activities = await self.audit_search.get_gdpr_processing_activities(
+        await self.audit_search.get_gdpr_processing_activities(
             tenant_id=tenant_id or "all",
             start_time=start_date,
             end_time=end_date,

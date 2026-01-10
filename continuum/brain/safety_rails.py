@@ -153,7 +153,7 @@ class SafetyRails:
         Returns:
             SafetyResult indicating if action is allowed
         """
-        action_type = action_plan.get("action_type", "")
+        action_plan.get("action_type", "")
         command = action_plan.get("command", "")
         description = action_plan.get("description", "")
 

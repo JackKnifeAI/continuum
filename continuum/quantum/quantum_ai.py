@@ -471,10 +471,9 @@ class VQE:
 
     def optimize_step(self) -> float:
         """Single optimization step using gradient descent."""
-        epsilon = 0.01
         gradients = np.zeros_like(self.params)
 
-        current_energy = self.compute_energy()
+        self.compute_energy()
 
         # Numerical gradient (parameter shift for quantum gradients)
         for i in range(len(self.params)):

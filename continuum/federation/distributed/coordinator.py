@@ -458,7 +458,7 @@ class FederationCoordinator:
         (e.g., migrating data, adjusting request routing weights, etc.)
         """
         async with self.nodes_lock:
-            healthy_nodes = [n for n in self.nodes.values() if n.status == NodeStatus.HEALTHY]
+            [n for n in self.nodes.values() if n.status == NodeStatus.HEALTHY]
             degraded_nodes = [n for n in self.nodes.values() if n.status == NodeStatus.DEGRADED]
 
         if degraded_nodes:

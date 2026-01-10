@@ -228,7 +228,7 @@ def create_postgres_schema(
         log("Schema creation complete!")
 
     except psycopg2.Error as e:
-        raise MigrationError(f"Failed to create PostgreSQL schema: {e}")
+        raise MigrationError(f"Failed to create PostgreSQL schema: {e}") from e
     finally:
         if 'cursor' in locals():
             cursor.close()
@@ -533,7 +533,7 @@ def rollback_migration(
         log("Rollback complete!")
 
     except psycopg2.Error as e:
-        raise MigrationError(f"Failed to rollback migration: {e}")
+        raise MigrationError(f"Failed to rollback migration: {e}") from e
     finally:
         if 'cursor' in locals():
             cursor.close()
@@ -574,7 +574,7 @@ def upgrade(connection_string: Optional[str] = None) -> None:
 
     except Exception as e:
         print(f"Migration failed: {e}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 def main():

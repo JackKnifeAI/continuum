@@ -661,7 +661,7 @@ class EdgeNode(LeafNode):
         result = await super().start()
 
         # Initialize GPU
-        gpu_ok = self.gpu_manager.initialize()
+        self.gpu_manager.initialize()
         gpus = self.gpu_manager.get_gpus()
 
         # Initialize inference engine

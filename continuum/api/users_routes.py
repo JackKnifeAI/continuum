@@ -322,11 +322,11 @@ async def create_user(
     except sqlite3.IntegrityError as e:
         conn.close()
         if "username" in str(e):
-            raise HTTPException(status_code=409, detail="Username already exists")
+            raise HTTPException(status_code=409, detail="Username already exists") from e
         elif "email" in str(e):
-            raise HTTPException(status_code=409, detail="Email already exists")
+            raise HTTPException(status_code=409, detail="Email already exists") from e
         else:
-            raise HTTPException(status_code=500, detail="Failed to create user")
+            raise HTTPException(status_code=500, detail="Failed to create user") from e
     finally:
         conn.close()
 

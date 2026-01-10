@@ -592,11 +592,9 @@ class SchumannResonanceCollector(BaseSensorCollector):
 
         try:
             response = await self.fetch_with_retry(url)
-            data = response.json()
+            response.json()
 
             # Parse GeoCenter format (structure TBD)
-            harmonic_powers = {}
-            harmonic_frequencies = {}
 
             # Placeholder
             return None

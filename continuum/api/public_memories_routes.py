@@ -224,7 +224,7 @@ async def create_memory(
         raise
     except Exception as e:
         logger.error(f"Memory creation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Memory creation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Memory creation failed: {str(e)}") from e
 
 
 # =============================================================================

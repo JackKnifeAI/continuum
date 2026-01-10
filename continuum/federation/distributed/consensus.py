@@ -477,7 +477,7 @@ class RaftConsensus:
         last_log_index = len(self.log) - 1
         last_log_term = self.log[last_log_index].term if self.log else 0
 
-        vote_request = VoteRequest(
+        VoteRequest(
             term=self.current_term,
             candidate_id=self.node_id,
             last_log_index=last_log_index,

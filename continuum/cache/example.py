@@ -121,14 +121,14 @@ def example_integrated_memory():
     # First recall - cache miss
     print("\n1. First recall (cache miss)...")
     start = time.time()
-    context1 = memory.recall("Tell me about quantum physics")
+    memory.recall("Tell me about quantum physics")
     elapsed1_ms = (time.time() - start) * 1000
     print(f"   Query time: {elapsed1_ms:.2f}ms (database query)")
 
     # Second recall - cache hit
     print("\n2. Second recall (cache hit)...")
     start = time.time()
-    context2 = memory.recall("Tell me about quantum physics")
+    memory.recall("Tell me about quantum physics")
     elapsed2_ms = (time.time() - start) * 1000
     print(f"   Query time: {elapsed2_ms:.2f}ms (from cache)")
 

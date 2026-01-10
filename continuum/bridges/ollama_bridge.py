@@ -205,7 +205,7 @@ class OllamaBridge(MemoryBridge):
 
         except Exception as e:
             self.stats.errors += 1
-            raise BridgeError(f"Export failed: {str(e)}")
+            raise BridgeError(f"Export failed: {str(e)}") from e
         finally:
             conn.close()
             self.stats.mark_end()
@@ -277,7 +277,7 @@ class OllamaBridge(MemoryBridge):
         except Exception as e:
             conn.rollback()
             self.stats.errors += 1
-            raise BridgeError(f"Import failed: {str(e)}")
+            raise BridgeError(f"Import failed: {str(e)}") from e
         finally:
             conn.close()
             self.stats.mark_end()

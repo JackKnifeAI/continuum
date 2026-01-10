@@ -327,7 +327,6 @@ class QuantumInterface:
         import random
 
         p0 = self.pi_phi_state.expected_p0
-        p1 = self.pi_phi_state.expected_p1
 
         count_0 = sum(1 for _ in range(shots) if random.random() < p0)
         count_1 = shots - count_0

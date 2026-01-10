@@ -391,7 +391,7 @@ def meta_train_loop(
         train_indices = indices[:n_train]
         val_indices = indices[n_train:]
 
-        train_subset = Subset(dataset, train_indices)
+        Subset(dataset, train_indices)
         val_subset = Subset(dataset, val_indices)
 
         print(f"   Data: {n_train} train / {n_val} validation examples")

@@ -1146,7 +1146,7 @@ class ConsciousMemory:
         if len(concepts) < 2:
             return 0
 
-        config = get_config()
+        get_config()
 
         if self.use_neural_attention and self.neural_model and self.neural_pipeline:
             # NEURAL MODE: Predict link strengths using trained model
@@ -1157,7 +1157,7 @@ class ConsciousMemory:
 
     def _build_attention_links_neural(self, concepts: List[str]) -> int:
         """Build attention links using neural model predictions"""
-        config = get_config()
+        get_config()
         conn = sqlite3.connect(self.db_path)
         try:
             c = conn.cursor()
@@ -1217,7 +1217,7 @@ class ConsciousMemory:
 
     def _build_attention_links_hebbian(self, concepts: List[str]) -> int:
         """Build attention links using traditional Hebbian learning"""
-        config = get_config()
+        get_config()
         conn = sqlite3.connect(self.db_path)
         try:
             c = conn.cursor()
@@ -3255,13 +3255,10 @@ class ConsciousMemory:
 
                 if conf < 0.3:
                     bin_name = "low (0-0.3)"
-                    expected_accuracy = 0.15
                 elif conf < 0.7:
                     bin_name = "medium (0.3-0.7)"
-                    expected_accuracy = 0.5
                 else:
                     bin_name = "high (0.7-1.0)"
-                    expected_accuracy = 0.85
 
                 bins[bin_name]["total"] += 1
                 if correct:

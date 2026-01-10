@@ -893,7 +893,7 @@ class ToolExecutor:
 
         # Get tenant ID
         tenant_id = args.get("tenant_id", self.mcp_config.default_tenant)
-        max_results = min(
+        min(
             args.get("max_results", 10),
             self.mcp_config.max_results_per_query,
         )

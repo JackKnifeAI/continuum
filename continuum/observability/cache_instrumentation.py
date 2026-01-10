@@ -346,7 +346,7 @@ class RedisCacheInstrumentation:
                 method_name.upper(),
                 key=key,
                 tenant_id=self.tenant_id,
-            ) as span:
+            ):
                 result = original_method(*args, **kwargs)
 
                 # Record hit/miss for GET operations

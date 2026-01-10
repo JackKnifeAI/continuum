@@ -161,7 +161,7 @@ class TursoBackend(StorageBackend):
                 self._conn.commit()
             except Exception as e:
                 self._conn.rollback()
-                raise e
+                raise e from e
 
     @contextmanager
     def cursor(self):
@@ -178,7 +178,7 @@ class TursoBackend(StorageBackend):
                 self._conn.commit()
             except Exception as e:
                 self._conn.rollback()
-                raise e
+                raise e from e
 
     def execute(self, sql: str, params: Optional[Tuple] = None) -> List[Any]:
         """

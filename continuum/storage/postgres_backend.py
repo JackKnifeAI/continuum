@@ -226,7 +226,7 @@ class PostgresBackend(StorageBackend):
                 self._stats.created = self._min_pool_size
                 self._stats.current_open = self._min_pool_size
         except psycopg2.Error as e:
-            raise ConnectionError(f"Failed to create PostgreSQL connection pool: {e}")
+            raise ConnectionError(f"Failed to create PostgreSQL connection pool: {e}") from e
 
     def _get_connection(self) -> psycopg2.extensions.connection:
         """Get a connection from pool"""

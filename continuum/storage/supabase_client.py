@@ -809,7 +809,7 @@ class SupabaseClient:
             True if healthy, False otherwise
         """
         try:
-            response = self.client.table("users").select("id").limit(1).execute()
+            self.client.table("users").select("id").limit(1).execute()
             return True
         except Exception as e:
             logger.error(f"Health check failed: {e}")

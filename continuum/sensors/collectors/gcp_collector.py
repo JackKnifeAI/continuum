@@ -508,7 +508,7 @@ class GCPCoherenceCollector(BaseSensorCollector):
         """
         # Create deterministic but time-varying seed
         hour_seed = int(timestamp.timestamp() / 3600)  # Changes every hour
-        minute_factor = (timestamp.minute + timestamp.second / 60) / 60
+        (timestamp.minute + timestamp.second / 60) / 60
 
         # Use hash for reproducibility
         seed_str = f"{hour_seed}:{self._sim_seed}"

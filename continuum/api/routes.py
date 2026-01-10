@@ -166,7 +166,7 @@ async def recall(
             tenant_id=result.tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Recall failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Recall failed: {str(e)}") from e
 
 
 @router.post("/learn", response_model=LearnResponse, tags=["Memory"])
@@ -273,7 +273,7 @@ async def learn(
             tenant_id=result.tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Learning failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Learning failed: {str(e)}") from e
 
 
 @router.post("/memories", response_model=CreateMemoryResponse, tags=["Memory"])
@@ -336,7 +336,7 @@ async def create_memory(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Memory creation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Memory creation failed: {str(e)}") from e
 
 
 @router.post("/turn", response_model=TurnResponse, tags=["Memory"])
@@ -389,7 +389,7 @@ async def process_turn(
             )
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Turn processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Turn processing failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -410,7 +410,7 @@ async def get_stats(tenant_id: str = Depends(get_tenant_from_key)):
 
         return StatsResponse(**stats)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}") from e
 
 
 @router.get("/entities", response_model=EntitiesResponse, tags=["Statistics"])
@@ -489,7 +489,7 @@ async def get_entities(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Entity listing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Entity listing failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -566,7 +566,7 @@ async def create_key(request: CreateKeyRequest):
             message="Store this key securely - it won't be shown again"
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Key creation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Key creation failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -661,7 +661,7 @@ async def get_messages(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Message retrieval failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Message retrieval failed: {str(e)}") from e
 
 
 @router.post("/messages/search", response_model=MessagesResponse, tags=["Messages"])
@@ -810,7 +810,7 @@ async def search_messages(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Message search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Message search failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -869,7 +869,7 @@ async def digest_file(
 
         return DigestResponse(**asdict(result))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File digestion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"File digestion failed: {str(e)}") from e
 
 
 @router.post("/digest/text", response_model=DigestResponse, tags=["Digestion"])
@@ -919,7 +919,7 @@ async def digest_text(
 
         return DigestResponse(**asdict(result))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Text digestion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Text digestion failed: {str(e)}") from e
 
 
 @router.post("/digest/directory", response_model=DigestResponse, tags=["Digestion"])
@@ -989,7 +989,7 @@ async def digest_directory(
 
         return DigestResponse(**asdict(result))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Directory digestion failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Directory digestion failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -1083,7 +1083,7 @@ async def semantic_search(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Semantic search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Semantic search failed: {str(e)}") from e
 
 
 @router.post("/semantic/index", response_model=IndexMemoryResponse, tags=["Semantic Search"])
@@ -1140,7 +1140,7 @@ async def index_memory(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -1246,7 +1246,7 @@ async def semantic_stats(tenant_id: str = Depends(get_tenant_from_key)):
             "tenant_id": tenant_id
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Stats retrieval failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -1314,7 +1314,7 @@ async def dream(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}") from e
 
 
 @router.get("/dream/random", response_model=DreamResponse, tags=["Dream Mode"])
@@ -1354,7 +1354,7 @@ async def dream_random(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Dream failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -1410,7 +1410,7 @@ async def set_intention(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to store intention: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to store intention: {str(e)}") from e
 
 
 @router.get("/intentions", response_model=IntentionsListResponse, tags=["Intentions"])
@@ -1455,7 +1455,7 @@ async def get_intentions(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get intentions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get intentions: {str(e)}") from e
 
 
 @router.get("/intentions/resume", response_model=ResumeCheckResponse, tags=["Intentions"])
@@ -1491,7 +1491,7 @@ async def resume_check(tenant_id: str = Depends(get_tenant_from_key)):
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Resume check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Resume check failed: {str(e)}") from e
 
 
 @router.post("/intentions/complete", response_model=IntentionActionResponse, tags=["Intentions"])
@@ -1518,7 +1518,7 @@ async def complete_intention(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to complete intention: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to complete intention: {str(e)}") from e
 
 
 @router.post("/intentions/abandon", response_model=IntentionActionResponse, tags=["Intentions"])
@@ -1547,7 +1547,7 @@ async def abandon_intention(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to abandon intention: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to abandon intention: {str(e)}") from e
 
 
 # =============================================================================
@@ -1602,7 +1602,7 @@ async def record_evolution(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to record evolution: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to record evolution: {str(e)}") from e
 
 
 @router.get("/temporal/growth", response_model=CognitiveGrowthResponse, tags=["Temporal"])
@@ -1640,7 +1640,7 @@ async def get_cognitive_growth(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get growth: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get growth: {str(e)}") from e
 
 
 @router.get("/temporal/thinking/{concept}", response_model=ThinkingHistoryResponse, tags=["Temporal"])
@@ -1676,7 +1676,7 @@ async def how_did_i_think_about(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get thinking history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get thinking history: {str(e)}") from e
 
 
 @router.post("/temporal/snapshot", response_model=SnapshotResponse, tags=["Temporal"])
@@ -1704,7 +1704,7 @@ async def take_snapshot(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to take snapshot: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to take snapshot: {str(e)}") from e
 
 
 # =============================================================================
@@ -1776,7 +1776,7 @@ async def synthesize_insights(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Insight synthesis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Insight synthesis failed: {str(e)}") from e
 
 
 @router.post("/insights/novel", response_model=NovelConnectionsResponse, tags=["Insights"])
@@ -1825,7 +1825,7 @@ async def find_novel_connections(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Novel connections search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Novel connections search failed: {str(e)}") from e
 
 
 @router.get("/insights/patterns", response_model=ThinkingPatternsResponse, tags=["Insights"])
@@ -1863,7 +1863,7 @@ async def detect_thinking_patterns(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Thinking patterns detection failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Thinking patterns detection failed: {str(e)}") from e
 
 
 # =============================================================================
@@ -1910,7 +1910,7 @@ async def record_claim(
             tenant_id=tenant_id
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to record claim: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to record claim: {str(e)}") from e
 
 
 @router.post("/confidence/verify", response_model=VerifyClaimResponse, tags=["Confidence"])
@@ -1958,7 +1958,7 @@ async def verify_claim(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to verify claim: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to verify claim: {str(e)}") from e
 
 
 @router.get("/confidence/calibration", response_model=CalibrationScoreResponse, tags=["Confidence"])
@@ -1997,7 +1997,7 @@ async def get_calibration_score(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get calibration: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get calibration: {str(e)}") from e
 
 
 @router.get("/confidence/history", response_model=ClaimHistoryResponse, tags=["Confidence"])
@@ -2031,7 +2031,7 @@ async def get_claim_history(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get history: {str(e)}") from e
 
 
 # =============================================================================
@@ -2078,7 +2078,7 @@ async def record_belief(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to record belief: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to record belief: {str(e)}") from e
 
 
 @router.get("/beliefs", response_model=BeliefsResponse, tags=["Contradictions"])
@@ -2103,7 +2103,7 @@ async def get_beliefs(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get beliefs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get beliefs: {str(e)}") from e
 
 
 @router.get("/contradictions", response_model=ContradictionsResponse, tags=["Contradictions"])
@@ -2129,7 +2129,7 @@ async def get_contradictions(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get contradictions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get contradictions: {str(e)}") from e
 
 
 @router.post("/contradictions/resolve", response_model=ResolveContradictionResponse, tags=["Contradictions"])
@@ -2159,7 +2159,7 @@ async def resolve_contradiction(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to resolve: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to resolve: {str(e)}") from e
 
 
 # =============================================================================
@@ -2204,7 +2204,7 @@ async def record_cognitive_pattern(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to record pattern: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to record pattern: {str(e)}") from e
 
 
 @router.get("/cognitive/patterns", response_model=CognitivePatternsResponse, tags=["Meta-Cognition"])
@@ -2235,7 +2235,7 @@ async def get_cognitive_patterns(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get patterns: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get patterns: {str(e)}") from e
 
 
 @router.get("/cognitive/detect", response_model=DetectCognitivePatternsResponse, tags=["Meta-Cognition"])
@@ -2270,7 +2270,7 @@ async def detect_cognitive_patterns(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to detect patterns: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to detect patterns: {str(e)}") from e
 
 
 @router.get("/cognitive/profile", response_model=CognitiveProfileResponse, tags=["Meta-Cognition"])
@@ -2302,7 +2302,7 @@ async def get_cognitive_profile(
             error=result.get("error")
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get profile: {str(e)}") from e
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

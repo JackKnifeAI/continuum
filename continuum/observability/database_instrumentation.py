@@ -372,7 +372,7 @@ class SQLAlchemyInstrumentation:
 
         try:
             # Record duration
-            duration = time.time() - start_time
+            time.time() - start_time
 
             # Set row count if available
             if cursor.rowcount >= 0:

@@ -429,7 +429,7 @@ class EventDispatcher:
         # Get webhook
         with self.storage.cursor() as cursor:
             cursor.execute("SELECT * FROM webhooks WHERE id = ?", (str(webhook_id),))
-            webhook_row = cursor.fetchone()
+            cursor.fetchone()
 
         # Attempt redelivery
         # Implementation depends on full object reconstruction

@@ -66,7 +66,7 @@ class NOAASolarWindCollector(BaseSensorCollector):
         seen_timestamps = set()
 
         # First row is headers: ["time_tag","density","speed","temperature"]
-        headers = data[0] if data else []
+        data[0] if data else []
 
         for row in data[1:]:  # Skip header row
             try:

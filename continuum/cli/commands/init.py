@@ -79,7 +79,7 @@ def init_command(
         memory = ConsciousMemory(tenant_id=memory_config.tenant_id, db_path=db_file)
 
         # Get initial stats
-        stats = memory.get_stats()
+        memory.get_stats()
 
         success("Memory substrate initialized", use_color)
         success("Knowledge graph ready", use_color)

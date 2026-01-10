@@ -257,7 +257,7 @@ async def get_memory(
             )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get memory: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get memory: {str(e)}") from e
 
 
 @router.delete("/{memory_id}")
@@ -316,7 +316,7 @@ async def delete_memory(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete memory: {str(e)}") from e
 
 
 @router.get("/export")

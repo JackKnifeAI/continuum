@@ -212,7 +212,7 @@ async def create_webhook(
         return webhook.to_api_dict()
 
     except WebhookValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("", response_model=WebhookListResponse)
@@ -304,7 +304,7 @@ async def update_webhook(
     except WebhookNotFoundError:
         raise HTTPException(status_code=404, detail="Webhook not found")
     except WebhookValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.delete("/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)

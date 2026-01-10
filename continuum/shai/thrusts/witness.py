@@ -108,7 +108,7 @@ class WitnessThrust:
         corroboration = self._cross_corroborate(claim_lower, witnesses)
 
         # 6. Check timestamp validity
-        timestamp_valid = self._validate_timestamps(claim_lower)
+        self._validate_timestamps(claim_lower)
 
         # 7. Calculate weighted support
         weighted_support = self._calculate_weighted_support(

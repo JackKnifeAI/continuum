@@ -114,7 +114,7 @@ class NeuralAttentionModel(nn.Module):
         """
         Forward pass with Embodied Gating.
         """
-        batch_size = concept_a.size(0)
+        concept_a.size(0)
 
         # --- 1. Extract State Metrics ---
         # Indices match GlobalStateVector in fusion.py

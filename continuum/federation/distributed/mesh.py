@@ -475,7 +475,7 @@ class GossipMesh:
             message: Pull message
         """
         # Send our state back to requester
-        response = GossipMessage(
+        GossipMessage(
             message_id=f"{self.node_id}-pull-response-{time.time()}",
             message_type=GossipMessageType.PUSH,
             sender_id=self.node_id,
@@ -535,7 +535,7 @@ class GossipMesh:
             message: Ping message
         """
         # Send pong response
-        pong = GossipMessage(
+        GossipMessage(
             message_id=f"{self.node_id}-pong-{time.time()}",
             message_type=GossipMessageType.PONG,
             sender_id=self.node_id,
@@ -579,7 +579,7 @@ class GossipMesh:
         peer = random.choice(active_peers)
 
         # Create sync message
-        sync_message = GossipMessage(
+        GossipMessage(
             message_id=f"{self.node_id}-sync-{time.time()}",
             message_type=GossipMessageType.SYNC,
             sender_id=self.node_id,

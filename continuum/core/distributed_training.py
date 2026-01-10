@@ -966,7 +966,7 @@ class DistributedTrainer:
                 # We have pairs (c_a, c_b). We need to build a mini-graph.
                 # 1. Collect unique nodes
                 batch_size = c_a.size(0)
-                dim = c_a.size(1)
+                c_a.size(1)
 
                 # Stack all embeddings: [2*batch, dim]
                 all_nodes = torch.cat([c_a, c_b], dim=0)
