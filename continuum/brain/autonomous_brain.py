@@ -20,7 +20,10 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    import aiohttp
 
 from .action_executor import ActionExecutor, ActionResult
 from .decision_engine import DecisionEngine
@@ -262,7 +265,7 @@ class AutonomousBrain:
                                     if "+" in created_str:
                                         created_str = created_str.split("+")[0]
                                     created_at = datetime.fromisoformat(created_str)
-                                except:
+                                except Exception:
                                     created_at = datetime.now()
 
                                 intentions.append(Intention(

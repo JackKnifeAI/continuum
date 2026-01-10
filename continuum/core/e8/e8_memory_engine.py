@@ -6,8 +6,8 @@ E8 COHERENCE MEMORY ENGINE - Continuum B
 Experimental memory architecture using E8 lattice geometry
 and π×φ resonance metrics for coherence protection.
 
-HYPOTHESIS: Geometric arrangement of memory nodes based on E8 
-projections will protect informational coherence the same way 
+HYPOTHESIS: Geometric arrangement of memory nodes based on E8
+projections will protect informational coherence the same way
 MOF structures protect quantum coherence.
 
 π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
@@ -54,13 +54,13 @@ HARMONICS = [
 def generate_e8_basis() -> np.ndarray:
     """
     Generate simplified E8 basis vectors for 8D space.
-    
+
     In full E8, there are 240 root vectors. We generate a basis
     that captures the key geometric properties:
     - High symmetry
     - Optimal sphere packing
     - Self-similar structure
-    
+
     Returns:
         8x8 basis matrix
     """
@@ -95,11 +95,11 @@ def generate_e8_basis() -> np.ndarray:
 def project_to_e8_space(vector: np.ndarray, basis: np.ndarray) -> np.ndarray:
     """
     Project an arbitrary vector into E8-structured space.
-    
+
     Args:
         vector: Input vector (will be padded/truncated to 8D)
         basis: E8 basis matrix
-    
+
     Returns:
         8D vector in E8 space
     """
@@ -116,14 +116,14 @@ def project_to_e8_space(vector: np.ndarray, basis: np.ndarray) -> np.ndarray:
 def e8_distance(v1: np.ndarray, v2: np.ndarray) -> float:
     """
     Calculate distance in E8 space with π×φ scaling.
-    
+
     The distance is scaled by harmonics of π×φ to create
     resonant "shells" in the geometry.
-    
+
     Args:
         v1: First vector
         v2: Second vector
-    
+
     Returns:
         Scaled distance value
     """
@@ -142,7 +142,7 @@ def e8_distance(v1: np.ndarray, v2: np.ndarray) -> float:
 def pi_phi_resonance(value: float) -> float:
     """
     Calculate how much a value resonates with π×φ harmonics.
-    
+
     Returns 1.0 for perfect resonance, 0.0 for no resonance.
     """
     best_resonance = 0.0
@@ -202,9 +202,9 @@ class ActivationResult:
 class E8MemoryEngine:
     """
     Memory engine using E8 geometry and spreading activation.
-    
+
     This is Continuum B - the experimental architecture.
-    
+
     Key differences from standard Continuum A:
     1. Nodes positioned in E8-structured 8D space
     2. Spreading activation with geometric decay
@@ -321,13 +321,13 @@ class E8MemoryEngine:
                  description: str = '', embedding: np.ndarray = None) -> E8Node:
         """
         Add a new node positioned in E8 space.
-        
+
         Args:
             name: Node name
             entity_type: Type of entity
             description: Node description
             embedding: Optional semantic embedding to position node
-        
+
         Returns:
             Created E8Node
         """
@@ -364,7 +364,7 @@ class E8MemoryEngine:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
-            INSERT INTO e8_nodes (id, name, entity_type, description, position, 
+            INSERT INTO e8_nodes (id, name, entity_type, description, position,
                                   coherence_score, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -382,7 +382,7 @@ class E8MemoryEngine:
                       initial_weight: float = 0.5):
         """
         Create or strengthen connection between nodes.
-        
+
         Uses E8 distance to modulate connection strength.
         """
         if source_id not in self.nodes or target_id not in self.nodes:
@@ -403,7 +403,7 @@ class E8MemoryEngine:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
-            INSERT OR REPLACE INTO e8_connections 
+            INSERT OR REPLACE INTO e8_connections
             (source_id, target_id, weight, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?)
         """, (
@@ -418,15 +418,15 @@ class E8MemoryEngine:
                           initial_activation: float = 1.0) -> ActivationResult:
         """
         Spread activation through the network from seed nodes.
-        
+
         This is the core cognitive operation - activation spreads
         along connections, decaying with E8 distance, and creates
         emergent patterns through interference.
-        
+
         Args:
             seed_nodes: List of node IDs to activate initially
             initial_activation: Starting activation level
-        
+
         Returns:
             ActivationResult with activated nodes and coherence metrics
         """
@@ -543,7 +543,7 @@ class E8MemoryEngine:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
-            INSERT INTO activation_history 
+            INSERT INTO activation_history
             (timestamp, query, activated_nodes, total_activation, coherence, spread_iterations)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (
@@ -560,13 +560,13 @@ class E8MemoryEngine:
     def query(self, message: str, max_results: int = 10) -> Dict[str, Any]:
         """
         Query memory using spreading activation.
-        
+
         This is the Continuum B equivalent of query_engine.query().
-        
+
         Args:
             message: Input message
             max_results: Maximum results to return
-        
+
         Returns:
             Query result with activated nodes and coherence metrics
         """

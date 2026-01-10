@@ -23,6 +23,7 @@ Comprehensive tests for webhook infrastructure.
 
 import asyncio
 from datetime import datetime, timedelta
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest

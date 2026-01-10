@@ -177,7 +177,7 @@ class AdversarialThrust:
         """Extract hidden assumptions from the claim."""
         assumptions = []
 
-        for pattern, template in self.ASSUMPTION_PATTERNS:
+        for pattern, _template in self.ASSUMPTION_PATTERNS:
             matches = re.findall(pattern, text)
             for match in matches:
                 if isinstance(match, str) and len(match) > 5:

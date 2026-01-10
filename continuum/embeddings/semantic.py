@@ -29,7 +29,7 @@ _model_name = "nomic-ai/nomic-embed-text-v1.5"
 def get_embedder():
     """
     Get or create the sentence-transformers embedder.
-    
+
     Uses nomic-embed-text-v1.5 - a high quality, fast embedding model.
     Lazy loaded to avoid startup delay.
     """
@@ -51,7 +51,7 @@ def get_embedder():
 class SemanticSearch:
     """
     Semantic search over Continuum messages.
-    
+
     Stores embeddings in SQLite alongside message content,
     enabling fast semantic similarity search.
     """
@@ -59,7 +59,7 @@ class SemanticSearch:
     def __init__(self, db_path: Path, embedding_dim: int = 768):
         """
         Initialize semantic search.
-        
+
         Args:
             db_path: Path to SQLite database
             embedding_dim: Dimension of embeddings (768 for nomic)
@@ -92,10 +92,10 @@ class SemanticSearch:
     def embed_text(self, text: str) -> Optional[np.ndarray]:
         """
         Embed a single text string.
-        
+
         Args:
             text: Text to embed
-            
+
         Returns:
             Numpy array of embedding, or None if failed
         """
@@ -114,10 +114,10 @@ class SemanticSearch:
     def embed_query(self, query: str) -> Optional[np.ndarray]:
         """
         Embed a search query.
-        
+
         Args:
             query: Search query
-            
+
         Returns:
             Numpy array of embedding
         """
@@ -136,11 +136,11 @@ class SemanticSearch:
     def store_embedding(self, message_id: int, embedding: np.ndarray) -> bool:
         """
         Store an embedding for a message.
-        
+
         Args:
             message_id: ID of the message
             embedding: Numpy embedding array
-            
+
         Returns:
             True if stored successfully
         """
@@ -167,10 +167,10 @@ class SemanticSearch:
     def embed_unembedded_messages(self, limit: int = 100) -> int:
         """
         Embed messages that don't have embeddings yet.
-        
+
         Args:
             limit: Max messages to embed in one batch
-            
+
         Returns:
             Number of messages embedded
         """
@@ -223,12 +223,12 @@ class SemanticSearch:
     ) -> List[Dict[str, Any]]:
         """
         Search messages by semantic similarity.
-        
+
         Args:
             query: Search query
             limit: Max results
             role_filter: Optional 'user' or 'assistant' filter
-            
+
         Returns:
             List of matching messages with scores
         """

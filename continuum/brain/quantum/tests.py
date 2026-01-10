@@ -242,7 +242,7 @@ def test_brain_noise_resilience():
     # Check concept recovery
     print("\nConcept recovery:")
     recovered = 0
-    for name, original_activation in test_values.items():
+    for name, _original_activation in test_values.items():
         addr = addresses[name]
         brain.cells[addr].activation
         # Just check if concept is still accessible (address still valid)

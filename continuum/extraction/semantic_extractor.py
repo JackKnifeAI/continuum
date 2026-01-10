@@ -265,7 +265,7 @@ class SemanticConceptExtractor:
         # Find best matches
         matches: Set[str] = set()
 
-        for candidate, candidate_emb in zip(candidates, candidate_embeddings):
+        for _candidate, candidate_emb in zip(candidates, candidate_embeddings):
             best_score = 0.0
             best_match = None
 
@@ -332,7 +332,7 @@ class SemanticConceptExtractor:
         # Find best matches with scores
         matches: Dict[str, float] = {}
 
-        for candidate, candidate_emb in zip(candidates, candidate_embeddings):
+        for _candidate, candidate_emb in zip(candidates, candidate_embeddings):
             for concept_name, concept_emb in self._concept_cache.items():
                 score = cosine_similarity(candidate_emb, concept_emb)
 

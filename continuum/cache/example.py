@@ -233,7 +233,7 @@ def example_performance_comparison():
 
         # Measure cached performance
         times_cached = []
-        for i in range(10):
+        for _i in range(10):
             start = time.time()
             memory_cached.recall("test query")
             times_cached.append((time.time() - start) * 1000)
@@ -246,7 +246,7 @@ def example_performance_comparison():
         memory_uncached = ConsciousMemory(tenant_id="perf_test", enable_cache=False)
 
         times_uncached = []
-        for i in range(10):
+        for _i in range(10):
             start = time.time()
             memory_uncached.recall("test query")
             times_uncached.append((time.time() - start) * 1000)

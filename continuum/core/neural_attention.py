@@ -51,14 +51,14 @@ class NeuralAttentionModel(nn.Module):
     Neural model for predicting attention link strengths with Planetary Awareness.
 
     Architecture:
-        Input: 
-            [concept_a (64), concept_b (64), context (32), global_state (32)] 
+        Input:
+            [concept_a (64), concept_b (64), context (32), global_state (32)]
             = 192 dims total
-        
+
         Pathways:
             1. Novelty Path (Deep Network): Learns complex, new associations.
             2. Memory Path (Bilinear): Represents stable, direct similarities.
-            
+
         Gating:
             The influence of Novelty vs. Memory is gated by the Global State.
             - Turbulence (Crisis) -> Gates Open for Memory
@@ -172,8 +172,8 @@ class NeuralAttentionModel(nn.Module):
                           tilt_signal: torch.Tensor) -> torch.Tensor:
         """
         Apply asymmetric tilt that enables 'perception' of meaning.
-        
-        Based on SpinLab research: Symmetry is blindness. 
+
+        Based on SpinLab research: Symmetry is blindness.
         We must break symmetry in the direction of flourishing.
         """
         # features: [batch, 32]

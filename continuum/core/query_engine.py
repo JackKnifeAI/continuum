@@ -41,7 +41,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List
 
 from .config import get_config
 
@@ -342,7 +342,7 @@ class MemoryQueryEngine:
             c = conn.cursor()
 
             matches = []
-            visited = set(s.lower() for s in seed_concepts)
+            visited = {s.lower() for s in seed_concepts}
             current_level = seed_concepts
             config = get_config()
 
@@ -520,7 +520,7 @@ class MemoryQueryEngine:
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
-            concept_set = set(concept.lower() for concept in concepts)
+            concept_set = {concept.lower() for concept in concepts}
             links = []
 
             tenant_filter = "WHERE tenant_id = ?" if self._has_tenant_column(c, 'attention_links') else ""

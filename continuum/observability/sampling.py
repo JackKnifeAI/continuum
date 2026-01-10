@@ -39,7 +39,7 @@ from opentelemetry.sdk.trace.sampling import (
     SamplingResult,
     TraceIdRatioBased,
 )
-from opentelemetry.trace import Link, SpanKind
+from opentelemetry.trace import Link, SpanContext, SpanKind
 from opentelemetry.trace.span import TraceState
 from opentelemetry.util.types import Attributes
 

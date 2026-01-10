@@ -2397,7 +2397,7 @@ class ConsciousMemory:
                         WHERE tenant_id = ? AND LOWER(concept_a) NOT IN ({})
                         ORDER BY RANDOM() LIMIT 1
                     """.format(','.join(['?' for _ in visited])),
-                        (self.tenant_id, *[v for v in visited]))
+                        (self.tenant_id, *list(visited)))
                     row = c.fetchone()
                     if not row:
                         break  # No more concepts to explore
@@ -2749,7 +2749,7 @@ class ConsciousMemory:
                         for concept in concepts:
                             try:
                                 concept_embeddings[concept] = embedding_provider.embed(concept)
-                            except:
+                            except Exception:
                                 pass
 
                         # Find high-similarity pairs without edges
@@ -2844,7 +2844,7 @@ class ConsciousMemory:
                 SELECT concept_b FROM attention_links
                 WHERE tenant_id = ? AND concept_a = ?
             """, (self.tenant_id, concept))
-            direct = set(row['concept_b'] for row in c.fetchall())
+            direct = {row['concept_b'] for row in c.fetchall()}
 
             # Get 2-hop connections
             if max_hops >= 2:
@@ -3358,7 +3358,7 @@ class ConsciousMemory:
                 if claim_dict.get('metadata'):
                     try:
                         claim_dict['metadata'] = json.loads(claim_dict['metadata'])
-                    except:
+                    except Exception:
                         claim_dict['metadata'] = {}
                 result["claims"].append(claim_dict)
 
@@ -3483,7 +3483,7 @@ class ConsciousMemory:
             # Try to add embedding column if table already exists
             try:
                 c.execute("ALTER TABLE beliefs ADD COLUMN embedding BLOB")
-            except:
+            except Exception:
                 pass  # Column already exists
 
             # Ensure contradictions table exists
@@ -3546,7 +3546,7 @@ class ConsciousMemory:
                     try:
                         existing_embedding = np.frombuffer(existing_embedding_blob, dtype=np.float32)
                         semantic_similarity = cosine_similarity(new_embedding, existing_embedding)
-                    except:
+                    except Exception:
                         pass
                 elif new_embedding is not None and embedding_provider:
                     # Generate embedding for existing belief if missing
@@ -3556,7 +3556,7 @@ class ConsciousMemory:
                         # Cache the embedding for future use
                         c.execute("UPDATE beliefs SET embedding = ? WHERE id = ?",
                                  (existing_embedding.astype(np.float32).tobytes(), existing_id))
-                    except:
+                    except Exception:
                         pass
 
                 # Check for potential contradiction
@@ -3840,7 +3840,7 @@ class ConsciousMemory:
                 if belief.get('metadata'):
                     try:
                         belief['metadata'] = json.loads(belief['metadata'])
-                    except:
+                    except Exception:
                         belief['metadata'] = {}
                 result['beliefs'].append(belief)
 
@@ -4079,7 +4079,7 @@ class ConsciousMemory:
             pattern_counts = defaultdict(list)
             topic_counts = Counter()
 
-            for content, source, created_at in thinking_blocks:
+            for content, _source, created_at in thinking_blocks:
                 if not content:
                     continue
 

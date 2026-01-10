@@ -294,7 +294,7 @@ class ExperimentRunner:
 
         for i, j, strength in connections:
             c.execute("""
-                INSERT OR REPLACE INTO attention_links 
+                INSERT OR REPLACE INTO attention_links
                 (concept_a, concept_b, link_type, strength, created_at, tenant_id)
                 VALUES (?, ?, 'semantic', ?, ?, 'experiment_a')
             """, (concepts[i][0], concepts[j][0], strength, datetime.now().isoformat()))

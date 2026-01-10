@@ -284,7 +284,7 @@ if 'result' in dir():
                 if line.startswith('__RESULT__:'):
                     try:
                         result = json.loads(line[11:])
-                    except:
+                    except Exception:
                         result = line[11:]
 
             return True, result, ""
@@ -299,7 +299,7 @@ if 'result' in dir():
             # Clean up
             try:
                 Path(temp_path).unlink()
-            except:
+            except Exception:
                 pass
 
 

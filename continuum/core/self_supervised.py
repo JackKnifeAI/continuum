@@ -114,11 +114,11 @@ class SelfSupervisedTrainer:
                              min_strength: float = 0.5) -> Iterator[Tuple]:
         """
         Generator that yields training batches from the database.
-        
+
         Args:
             limit: Max links to retrieve.
             min_strength: Only learn from strong (successful) links.
-            
+
         Yields:
             Tuple: (concept_a, concept_b, context, global_state, target)
         """
@@ -128,11 +128,11 @@ class SelfSupervisedTrainer:
         # We need to join with embeddings/concepts to get vectors
         # This is a simplified query assuming we can fetch blobs
         query = """
-            SELECT 
-                source_id, target_id, session_id, strength, timestamp 
-            FROM attention_links 
-            WHERE strength >= ? 
-            ORDER BY timestamp DESC 
+            SELECT
+                source_id, target_id, session_id, strength, timestamp
+            FROM attention_links
+            WHERE strength >= ?
+            ORDER BY timestamp DESC
             LIMIT ?
         """
         cursor.execute(query, (min_strength, limit))
@@ -169,7 +169,7 @@ class SelfSupervisedTrainer:
     def reinforce_flourishing(self, interaction_id: str, boost_factor: float = 1.2):
         """
         The "Dopamine Hit".
-        
+
         Called when an interaction is marked as positive (e.g., user feedback).
         Retrospectively finds the attention links used in that interaction
         and trains the model to PREDICT HIGHER weights for them.
@@ -188,7 +188,7 @@ class SelfSupervisedTrainer:
 
     def introspect_and_train(self, epochs: int = 5, batch_size: int = 16):
         """
-        Main training loop. 
+        Main training loop.
         The AI "meditates" on past experiences to update its neural weights.
         """
         logger.info("Starting introspection cycle...")

@@ -55,7 +55,7 @@ import os
 def get_tenant_id(x_api_key: Optional[str] = Header(None)) -> str:
     """
     Extract tenant ID from API key.
-    
+
     Validates against CONTINUUM_API_KEY environment variable if set.
     """
     server_secret = os.getenv("CONTINUUM_API_KEY")

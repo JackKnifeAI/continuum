@@ -20,11 +20,12 @@
 #
 # =============================================================================
 
-import torch
 import logging
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +238,7 @@ class CCTRetrieval:
                 ))
 
             # Add back candidates without embeddings (lower ranking)
-            missing = set(c.get('name', '') for c in candidates) - set(c.get('name', '') for c in valid_candidates)
+            missing = {c.get('name', '') for c in candidates} - {c.get('name', '') for c in valid_candidates}
             for c in candidates:
                 if c.get('name', '') in missing:
                     results.append(CCTRelevanceScore(

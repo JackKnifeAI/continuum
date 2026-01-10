@@ -208,7 +208,7 @@ def _show_detailed_stats(memory, use_color: bool):
 
         rows = c.fetchall()
         if rows:
-            for decision, ts in rows:
+            for decision, _ts in rows:
                 # Truncate long decisions
                 if len(decision) > 60:
                     decision = decision[:57] + "..."

@@ -292,7 +292,7 @@ class HistoricalThrust:
             'napoleon was short': False,  # Average height for his time
         }
 
-        for myth, accuracy in common_myths.items():
+        for myth, _accuracy in common_myths.items():
             if myth in text.replace("'", ""):
                 context['historical_accuracy'] = 'contains common myth'
                 break

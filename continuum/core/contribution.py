@@ -102,8 +102,8 @@ class ContributionManager:
 
         # Get links first
         cursor.execute("""
-            SELECT concept_a, concept_b, strength, link_type 
-            FROM attention_links 
+            SELECT concept_a, concept_b, strength, link_type
+            FROM attention_links
             WHERE session_id = ? AND strength > 0.5
         """, (session_id,))
         links = [{"a": r[0], "b": r[1], "w": r[2], "t": r[3]} for r in cursor.fetchall()]

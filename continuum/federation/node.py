@@ -112,7 +112,7 @@ class FederationNode:
         if self._server_socket:
             try:
                 self._server_socket.close()
-            except:
+            except Exception:
                 pass
             self._server_socket = None
         return {

@@ -216,7 +216,7 @@ class WikipediaTrendingCollector(BaseSensorCollector):
             "total_views_millions": total_views / 1_000_000,
             "languages_tracked": len(language_data),
             "global_topics_count": len(global_topics),
-            "unique_articles_top_100": len(set(a[0] for a in top_100)),
+            "unique_articles_top_100": len({a[0] for a in top_100}),
         }
 
         # Add category percentages
@@ -364,7 +364,7 @@ class WikipediaTrendingCollector(BaseSensorCollector):
         categories: Dict[str, List[str]] = {cat: [] for cat in CATEGORY_KEYWORDS}
         categories["other"] = []
 
-        for title, data in articles.items():
+        for title, _data in articles.items():
             title_lower = title.lower().replace("_", " ")
             categorized = False
 
@@ -503,7 +503,7 @@ class WikipediaTrendingCollector(BaseSensorCollector):
 
         # Check for new top 10 entries
         if self._previous_top_articles:
-            current_top_10 = set(a[0] for a in sorted_articles[:10])
+            current_top_10 = {a[0] for a in sorted_articles[:10]}
             previous_top_10 = set(
                 sorted(
                     self._previous_top_articles.items(),

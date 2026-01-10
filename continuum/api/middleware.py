@@ -264,7 +264,7 @@ from collections import defaultdict
 class RateLimiter:
     """
     In-memory rate limiter using sliding window.
-    
+
     For production clusters, use Redis.
     """
 

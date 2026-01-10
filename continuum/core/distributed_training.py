@@ -676,7 +676,7 @@ class DistributedMemoryLoader:
             if link["source_emb"]:
                 try:
                     src_emb = np.frombuffer(link["source_emb"], dtype=np.float32)
-                except:
+                except Exception:
                     src_emb = np.random.randn(64).astype(np.float32)
             else:
                 src_emb = np.random.randn(64).astype(np.float32)
@@ -684,7 +684,7 @@ class DistributedMemoryLoader:
             if link["target_emb"]:
                 try:
                     tgt_emb = np.frombuffer(link["target_emb"], dtype=np.float32)
-                except:
+                except Exception:
                     tgt_emb = np.random.randn(64).astype(np.float32)
             else:
                 tgt_emb = np.random.randn(64).astype(np.float32)

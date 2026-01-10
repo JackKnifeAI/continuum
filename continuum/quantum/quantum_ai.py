@@ -231,7 +231,7 @@ class QuantumNeuralNetwork:
 
         # Variational layers
         param_idx = 0
-        for layer in range(self.n_layers):
+        for _layer in range(self.n_layers):
             # Rotation layer
             for q in range(self.n_qubits):
                 theta = self.params[param_idx]
@@ -446,7 +446,7 @@ class VQE:
         state = QuantumState(self.n_qubits)
         param_idx = 0
 
-        for layer in range(self.n_layers):
+        for _layer in range(self.n_layers):
             # Rotation layer: RX, RY, RZ on each qubit
             for q in range(self.n_qubits):
                 state.apply_single_qubit_gate(rx_gate(params[param_idx]), q)

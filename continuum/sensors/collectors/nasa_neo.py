@@ -86,7 +86,7 @@ class NASANEOCollector(BaseSensorCollector):
         total_count = 0
 
         # Process each day's objects
-        for date_str, objects in neo_objects.items():
+        for _date_str, objects in neo_objects.items():
             for obj in objects:
                 total_count += 1
 

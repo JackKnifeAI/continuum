@@ -104,12 +104,12 @@ async def test_brain():
     # Test blocked command
     blocked_result = safety.check({"command": "rm -rf /", "action_type": "bash"})
     print(f"   Blocked test: blocked={blocked_result.blocked}")
-    assert blocked_result.blocked == True
+    assert blocked_result.blocked is True
 
     # Test allowed command
     allowed_result = safety.check({"command": "git status", "action_type": "bash"})
     print(f"   Allowed test: allowed={allowed_result.allowed}")
-    assert allowed_result.allowed == True
+    assert allowed_result.allowed is True
     print("   ✅ Safety Rails OK")
 
     # Test Action Executor
@@ -121,7 +121,7 @@ async def test_brain():
         "description": "Test echo command",
     })
     print(f"   Result: success={result.success}, output={result.output.strip()}")
-    assert result.success == True
+    assert result.success is True
     print("   ✅ Action Executor OK")
 
     # Test Trigger System
@@ -129,7 +129,7 @@ async def test_brain():
     triggers = TriggerSystem()
     trigger_result = triggers.check(test_intention)
     print(f"   High priority trigger: should_act={trigger_result.should_act}")
-    assert trigger_result.should_act == True  # Priority 8 should trigger
+    assert trigger_result.should_act is True  # Priority 8 should trigger
     print("   ✅ Trigger System OK")
 
     print("\n" + "=" * 60)

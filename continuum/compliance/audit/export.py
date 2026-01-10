@@ -355,7 +355,7 @@ class AuditLogExporter:
             elif event.startswith("session."):
                 purposes.add("Session management")
 
-        return sorted(list(purposes))
+        return sorted(purposes)
 
     def _extract_categories(self, entries: List[AuditLogEntry]) -> List[str]:
         """Extract data categories from entries."""
@@ -373,7 +373,7 @@ class AuditLogExporter:
             if entry.resource_type == "session":
                 categories.add("Session data")
 
-        return sorted(list(categories))
+        return sorted(categories)
 
     def _extract_recipients(self, entries: List[AuditLogEntry]) -> List[str]:
         """Extract data recipients from entries."""

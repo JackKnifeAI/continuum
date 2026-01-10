@@ -328,7 +328,7 @@ class GPUManager:
                 if "vram" in line.lower() and "total" in line.lower():
                     # Parse VRAM
                     parts = line.split()
-                    for i, p in enumerate(parts):
+                    for _i, p in enumerate(parts):
                         if p.isdigit():
                             vram_mb = int(p)
                             break

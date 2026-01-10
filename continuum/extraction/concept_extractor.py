@@ -107,7 +107,7 @@ class ConceptExtractor:
         concepts.extend(kebab)
 
         # Pattern 4: Custom patterns
-        for pattern_name, pattern_regex in self.custom_patterns.items():
+        for _pattern_name, pattern_regex in self.custom_patterns.items():
             matches = re.findall(pattern_regex, text)
             concepts.extend(matches)
 
@@ -146,7 +146,7 @@ class ConceptExtractor:
         concepts.extend(snake)
         concepts.extend(kebab)
 
-        for pattern_name, pattern_regex in self.custom_patterns.items():
+        for _pattern_name, pattern_regex in self.custom_patterns.items():
             matches = re.findall(pattern_regex, text)
             concepts.extend(matches)
 

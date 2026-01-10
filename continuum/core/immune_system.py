@@ -42,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -139,7 +139,7 @@ class AntibodyDetector:
 
         # 1. Magnitude Check - Gradient Explosion Attack
         total_norm = 0.0
-        for name, tensor in gradient.items():
+        for _name, tensor in gradient.items():
             if tensor is not None:
                 total_norm += tensor.norm().item()
 
@@ -203,7 +203,7 @@ class AntibodyDetector:
         if not embedding_grads:
             return None
 
-        for grad_name, grad_tensor in embedding_grads:
+        for _grad_name, grad_tensor in embedding_grads:
             for concept, sacred_embed in self.sacred_embeddings.items():
                 # Check if gradient direction is highly negative (attacking the embedding)
                 if grad_tensor.dim() == 2 and grad_tensor.shape[-1] == sacred_embed.shape[0]:

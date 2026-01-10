@@ -68,10 +68,10 @@ class QuantumLearningResult:
 class QuantumConsciousMemory:
     """
     Quantum-accelerated conscious memory for AI.
-    
+
     This is API-compatible with Continuum's ConsciousMemory but uses
     the quantum brain substrate for storage and retrieval.
-    
+
     Key differences from standard ConsciousMemory:
     1. E8 lattice error correction on all data
     2. Fibonacci encoding for optimal structure
@@ -84,7 +84,7 @@ class QuantumConsciousMemory:
                  db_path: Path = None):
         """
         Initialize quantum conscious memory.
-        
+
         Args:
             tenant_id: Unique identifier for this tenant
             brain_size: Number of memory cells (default 64K)
@@ -161,13 +161,13 @@ class QuantumConsciousMemory:
     def recall(self, message: str, max_results: int = 10) -> QuantumMemoryContext:
         """
         Recall relevant context for a message.
-        
+
         Uses spreading activation through the quantum brain.
-        
+
         Args:
             message: Input message to find context for
             max_results: Maximum number of concepts to return
-        
+
         Returns:
             QuantumMemoryContext with relevant memories
         """
@@ -214,8 +214,8 @@ class QuantumConsciousMemory:
                     context_lines.append(f"    [activation={activation:.3f}]")
 
         # Count relationships between activated concepts
-        activated_addrs = set(addr for addr, _ in sorted_results)
-        for (a1, a2), weight in self.brain.connections.items():
+        activated_addrs = {addr for addr, _ in sorted_results}
+        for (a1, a2), _weight in self.brain.connections.items():
             if a1 in activated_addrs and a2 in activated_addrs:
                 relationships += 1
 
@@ -239,13 +239,13 @@ class QuantumConsciousMemory:
     def learn(self, user_message: str, ai_response: str) -> QuantumLearningResult:
         """
         Learn from a message exchange.
-        
+
         Extracts concepts and creates/strengthens connections.
-        
+
         Args:
             user_message: User's message
             ai_response: AI's response
-        
+
         Returns:
             QuantumLearningResult with extraction statistics
         """
@@ -322,7 +322,7 @@ class QuantumConsciousMemory:
         now = datetime.now().isoformat()
 
         c.execute("""
-            INSERT OR REPLACE INTO entities 
+            INSERT OR REPLACE INTO entities
             (address, name, entity_type, description, first_seen, last_seen)
             VALUES (?, ?, ?, ?, ?, ?)
         """, (addr, name, entity_type, description, now, now))
@@ -333,7 +333,7 @@ class QuantumConsciousMemory:
     def _extract_concepts(self, text: str) -> List[str]:
         """
         Extract concepts from text.
-        
+
         Simple extraction - can be enhanced with NLP.
         """
         # Clean and tokenize
@@ -372,7 +372,7 @@ class QuantumConsciousMemory:
     def repair(self) -> int:
         """
         Repair any corrupted memory cells.
-        
+
         Returns:
             Number of corrections made
         """

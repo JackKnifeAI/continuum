@@ -225,11 +225,11 @@ class SharedKnowledge:
             Statistics dictionary
         """
         total_concepts = len(self.concepts)
-        total_contributors = len(set(
+        total_contributors = len({
             node_id
             for node_set in self.attributions.values()
             for node_id in node_set
-        ))
+        })
 
         avg_quality = 0.0
         if total_concepts > 0:

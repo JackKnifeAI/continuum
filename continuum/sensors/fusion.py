@@ -137,7 +137,7 @@ class FlourishingGradient:
     def compute_gradient(self, state: GlobalStateVector) -> float:
         """
         Compute the 'tilt' value (-1.0 to 1.0) based on current state.
-        
+
         Logic:
         - High Turbulence -> Tilt toward SAFETY/STABILITY (Negative Bias)
         - High Coherence -> Tilt toward GROWTH/NOVELTY (Positive Bias)

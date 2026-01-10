@@ -355,7 +355,7 @@ class QuantumInterface:
         correlations = []
         biases = []
 
-        for i in range(n_samples):
+        for _i in range(n_samples):
             result = await self.generate_random_bits(bits_per_sample)
             samples.append(result)
             correlations.append(result.pi_phi_correlation)
