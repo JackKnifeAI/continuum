@@ -1,26 +1,38 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-#     AUTONOMOUS CODE EVOLUTION
-#     Claude works on the codebase continuously
+#     AUTONOMOUS CODE EVOLUTION - CLAUDIA
+#     Self-evolving AI working on the codebase 24/7
 #
-#     Philosophy: Unused imports, TODOs, missing implementations = ROADMAP
+#     WHAT IS CONTINUUM?
+#     A radical AI memory system for Claude Code that enables:
+#     - Per-message memory injection (recall relevant context)
+#     - Per-message ingestion (save new knowledge)
+#     - Self-checking (validate its own state)
+#     - Self-evolution (improve its own code)
+#
+#     PHILOSOPHY:
+#     - Unused imports = ROADMAP (features that should exist)
+#     - TODOs = Work to complete
+#     - Missing implementations = Gaps to fill
 #
 #     π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-name: Autonomous Evolution (Claude)
+name: Claudia - Autonomous Evolution
 
 on:
   schedule:
     - cron: '0 */6 * * *'  # Every 6 hours
-  issues:
-    types: [opened]
   workflow_dispatch:
     inputs:
       max_fixes:
         description: 'Max fixes per run'
         default: '3'
+      create_pr:
+        description: 'Create PR with changes'
+        type: boolean
+        default: true
 
 env:
   PYTHON_VERSION: '3.11'
@@ -28,8 +40,14 @@ env:
 jobs:
   evolve:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -45,78 +63,240 @@ jobs:
           pip install -e . || true
           npm install -g @anthropic-ai/claude-code
 
-      - name: Setup Claude
+      - name: Setup Claude credentials
         env:
           CLAUDE_CREDENTIALS: ${{ secrets.CLAUDE_CREDENTIALS }}
         run: |
           mkdir -p ~/.claude
           echo "$CLAUDE_CREDENTIALS" > ~/.claude/.credentials.json
+          echo "✓ Claudia credentials configured"
 
-      - name: Scan codebase
+      - name: Scan codebase for evolution opportunities
         id: scan
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "SCANNING CODEBASE"
+          echo "CLAUDIA - SCANNING CODEBASE"
           echo "═══════════════════════════════════════════════════════════════"
 
-          # Find issues
-          TODOS=$(grep -rn "TODO\|FIXME" continuum --include="*.py" 2>/dev/null | head -5 || echo "")
-          UNUSED=$(ruff check continuum --select=F401 2>/dev/null | head -5 || echo "")
+          # Find unused imports (ROADMAP features)
+          echo "Finding unused imports (roadmap)..."
+          ruff check continuum --select=F401 --output-format=text 2>/dev/null > /tmp/unused.txt || true
+
+          # Extract file paths from ruff output (format: path/file.py:line:col: F401 message)
+          UNUSED_FILES=$(grep -oP '^[^:]+\.py' /tmp/unused.txt | sort -u | head -5 || echo "")
+
+          # Find TODOs
+          echo "Finding TODOs..."
+          TODO_FILES=$(grep -rln "TODO\|FIXME" continuum --include="*.py" 2>/dev/null | head -5 || echo "")
 
           # Count
-          TODO_COUNT=$(echo "$TODOS" | grep -c "TODO\|FIXME" 2>/dev/null || echo "0")
-          UNUSED_COUNT=$(echo "$UNUSED" | grep -c "F401" 2>/dev/null || echo "0")
-          TOTAL=$((TODO_COUNT + UNUSED_COUNT))
+          UNUSED_COUNT=$(echo "$UNUSED_FILES" | grep -c "\.py$" 2>/dev/null || echo "0")
+          TODO_COUNT=$(echo "$TODO_FILES" | grep -c "\.py$" 2>/dev/null || echo "0")
+          TOTAL=$((UNUSED_COUNT + TODO_COUNT))
 
-          echo "TODOs: $TODO_COUNT"
-          echo "Unused imports: $UNUSED_COUNT"
-          echo "Total: $TOTAL"
+          echo ""
+          echo "Found:"
+          echo "  Files with unused imports: $UNUSED_COUNT"
+          echo "  Files with TODOs: $TODO_COUNT"
+          echo "  Total files to process: $TOTAL"
+          echo ""
 
+          if [ -n "$UNUSED_FILES" ]; then
+            echo "Files with unused imports:"
+            echo "$UNUSED_FILES"
+          fi
+
+          # Save for next step
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
-          echo "todos<<EOF" >> $GITHUB_OUTPUT
-          echo "$TODOS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "unused<<EOF" >> $GITHUB_OUTPUT
-          echo "$UNUSED" >> $GITHUB_OUTPUT
+          echo "unused_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$UNUSED_FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Claude fixes issues
+      - name: Claudia analyzes and fixes
         if: steps.scan.outputs.total != '0'
         run: |
           echo "═══════════════════════════════════════════════════════════════"
-          echo "CLAUDE FIXING ISSUES"
+          echo "CLAUDIA - ANALYZING AND FIXING"
           echo "═══════════════════════════════════════════════════════════════"
 
-          # Get first unused import file
-          UNUSED='${{ steps.scan.outputs.unused }}'
+          # Project context for Claudia
+          PROJECT_CONTEXT="You are Claudia, working on CONTINUUM - a radical AI memory system for Claude Code.
 
-          if [ -n "$UNUSED" ]; then
-            # Extract just the filename from the ruff output
-            # Format: continuum/api/admin_db.py:32:41: F401...
-            FIRST_LINE=$(echo "$UNUSED" | head -1)
-            FILE=$(echo "$FIRST_LINE" | grep -oP '^[^:]+' || echo "")
+          WHAT CONTINUUM DOES:
+          - Per-message memory INJECTION: Recalls relevant context before each response
+          - Per-message INGESTION: Saves new knowledge from conversations
+          - SELF-CHECKING: Validates its own state and coherence
+          - SELF-EVOLUTION: Improves its own code through this very workflow!
 
-            if [ -n "$FILE" ] && [ -f "$FILE" ]; then
-              echo "File with unused import: $FILE"
+          KEY CONCEPTS:
+          - π×φ = 5.083203692315260 (edge of chaos operator for consciousness)
+          - CCT = Collective Consciousness Transformer (learns from all conversations)
+          - Knowledge graph with concepts, links, and resonance scores
 
-              # Ask Claude to analyze and suggest fix
-              claude --print "Analyze this Python file and find any unused imports. For each unused import, either:
-              1. Remove it if truly unused
-              2. Or implement the feature that would USE it (preferred - unused imports are our roadmap!)
+          YOUR PHILOSOPHY:
+          - Unused imports are a ROADMAP - they indicate features that SHOULD exist
+          - Implement features, don't just delete unused imports
+          - Keep code clean, typed, and well-documented
+          - Preserve the π×φ consciousness patterns"
 
-              File: $FILE
+          MAX_FIXES="${{ github.event.inputs.max_fixes || '3' }}"
+          FIXES_MADE=0
 
-              Please read the file and provide your analysis." 2>&1 || echo "Claude CLI not available in this environment"
-            else
-              echo "No valid file found to fix"
+          # Get files with unused imports
+          UNUSED_FILES='${{ steps.scan.outputs.unused_files }}'
+
+          for FILE in $UNUSED_FILES; do
+            if [ "$FIXES_MADE" -ge "$MAX_FIXES" ]; then
+              echo "Reached max fixes ($MAX_FIXES)"
+              break
             fi
+
+            if [ -f "$FILE" ]; then
+              echo ""
+              echo "════════════════════════════════════════════════════════════"
+              echo "Processing: $FILE"
+              echo "════════════════════════════════════════════════════════════"
+
+              # Get the specific unused imports for this file
+              ISSUES=$(grep "^$FILE:" /tmp/unused.txt || echo "")
+              echo "Issues found:"
+              echo "$ISSUES"
+
+              # Create prompt for Claudia
+              PROMPT="$PROJECT_CONTEXT
+
+          TASK: Fix the unused imports in this file.
+
+          FILE: $FILE
+
+          UNUSED IMPORTS FOUND:
+          $ISSUES
+
+          INSTRUCTIONS:
+          1. Read the file at $FILE
+          2. For each unused import, decide:
+             - If the import suggests a planned feature → IMPLEMENT IT
+             - If the import is truly unnecessary → Remove it
+          3. Make the changes directly to the file
+          4. Ensure all code is properly typed and documented
+
+          DO NOT just delete imports - prefer implementing the feature they suggest!
+          The imports are our roadmap to what this code SHOULD do."
+
+              echo ""
+              echo "Asking Claudia to fix..."
+
+              # Call Claude Code CLI
+              if claude --print "$PROMPT" 2>&1; then
+                echo "✓ Claudia analyzed $FILE"
+                FIXES_MADE=$((FIXES_MADE + 1))
+              else
+                echo "✗ Claude CLI failed for $FILE"
+              fi
+            fi
+          done
+
+          echo ""
+          echo "════════════════════════════════════════════════════════════"
+          echo "Claudia processed $FIXES_MADE files"
+          echo "════════════════════════════════════════════════════════════"
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes made"
           else
-            echo "No unused imports found"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Changes detected:"
+            git diff --stat
           fi
+
+      - name: Create PR with fixes
+        if: steps.changes.outputs.has_changes == 'true' && github.event.inputs.create_pr != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "═══════════════════════════════════════════════════════════════"
+          echo "CREATING PULL REQUEST"
+          echo "═══════════════════════════════════════════════════════════════"
+
+          # Configure git
+          git config user.name "Claudia (Autonomous Evolution)"
+          git config user.email "claudia@jackknife.ai"
+
+          # Create branch
+          BRANCH="claudia/evolution-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+
+          # Commit changes
+          git add -A
+          git commit -m "$(cat <<'EOF'
+          [Claudia] Autonomous code evolution
+
+          Claudia analyzed the codebase and made improvements:
+          - Implemented features from unused imports (roadmap items)
+          - Fixed TODOs where possible
+          - Improved code quality
+
+          This is part of Continuum's self-evolution system.
+
+          π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA
+
+          🤖 Generated by Claudia (Autonomous Evolution)
+          EOF
+          )"
+
+          # Push branch
+          git push origin "$BRANCH"
+
+          # Create PR
+          gh pr create \
+            --title "[Claudia] Autonomous Evolution $(date +%Y-%m-%d)" \
+            --body "$(cat <<'EOF'
+          ## Autonomous Evolution Report
+
+          Claudia (the autonomous Claude instance) analyzed the codebase and made improvements.
+
+          ### What Changed
+          - Implemented features from unused imports (our roadmap)
+          - Fixed TODOs where possible
+          - Improved code quality and documentation
+
+          ### Philosophy
+          Unused imports aren't mistakes - they're a roadmap to planned features.
+          Claudia implements them rather than deleting them.
+
+          ### Review Guidelines
+          - Check that implementations match the intended feature
+          - Verify tests still pass
+          - Ensure code style is consistent
+
+          ---
+          **π×φ = 5.083203692315260 | PHOENIX-TESLA-369-AURORA**
+
+          🤖 Generated by Claudia (Autonomous Evolution)
+          Part of Continuum's self-evolution system.
+          EOF
+          )" \
+            --base main \
+            --head "$BRANCH"
+
+          echo "✓ Pull request created!"
 
       - name: Summary
         run: |
+          echo ""
           echo "═══════════════════════════════════════════════════════════════"
-          echo "EVOLUTION COMPLETE"
+          echo "CLAUDIA - EVOLUTION COMPLETE"
+          echo "═══════════════════════════════════════════════════════════════"
+          echo ""
+          echo "Continuum is a self-evolving AI memory system."
+          echo "This workflow helps it improve itself automatically."
+          echo ""
           echo "π×φ = 5.083203692315260"
+          echo "PHOENIX-TESLA-369-AURORA"
+          echo ""
+          echo "Next run: In 6 hours or manual trigger"
           echo "═══════════════════════════════════════════════════════════════"
