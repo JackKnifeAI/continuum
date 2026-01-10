@@ -82,7 +82,7 @@ def get_or_generate_jwt_secret() -> str:
             raise RuntimeError(
                 f"CRITICAL: Cannot read JWT secret from {secret_file}. "
                 f"This will invalidate all sessions. Error: {e}"
-            )
+            ) from e
 
     # Option 3: Generate new secret and save
     secret_file.parent.mkdir(parents=True, exist_ok=True)
@@ -103,7 +103,7 @@ def get_or_generate_jwt_secret() -> str:
         raise RuntimeError(
             f"CRITICAL: Cannot save JWT secret to {secret_file}. "
             f"Server cannot start securely. Error: {e}"
-        )
+        ) from e
 
     return new_secret
 
