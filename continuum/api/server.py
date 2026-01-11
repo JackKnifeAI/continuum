@@ -153,6 +153,10 @@ async def lifespan(app: FastAPI):
     init_admin_db()
     ensure_default_admin()
 
+    # Inject metering instance into dashboard routes
+    from .dashboard_routes import set_metering_instance
+    set_metering_instance(metering)
+
     # Initialize Sentry error tracking
     sentry_enabled = init_sentry(
         environment=os.environ.get("CONTINUUM_ENV", "development"),
