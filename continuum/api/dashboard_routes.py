@@ -19,20 +19,20 @@ Public Dashboard Routes
 
 No authentication required - these are for the customer-facing dashboard.
 """
-from typing import Optional
-
 from fastapi import APIRouter, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
+metering = UsageMetering()
 
 
 @router.get("/stats")
 async def get_dashboard_stats(
-    tenant_id: Optional[str] = Query("default", description="Tenant ID"),
+    tenant_id: str = Query("default", description="Tenant ID"),
 ):
     """
     Get dashboard statistics for a tenant.
@@ -50,9 +50,12 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Query current API usage from metering system
+        api_calls_today = await metering.get_usage(
+            tenant_id=tenant_id,
+            metric='api_calls',
+            period='day'
+        )
 
         return {
             "tenant_id": stats["tenant_id"],
