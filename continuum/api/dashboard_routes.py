@@ -21,24 +21,67 @@ No authentication required - these are for the customer-facing dashboard.
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
 
+# Global metering instance - will be injected by the API server
+_metering_instance: Optional[UsageMetering] = None
+
+
+def set_metering_instance(metering: UsageMetering) -> None:
+    """
+    Set the global metering instance.
+
+    Called by the API server during initialization to inject the metering instance.
+
+    Args:
+        metering: UsageMetering instance from the main application
+    """
+    global _metering_instance
+    _metering_instance = metering
+
+
+def get_metering() -> UsageMetering:
+    """
+    Get the metering instance for dependency injection.
+
+    Returns:
+        UsageMetering instance
+
+    Raises:
+        RuntimeError: If metering not initialized
+    """
+    if _metering_instance is None:
+        raise RuntimeError("Metering not initialized - call set_metering_instance() first")
+    return _metering_instance
+
 
 @router.get("/stats")
 async def get_dashboard_stats(
     tenant_id: Optional[str] = Query("default", description="Tenant ID"),
+    metering: UsageMetering = Depends(get_metering),
 ):
     """
     Get dashboard statistics for a tenant.
 
     This is a public endpoint for the customer dashboard (no auth required).
     Returns memory stats and tier information.
+
+    Args:
+        tenant_id: Tenant identifier (defaults to "default")
+        metering: UsageMetering instance (injected)
+
+    Returns:
+        Dashboard statistics including memory stats, tier info, and API usage
+
+    Raises:
+        HTTPException: If stats retrieval fails
     """
     try:
         # Get tenant's memory instance and query actual stats from database
@@ -50,9 +93,13 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Query actual API call count from metering system
+        # This queries the in-memory cache that tracks usage per day
+        api_calls_today = await metering.get_usage(
+            tenant_id=tenant_id,
+            metric='api_calls',
+            period='day'
+        )
 
         return {
             "tenant_id": stats["tenant_id"],
