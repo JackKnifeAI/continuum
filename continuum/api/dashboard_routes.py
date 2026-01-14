@@ -23,11 +23,43 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
+# Module-level metering instance for tracking API calls
+# This will be set by server.py during initialization
+_metering: Optional[UsageMetering] = None
+
+
+def set_metering(metering: UsageMetering) -> None:
+    """
+    Set the global metering instance.
+
+    Called by server.py during app initialization.
+
+    Args:
+        metering: UsageMetering instance from server
+    """
+    global _metering
+    _metering = metering
+
+
+def get_metering() -> UsageMetering:
+    """
+    Get the global metering instance.
+
+    Returns:
+        UsageMetering instance
+
+    Raises:
+        RuntimeError: If metering not initialized
+    """
+    if _metering is None:
+        raise RuntimeError("Metering not initialized. Call set_metering() first.")
+    return _metering
 
 
 @router.get("/stats")
@@ -50,9 +82,17 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Get API calls today from metering system
+        try:
+            metering = get_metering()
+            api_calls_today = await metering.get_usage(
+                tenant_id=tenant_id,
+                metric='api_calls',
+                period='day'
+            )
+        except RuntimeError:
+            # Metering not initialized (e.g., during testing)
+            api_calls_today = 0
 
         return {
             "tenant_id": stats["tenant_id"],
