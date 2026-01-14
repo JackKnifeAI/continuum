@@ -23,11 +23,43 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
+
+# Global metering instance for tracking API usage
+# This is shared with the BillingMiddleware in server.py
+_metering_instance: Optional[UsageMetering] = None
+
+
+def get_metering() -> UsageMetering:
+    """
+    Get or create the global UsageMetering instance.
+
+    Returns:
+        UsageMetering instance for tracking API calls and usage
+    """
+    global _metering_instance
+    if _metering_instance is None:
+        _metering_instance = UsageMetering()
+    return _metering_instance
+
+
+def set_metering(metering: UsageMetering) -> None:
+    """
+    Set the global UsageMetering instance.
+
+    This should be called by server.py to share the same instance
+    used by BillingMiddleware.
+
+    Args:
+        metering: UsageMetering instance to use globally
+    """
+    global _metering_instance
+    _metering_instance = metering
 
 
 @router.get("/stats")
@@ -50,9 +82,13 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Get API call usage from metering system
+        metering = get_metering()
+        api_calls_today = await metering.get_usage(
+            tenant_id=tenant_id,
+            metric='api_calls',
+            period='day'
+        )
 
         return {
             "tenant_id": stats["tenant_id"],
