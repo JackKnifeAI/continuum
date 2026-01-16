@@ -21,7 +21,7 @@ No authentication required - these are for the customer-facing dashboard.
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
@@ -32,6 +32,7 @@ tenant_manager = TenantManager()
 
 @router.get("/stats")
 async def get_dashboard_stats(
+    request: Request,
     tenant_id: Optional[str] = Query("default", description="Tenant ID"),
 ):
     """
@@ -50,9 +51,18 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
+        # Query API call metering to track api_calls_today
+        # Access metering instance from app state (initialized in server.py)
         api_calls_today = 0
+        if hasattr(request.app.state, "metering"):
+            metering = request.app.state.metering
+            # Get today's API call count for this tenant
+            # metering.get_usage returns count for specified metric and period
+            api_calls_today = metering.get_usage(
+                tenant_id=tenant_id,
+                metric="api_calls",
+                period="day"
+            )
 
         return {
             "tenant_id": stats["tenant_id"],

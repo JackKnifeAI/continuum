@@ -278,6 +278,11 @@ app.add_middleware(DonationNagMiddleware)
 # Billing enforcement (rate limits, usage tracking)
 metering = UsageMetering()
 rate_limiter = RateLimiter(metering)
+
+# Store metering and rate_limiter in app state for access in routes
+app.state.metering = metering
+app.state.rate_limiter = rate_limiter
+
 app.add_middleware(
     BillingMiddleware,
     metering=metering,
