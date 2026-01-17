@@ -29,6 +29,21 @@ from continuum.core.memory import TenantManager
 router = APIRouter()
 tenant_manager = TenantManager()
 
+# Import metering instance (will be injected at runtime by server.py)
+# This is a module-level variable that gets set by the server on startup
+_metering_instance = None
+
+
+def set_metering_instance(metering):
+    """
+    Set the global metering instance (called by server.py on startup).
+
+    Args:
+        metering: UsageMetering instance from server
+    """
+    global _metering_instance
+    _metering_instance = metering
+
 
 @router.get("/stats")
 async def get_dashboard_stats(
@@ -50,9 +65,15 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
+        # Get API call metering from the global metering instance
+        # If metering is not available (not set by server), default to 0
         api_calls_today = 0
+        if _metering_instance:
+            api_calls_today = await _metering_instance.get_usage(
+                tenant_id=tenant_id,
+                metric='api_calls',
+                period='day'
+            )
 
         return {
             "tenant_id": stats["tenant_id"],
