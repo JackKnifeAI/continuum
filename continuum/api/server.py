@@ -76,7 +76,7 @@ except ImportError:
 # Planetary Sensor Aggregator
 try:
     from continuum.sensors.api_routes import router as sensor_router
-    from continuum.sensors.scheduler import get_scheduler, start_scheduler, stop_scheduler
+    from continuum.sensors.scheduler import start_scheduler, stop_scheduler
     SENSORS_AVAILABLE = True
 except ImportError:
     SENSORS_AVAILABLE = False
@@ -278,6 +278,11 @@ app.add_middleware(DonationNagMiddleware)
 # Billing enforcement (rate limits, usage tracking)
 metering = UsageMetering()
 rate_limiter = RateLimiter(metering)
+
+# Store metering instance on app.state for access by routes
+app.state.metering = metering
+app.state.rate_limiter = rate_limiter
+
 app.add_middleware(
     BillingMiddleware,
     metering=metering,
