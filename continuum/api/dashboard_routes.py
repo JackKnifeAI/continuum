@@ -23,11 +23,13 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
+usage_metering = UsageMetering()
 
 
 @router.get("/stats")
@@ -41,8 +43,11 @@ async def get_dashboard_stats(
     Returns memory stats and tier information.
     """
     try:
+        # Ensure tenant_id is not None (use default if not provided)
+        effective_tenant_id = tenant_id or "default"
+
         # Get tenant's memory instance and query actual stats from database
-        memory = tenant_manager.get_tenant(tenant_id)
+        memory = tenant_manager.get_tenant(effective_tenant_id)
         stats = await memory.aget_stats()
 
         # Look up tenant's pricing tier (default to FREE for now)
@@ -50,9 +55,12 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Query metering system for today's API call count
+        api_calls_today = await usage_metering.get_usage(
+            tenant_id=effective_tenant_id,
+            metric='api_calls',
+            period='day'
+        )
 
         return {
             "tenant_id": stats["tenant_id"],
