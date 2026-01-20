@@ -21,24 +21,55 @@ No authentication required - these are for the customer-facing dashboard.
 """
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
 
+# Global metering instance (shared with server.py via dependency injection)
+_metering_instance: Optional[UsageMetering] = None
+
+
+def get_metering() -> UsageMetering:
+    """
+    Get the global metering instance.
+
+    This is injected by the server on startup via set_metering().
+    Falls back to a new instance if not set (for testing).
+    """
+    global _metering_instance
+    if _metering_instance is None:
+        _metering_instance = UsageMetering()
+    return _metering_instance
+
+
+def set_metering(metering: UsageMetering) -> None:
+    """Set the global metering instance (called by server.py on startup)"""
+    global _metering_instance
+    _metering_instance = metering
+
 
 @router.get("/stats")
 async def get_dashboard_stats(
     tenant_id: Optional[str] = Query("default", description="Tenant ID"),
+    metering: UsageMetering = Depends(get_metering),
 ):
     """
     Get dashboard statistics for a tenant.
 
     This is a public endpoint for the customer dashboard (no auth required).
     Returns memory stats and tier information.
+
+    Args:
+        tenant_id: Tenant identifier
+        metering: Injected metering instance for tracking API usage
+
+    Returns:
+        Dashboard statistics including memory counts, tier info, and API usage
     """
     try:
         # Get tenant's memory instance and query actual stats from database
@@ -50,9 +81,9 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Get API call usage from metering system
+        # Tracks daily API calls for rate limiting and billing
+        api_calls_today = await metering.get_usage(tenant_id, 'api_calls', period='day')
 
         return {
             "tenant_id": stats["tenant_id"],
