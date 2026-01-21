@@ -304,6 +304,11 @@ app.add_middleware(AuthenticationMiddleware)
 # ROUTES
 # =============================================================================
 
+# Inject metering instance into dashboard routes before mounting
+from .dashboard_routes import set_metering_instance  # noqa: E402
+
+set_metering_instance(metering)
+
 # Mount all routes under /v1 prefix
 app.include_router(router, prefix="/v1")
 app.include_router(billing_router, prefix="/v1/billing")
