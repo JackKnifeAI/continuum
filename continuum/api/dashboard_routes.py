@@ -14,28 +14,31 @@
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 
-"""
-Public Dashboard Routes
+"""Public Dashboard Routes.
 
 No authentication required - these are for the customer-facing dashboard.
 """
-from typing import Optional
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
+# Initialize metering instance for tracking API usage
+# Note: In production, this should be the same instance used by BillingMiddleware
+# For now, we create a separate instance that shares the same in-memory cache
+metering = UsageMetering()
 
 
 @router.get("/stats")
 async def get_dashboard_stats(
-    tenant_id: Optional[str] = Query("default", description="Tenant ID"),
-):
-    """
-    Get dashboard statistics for a tenant.
+    tenant_id: Annotated[str, Query(description="Tenant ID")] = "default",
+) -> dict[str, Any]:
+    """Get dashboard statistics for a tenant.
 
     This is a public endpoint for the customer dashboard (no auth required).
     Returns memory stats and tier information.
@@ -50,9 +53,14 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Query API call metering for today's usage
+        # The metering system tracks API calls per day using the pattern:
+        # tenant_id:YYYY-MM-DD -> api_calls count
+        api_calls_today = await metering.get_usage(
+            tenant_id=tenant_id,
+            metric="api_calls",
+            period="day",
+        )
 
         return {
             "tenant_id": stats["tenant_id"],
@@ -68,14 +76,14 @@ async def get_dashboard_stats(
                 "name": tier.value.upper(),
                 "limits": {
                     "memories": tier_limits.max_memories,
-                    "api_calls_per_day": tier_limits.api_calls_per_day
-                }
-            }
+                    "api_calls_per_day": tier_limits.api_calls_per_day,
+                },
+            },
         }
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to retrieve dashboard stats: {str(e)}"
+            detail=f"Failed to retrieve dashboard stats: {e!s}",
         ) from e
 
 # ═══════════════════════════════════════════════════════════════════════════════
