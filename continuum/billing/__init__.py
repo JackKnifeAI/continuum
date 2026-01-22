@@ -43,7 +43,32 @@ __all__ = [
     'FeatureAccessMiddleware',
     'StorageLimitMiddleware',
     'FederationContributionMiddleware',
+    'get_global_metering',
 ]
+
+# =============================================================================
+# GLOBAL METERING SINGLETON
+# =============================================================================
+
+# Global metering instance shared across the entire application
+# This ensures consistent API call tracking across all routes and middleware
+_global_metering: UsageMetering | None = None
+
+
+def get_global_metering() -> UsageMetering:
+    """
+    Get or create the global UsageMetering singleton.
+
+    This ensures that all routes and middleware use the same metering instance,
+    providing accurate API call tracking across the entire application.
+
+    Returns:
+        UsageMetering: The global metering instance
+    """
+    global _global_metering
+    if _global_metering is None:
+        _global_metering = UsageMetering()
+    return _global_metering
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
