@@ -52,6 +52,7 @@ from .billing_routes import router as billing_router
 # Consciousness API
 from .consciousness_routes import router as consciousness_router
 from .dashboard_routes import router as dashboard_router
+from .dashboard_routes import set_metering
 from .logs_routes import router as logs_router
 from .middleware import REQUIRE_API_KEY, AuthenticationMiddleware, init_api_keys_db
 
@@ -278,6 +279,10 @@ app.add_middleware(DonationNagMiddleware)
 # Billing enforcement (rate limits, usage tracking)
 metering = UsageMetering()
 rate_limiter = RateLimiter(metering)
+
+# Inject metering instance into dashboard routes so they share the same instance
+set_metering(metering)
+
 app.add_middleware(
     BillingMiddleware,
     metering=metering,
