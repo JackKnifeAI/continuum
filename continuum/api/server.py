@@ -40,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from continuum.billing.metering import RateLimiter, UsageMetering
+from continuum.billing import get_shared_metering, get_shared_rate_limiter
 from continuum.billing.middleware import BillingMiddleware
 
 from .admin_memories_routes import router as admin_memories_router
@@ -76,7 +76,7 @@ except ImportError:
 # Planetary Sensor Aggregator
 try:
     from continuum.sensors.api_routes import router as sensor_router
-    from continuum.sensors.scheduler import get_scheduler, start_scheduler, stop_scheduler
+    from continuum.sensors.scheduler import start_scheduler, stop_scheduler
     SENSORS_AVAILABLE = True
 except ImportError:
     SENSORS_AVAILABLE = False
@@ -276,8 +276,9 @@ app.add_middleware(
 app.add_middleware(DonationNagMiddleware)
 
 # Billing enforcement (rate limits, usage tracking)
-metering = UsageMetering()
-rate_limiter = RateLimiter(metering)
+# Use shared singleton instances for consistency across all routes
+metering = get_shared_metering()
+rate_limiter = get_shared_rate_limiter()
 app.add_middleware(
     BillingMiddleware,
     metering=metering,

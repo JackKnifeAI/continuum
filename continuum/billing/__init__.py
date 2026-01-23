@@ -43,7 +43,45 @@ __all__ = [
     'FeatureAccessMiddleware',
     'StorageLimitMiddleware',
     'FederationContributionMiddleware',
+    'get_shared_metering',
+    'get_shared_rate_limiter',
 ]
+
+# =============================================================================
+# SHARED SINGLETON INSTANCES
+# =============================================================================
+
+_shared_metering: UsageMetering | None = None
+_shared_rate_limiter: RateLimiter | None = None
+
+
+def get_shared_metering() -> UsageMetering:
+    """
+    Get the shared global UsageMetering instance.
+
+    This ensures all parts of the application use the same metering instance,
+    providing consistent API call tracking across middleware and routes.
+
+    Returns:
+        The shared UsageMetering instance
+    """
+    global _shared_metering
+    if _shared_metering is None:
+        _shared_metering = UsageMetering()
+    return _shared_metering
+
+
+def get_shared_rate_limiter() -> RateLimiter:
+    """
+    Get the shared global RateLimiter instance.
+
+    Returns:
+        The shared RateLimiter instance (uses shared metering)
+    """
+    global _shared_rate_limiter
+    if _shared_rate_limiter is None:
+        _shared_rate_limiter = RateLimiter(get_shared_metering())
+    return _shared_rate_limiter
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
