@@ -19,15 +19,44 @@ Public Dashboard Routes
 
 No authentication required - these are for the customer-facing dashboard.
 """
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
+if TYPE_CHECKING:
+    from continuum.billing.metering import UsageMetering
+
 router = APIRouter()
 tenant_manager = TenantManager()
+
+# Global metering instance - injected from server.py
+_metering_instance: Optional["UsageMetering"] = None
+
+
+def set_metering_instance(metering: "UsageMetering") -> None:
+    """
+    Set the global metering instance.
+
+    This is called by server.py during app initialization.
+
+    Args:
+        metering: UsageMetering instance to use for tracking
+    """
+    global _metering_instance
+    _metering_instance = metering
+
+
+def get_metering_instance() -> Optional["UsageMetering"]:
+    """
+    Get the global metering instance.
+
+    Returns:
+        UsageMetering instance or None if not initialized
+    """
+    return _metering_instance
 
 
 @router.get("/stats")
@@ -50,9 +79,22 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
+        # Get API calls for today from metering system
         api_calls_today = 0
+        metering = get_metering_instance()
+        if metering:
+            try:
+                api_calls_today = await metering.get_usage(
+                    tenant_id=tenant_id,
+                    metric='api_calls',
+                    period='day'
+                )
+            except Exception as e:
+                # Log error but don't fail the request - just return 0
+                import logging
+                logging.getLogger(__name__).warning(
+                    f"Failed to retrieve API call metrics for {tenant_id}: {e}"
+                )
 
         return {
             "tenant_id": stats["tenant_id"],
