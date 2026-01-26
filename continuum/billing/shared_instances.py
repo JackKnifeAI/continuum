@@ -15,73 +15,60 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-Public Dashboard Routes
+Shared Billing Instances
 
-No authentication required - these are for the customer-facing dashboard.
+Provides singleton instances of metering and rate limiter to ensure
+consistent usage tracking across all routes and middleware.
+
+This solves the problem of multiple routes creating separate UsageMetering
+instances with independent in-memory caches, which would lead to inconsistent
+API call counts and rate limit enforcement.
 """
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from .metering import RateLimiter, UsageMetering
 
-from continuum.billing.shared_instances import get_metering
-from continuum.billing.tiers import PricingTier, get_tier_limits
-from continuum.core.memory import TenantManager
-
-router = APIRouter()
-tenant_manager = TenantManager()
+# Singleton instances - shared across the entire application
+# These are initialized once on import and reused everywhere
+_metering_instance = None
+_rate_limiter_instance = None
 
 
-@router.get("/stats")
-async def get_dashboard_stats(
-    tenant_id: Optional[str] = Query("default", description="Tenant ID"),
-):
+def get_metering() -> UsageMetering:
     """
-    Get dashboard statistics for a tenant.
+    Get the shared UsageMetering instance.
 
-    This is a public endpoint for the customer dashboard (no auth required).
-    Returns memory stats and tier information.
+    Returns:
+        UsageMetering: Shared metering instance
     """
-    try:
-        # Get tenant's memory instance and query actual stats from database
-        memory = tenant_manager.get_tenant(tenant_id)
-        stats = await memory.aget_stats()
+    global _metering_instance
+    if _metering_instance is None:
+        _metering_instance = UsageMetering()
+    return _metering_instance
 
-        # Look up tenant's pricing tier (default to FREE for now)
-        # In production, this would query the subscription/billing database
-        tier = PricingTier.FREE
-        tier_limits = get_tier_limits(tier)
 
-        # Get API call count for today from the shared metering system
-        metering = get_metering()
-        api_calls_today = await metering.get_usage(
-            tenant_id=tenant_id,
-            metric='api_calls',
-            period='day'
-        )
+def get_rate_limiter() -> RateLimiter:
+    """
+    Get the shared RateLimiter instance.
 
-        return {
-            "tenant_id": stats["tenant_id"],
-            "instance_id": stats["instance_id"],
-            "entities": stats["entities"],
-            "messages": stats.get("messages", 0) + stats.get("auto_messages", 0),
-            "decisions": stats["decisions"],
-            "attention_links": stats["attention_links"],
-            "compound_concepts": stats["compound_concepts"],
-            "tier": tier.value.upper(),
-            "api_calls_today": api_calls_today,
-            "tier_info": {
-                "name": tier.value.upper(),
-                "limits": {
-                    "memories": tier_limits.max_memories,
-                    "api_calls_per_day": tier_limits.api_calls_per_day
-                }
-            }
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve dashboard stats: {str(e)}"
-        ) from e
+    Returns:
+        RateLimiter: Shared rate limiter instance
+    """
+    global _rate_limiter_instance
+    if _rate_limiter_instance is None:
+        _rate_limiter_instance = RateLimiter(get_metering())
+    return _rate_limiter_instance
+
+
+def reset_instances() -> None:
+    """
+    Reset singleton instances (useful for testing).
+
+    This clears the cached instances so new ones will be created
+    on the next call to get_metering() or get_rate_limiter().
+    """
+    global _metering_instance, _rate_limiter_instance
+    _metering_instance = None
+    _rate_limiter_instance = None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

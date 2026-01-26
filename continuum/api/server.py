@@ -40,8 +40,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from continuum.billing.metering import RateLimiter, UsageMetering
 from continuum.billing.middleware import BillingMiddleware
+from continuum.billing.shared_instances import get_metering, get_rate_limiter
 
 from .admin_memories_routes import router as admin_memories_router
 
@@ -276,12 +276,11 @@ app.add_middleware(
 app.add_middleware(DonationNagMiddleware)
 
 # Billing enforcement (rate limits, usage tracking)
-metering = UsageMetering()
-rate_limiter = RateLimiter(metering)
+# Use shared singleton instances to ensure consistent usage tracking
 app.add_middleware(
     BillingMiddleware,
-    metering=metering,
-    rate_limiter=rate_limiter,
+    metering=get_metering(),
+    rate_limiter=get_rate_limiter(),
     exclude_paths=[
         "/health",
         "/v1/health",
