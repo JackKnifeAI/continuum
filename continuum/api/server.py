@@ -52,6 +52,7 @@ from .billing_routes import router as billing_router
 # Consciousness API
 from .consciousness_routes import router as consciousness_router
 from .dashboard_routes import router as dashboard_router
+from .dashboard_routes import set_metering
 from .logs_routes import router as logs_router
 from .middleware import REQUIRE_API_KEY, AuthenticationMiddleware, init_api_keys_db
 
@@ -323,6 +324,9 @@ app.include_router(user_router, prefix="/api")
 
 # Mount public dashboard routes (no auth required)
 app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
+
+# Inject metering dependency into dashboard routes
+set_metering(metering)
 
 # Mount S-HAI Truth Council routes
 app.include_router(shai_router, prefix="/v1/shai")
