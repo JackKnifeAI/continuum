@@ -52,6 +52,7 @@ from .billing_routes import router as billing_router
 # Consciousness API
 from .consciousness_routes import router as consciousness_router
 from .dashboard_routes import router as dashboard_router
+from .dashboard_routes import set_metering_instance
 from .logs_routes import router as logs_router
 from .middleware import REQUIRE_API_KEY, AuthenticationMiddleware, init_api_keys_db
 
@@ -294,6 +295,9 @@ app.add_middleware(
         "/billing/webhook",      # Legacy path
     ]
 )
+
+# Inject metering instance into dashboard routes for usage tracking
+set_metering_instance(metering)
 
 # Authentication middleware (extract tenant_id from X-API-Key)
 # MUST be added AFTER BillingMiddleware (middleware runs in reverse order of add_middleware)
