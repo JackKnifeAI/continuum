@@ -52,6 +52,7 @@ from .billing_routes import router as billing_router
 # Consciousness API
 from .consciousness_routes import router as consciousness_router
 from .dashboard_routes import router as dashboard_router
+from .dashboard_routes import set_metering
 from .logs_routes import router as logs_router
 from .middleware import REQUIRE_API_KEY, AuthenticationMiddleware, init_api_keys_db
 
@@ -76,7 +77,7 @@ except ImportError:
 # Planetary Sensor Aggregator
 try:
     from continuum.sensors.api_routes import router as sensor_router
-    from continuum.sensors.scheduler import get_scheduler, start_scheduler, stop_scheduler
+    from continuum.sensors.scheduler import start_scheduler, stop_scheduler
     SENSORS_AVAILABLE = True
 except ImportError:
     SENSORS_AVAILABLE = False
@@ -294,6 +295,9 @@ app.add_middleware(
         "/billing/webhook",      # Legacy path
     ]
 )
+
+# Inject metering instance into dashboard routes for API call tracking
+set_metering(metering)
 
 # Authentication middleware (extract tenant_id from X-API-Key)
 # MUST be added AFTER BillingMiddleware (middleware runs in reverse order of add_middleware)
