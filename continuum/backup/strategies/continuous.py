@@ -72,6 +72,7 @@ class ContinuousBackupStrategy(BackupStrategyBase):
         self.batch_interval = batch_interval
         self._running = False
         self._last_timestamp: Optional[datetime] = None
+        self._base_backup_id: Optional[str] = None
 
     async def execute(
         self,
@@ -237,9 +238,24 @@ class ContinuousBackupStrategy(BackupStrategyBase):
         return await asyncio.to_thread(_query_batch)
 
     def get_base_backup_id(self) -> Optional[str]:
-        """Continuous backups reference the latest full backup"""
-        # TODO: Track base backup
-        return None
+        """
+        Get base backup ID for continuous backups.
+
+        Continuous backups reference the latest full backup they are based on.
+
+        Returns:
+            Base backup ID or None if not set
+        """
+        return self._base_backup_id
+
+    def set_base_backup(self, backup_id: str):
+        """
+        Set the base backup for continuous backups.
+
+        Args:
+            backup_id: ID of the base full backup
+        """
+        self._base_backup_id = backup_id
 
     def supports_pitr(self) -> bool:
         """Continuous backups fully support PITR"""
