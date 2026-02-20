@@ -23,11 +23,17 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from continuum.billing.metering import UsageMetering
 from continuum.billing.tiers import PricingTier, get_tier_limits
 from continuum.core.memory import TenantManager
 
 router = APIRouter()
 tenant_manager = TenantManager()
+
+# Shared metering instance for tracking API call counts per tenant.
+# In production this shares a storage backend with BillingMiddleware so
+# counts reflect all requests recorded by that middleware.
+usage_metering = UsageMetering()
 
 
 @router.get("/stats")
@@ -50,9 +56,11 @@ async def get_dashboard_stats(
         tier = PricingTier.FREE
         tier_limits = get_tier_limits(tier)
 
-        # TODO: Implement API call metering to track api_calls_today
-        # This would query a metering/usage database table
-        api_calls_today = 0
+        # Query today's API call count from the usage metering system.
+        # The metering instance records every API call via BillingMiddleware;
+        # when a persistent storage backend is configured both instances share
+        # the same underlying data.
+        api_calls_today = await usage_metering.get_usage(tenant_id, "api_calls", period="day")
 
         return {
             "tenant_id": stats["tenant_id"],
