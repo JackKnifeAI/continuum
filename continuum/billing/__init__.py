@@ -21,6 +21,8 @@ Stripe integration for subscription management, usage metering, and billing.
 Supports Free, Pro, and Enterprise tiers with usage-based pricing.
 """
 
+from typing import Optional
+
 from .metering import RateLimiter, UsageMetering
 from .middleware import (
     BillingMiddleware,
@@ -30,6 +32,22 @@ from .middleware import (
 )
 from .stripe_client import StripeClient, SubscriptionStatus
 from .tiers import PricingTier, TierLimits, get_tier_limits
+
+# ---------------------------------------------------------------------------
+# Shared singleton - ensures BillingMiddleware and dashboard routes read from
+# the same in-memory counters.
+# ---------------------------------------------------------------------------
+
+_metering_instance: Optional[UsageMetering] = None
+
+
+def get_metering() -> UsageMetering:
+    """Return the process-wide UsageMetering singleton, creating it if needed."""
+    global _metering_instance
+    if _metering_instance is None:
+        _metering_instance = UsageMetering()
+    return _metering_instance
+
 
 __all__ = [
     'StripeClient',
@@ -43,6 +61,7 @@ __all__ = [
     'FeatureAccessMiddleware',
     'StorageLimitMiddleware',
     'FederationContributionMiddleware',
+    'get_metering',
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════════
