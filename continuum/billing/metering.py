@@ -256,6 +256,23 @@ class UsageMetering:
         self._last_flush = datetime.now(timezone.utc)
 
 
+_shared_metering: "UsageMetering | None" = None
+
+
+def get_shared_metering() -> "UsageMetering":
+    """
+    Get the application-wide shared UsageMetering singleton.
+
+    Both the BillingMiddleware and dashboard routes use this instance so that
+    API call counts recorded by the middleware are visible when the dashboard
+    queries usage.
+    """
+    global _shared_metering
+    if _shared_metering is None:
+        _shared_metering = UsageMetering()
+    return _shared_metering
+
+
 class RateLimiter:
     """
     Enforce rate limits based on pricing tier.
