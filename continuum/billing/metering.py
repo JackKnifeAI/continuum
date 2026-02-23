@@ -389,6 +389,43 @@ class RateLimiter:
             self._concurrent_requests[tenant_id] -= 1
 
 
+# =============================================================================
+# GLOBAL SINGLETON
+# =============================================================================
+
+_global_metering: Optional["UsageMetering"] = None
+
+
+def get_metering() -> "UsageMetering":
+    """
+    Get the global UsageMetering singleton.
+
+    Returns the shared instance registered via set_metering(), or creates
+    a new one if none has been registered (e.g. in tests or standalone use).
+
+    Returns:
+        UsageMetering instance
+    """
+    global _global_metering
+    if _global_metering is None:
+        _global_metering = UsageMetering()
+    return _global_metering
+
+
+def set_metering(metering: "UsageMetering") -> None:
+    """
+    Register the application-wide UsageMetering instance.
+
+    Call this once at server startup so that all routes and middleware share
+    the same in-memory usage counters.
+
+    Args:
+        metering: UsageMetering instance to register as the global singleton
+    """
+    global _global_metering
+    _global_metering = metering
+
+
 class UsageReporter:
     """
     Report usage to Stripe for metered billing.
