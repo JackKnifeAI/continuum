@@ -15,70 +15,21 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """
-Public Dashboard Routes
+Shared Billing State
 
-No authentication required - these are for the customer-facing dashboard.
+Module-level singletons for billing infrastructure shared across the application.
+Importing from here (instead of instantiating locally) ensures that the
+middleware and route handlers operate on the same metering counters.
 """
-from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from .metering import RateLimiter, UsageMetering
 
-from continuum.billing.state import metering
-from continuum.billing.tiers import PricingTier, get_tier_limits
-from continuum.core.memory import TenantManager
+# Shared metering instance — imported by both the billing middleware and any
+# route that needs to read usage metrics (e.g. the dashboard stats endpoint).
+metering: UsageMetering = UsageMetering()
 
-router = APIRouter()
-tenant_manager = TenantManager()
-
-
-@router.get("/stats")
-async def get_dashboard_stats(
-    tenant_id: Optional[str] = Query("default", description="Tenant ID"),
-):
-    """
-    Get dashboard statistics for a tenant.
-
-    This is a public endpoint for the customer dashboard (no auth required).
-    Returns memory stats and tier information.
-    """
-    try:
-        # Get tenant's memory instance and query actual stats from database
-        memory = tenant_manager.get_tenant(tenant_id)
-        stats = await memory.aget_stats()
-
-        # Look up tenant's pricing tier (default to FREE for now)
-        # In production, this would query the subscription/billing database
-        tier = PricingTier.FREE
-        tier_limits = get_tier_limits(tier)
-
-        # Query the shared UsageMetering singleton for today's API call count.
-        # The BillingMiddleware increments this counter on every request; reading
-        # it here gives the live value for the current UTC day.
-        api_calls_today = await metering.get_usage(tenant_id, "api_calls", period="day")
-
-        return {
-            "tenant_id": stats["tenant_id"],
-            "instance_id": stats["instance_id"],
-            "entities": stats["entities"],
-            "messages": stats.get("messages", 0) + stats.get("auto_messages", 0),
-            "decisions": stats["decisions"],
-            "attention_links": stats["attention_links"],
-            "compound_concepts": stats["compound_concepts"],
-            "tier": tier.value.upper(),
-            "api_calls_today": api_calls_today,
-            "tier_info": {
-                "name": tier.value.upper(),
-                "limits": {
-                    "memories": tier_limits.max_memories,
-                    "api_calls_per_day": tier_limits.api_calls_per_day
-                }
-            }
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to retrieve dashboard stats: {str(e)}"
-        ) from e
+# Shared rate-limiter that wraps the same metering instance.
+rate_limiter: RateLimiter = RateLimiter(metering)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
