@@ -81,7 +81,7 @@ jobs:
             --confidence-level medium
 
       - name: Upload Bandit results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bandit-security-scan
@@ -128,7 +128,7 @@ jobs:
           safety check --short-report
 
       - name: Upload Safety results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: safety-vulnerability-report
@@ -192,7 +192,7 @@ jobs:
           output: 'trivy-results.json'
 
       - name: Upload Trivy JSON results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: trivy-scan-results
@@ -244,7 +244,7 @@ jobs:
             --output-file=licenses.md
 
       - name: Upload license report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: license-compliance-report
           path: |
@@ -290,7 +290,7 @@ jobs:
             --verbose
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: software-bill-of-materials
           path: sbom.json
@@ -380,7 +380,7 @@ jobs:
           cat security-summary.md
 
       - name: Upload summary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-summary
           path: security-summary.md
