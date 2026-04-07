@@ -243,13 +243,16 @@ class UsageMetering:
             await self._flush_cache()
 
     async def _flush_cache(self) -> None:
-        """Flush cache to persistent storage"""
+        """Flush cache to persistent storage.
+
+        Calls ``storage.save_usage(cache)`` where *cache* is a dict mapping
+        ``"<tenant_id>:<period_key>"`` strings to metric dicts.  The storage
+        backend is responsible for merging or replacing the records.
+        """
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await self.storage.save_usage(dict(self._usage_cache))
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -414,6 +417,29 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # Registry: tenant_id -> subscription_item_id (populated via register_subscription)
+        self._subscriptions: Dict[str, str] = {}
+
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register an active subscription for background usage reporting.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID for metered billing
+        """
+        self._subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription for {tenant_id}: {subscription_item_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """
+        Remove a subscription from background reporting (e.g., on cancellation).
+
+        Args:
+            tenant_id: Tenant identifier
+        """
+        self._subscriptions.pop(tenant_id, None)
+        logger.debug(f"Unregistered subscription for {tenant_id}")
 
     async def report_usage_to_stripe(
         self,
@@ -454,11 +480,27 @@ class UsageReporter:
             logger.error(f"Failed to report usage to Stripe: {e}")
 
     async def start_background_reporting(self) -> None:
-        """Start background task to report usage periodically"""
+        """Start background task to report usage to Stripe periodically.
+
+        Sleeps for *report_interval* seconds, then iterates over every
+        registered tenant→subscription_item mapping and calls
+        ``report_usage_to_stripe`` for each one.  Errors for individual
+        tenants are logged but do not interrupt reporting for others.
+        """
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
             logger.debug("Background usage reporting tick")
+
+            # Snapshot the registry to avoid mutation during iteration
+            subscriptions = dict(self._subscriptions)
+            if not subscriptions:
+                continue
+
+            for tenant_id, subscription_item_id in subscriptions.items():
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Background report failed for {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
