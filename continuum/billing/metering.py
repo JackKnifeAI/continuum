@@ -246,10 +246,11 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                # Convert nested defaultdicts to plain dicts for serialization
+                usage_snapshot = {k: dict(v) for k, v in self._usage_cache.items()}
+                await self.storage.save_usage(usage_snapshot)
+                logger.debug(f"Flushed {len(usage_snapshot)} usage entries to storage")
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -414,6 +415,29 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # Registry of active subscriptions: tenant_id -> subscription_item_id
+        self._subscriptions: Dict[str, str] = {}
+
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register an active subscription for background reporting.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID
+        """
+        self._subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription {subscription_item_id} for tenant {tenant_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """
+        Unregister a subscription from background reporting.
+
+        Args:
+            tenant_id: Tenant identifier
+        """
+        self._subscriptions.pop(tenant_id, None)
+        logger.debug(f"Unregistered subscription for tenant {tenant_id}")
 
     async def report_usage_to_stripe(
         self,
@@ -457,8 +481,21 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            if not self._subscriptions:
+                logger.debug("Background usage reporting tick: no active subscriptions")
+                continue
+
+            logger.debug(
+                f"Background usage reporting tick: {len(self._subscriptions)} active subscriptions"
+            )
+
+            # Iterate over a snapshot to avoid mutation during iteration
+            for tenant_id, subscription_item_id in list(self._subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
