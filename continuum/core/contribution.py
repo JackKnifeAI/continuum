@@ -35,12 +35,33 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
+
+# PII detection patterns
+_PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("email",      re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", re.IGNORECASE)),
+    ("phone",      re.compile(r"(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}")),
+    ("ssn",        re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("creditcard", re.compile(r"\b(?:\d[ \-]?){13,16}\b")),
+]
+
+
+def _contains_pii(text: str) -> bool:
+    """Return True if *text* matches any known PII pattern."""
+    return any(pattern.search(text) for _, pattern in _PII_PATTERNS)
+
+
+def _redact_pii(text: str) -> str:
+    """Replace all PII tokens in *text* with a [REDACTED] placeholder."""
+    for label, pattern in _PII_PATTERNS:
+        text = pattern.sub(f"[{label.upper()}_REDACTED]", text)
+    return text
 
 logger = logging.getLogger("CONTRIBUTION")
 
@@ -110,9 +131,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,23 +148,32 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = c["name"].lower().strip()
+            desc = c["desc"] or ""
+
+            # Skip concepts whose *name* is itself a PII token (e.g. an email
+            # address that was accidentally stored as a concept label).
+            if _contains_pii(name):
+                logger.debug("Skipping concept with PII in name: %s", name)
+                continue
+
+            # Redact any PII that appears inside the description text, then
+            # truncate to the storage limit so we don't leak data upstream.
+            clean_desc = _redact_pii(desc)[:200]
+
+            clean.append({"name": name, "desc": clean_desc})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": link["a"].lower().strip(),
+                "b": link["b"].lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"],
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:
