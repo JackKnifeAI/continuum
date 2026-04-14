@@ -35,12 +35,21 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
+
+# PII detection patterns
+_PII_PATTERNS: List[re.Pattern] = [
+    re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'),          # email
+    re.compile(r'\b(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b'),       # phone (US)
+    re.compile(r'\b\d{3}[\s\-]\d{2}[\s\-]\d{4}\b'),                                  # SSN
+    re.compile(r'\b(?:\d{4}[\s\-]?){3}\d{4}\b'),                                     # credit card
+]
 
 logger = logging.getLogger("CONTRIBUTION")
 
@@ -123,15 +132,22 @@ class ContributionManager:
 
         return concepts, links
 
+    def _redact_pii(self, text: str) -> str:
+        """Replace PII (emails, phones, SSNs, card numbers) with [REDACTED]."""
+        for pattern in _PII_PATTERNS:
+            text = pattern.sub("[REDACTED]", text)
+        return text
+
     def _sanitize_concepts(self, concepts: List[Dict]) -> List[Dict]:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = self._redact_pii(c["name"].lower().strip())
+            desc = self._redact_pii(c["desc"][:200]) if c["desc"] else ""
+            if "[REDACTED]" in name:
+                logger.warning("Concept name contained PII and was redacted; skipping.")
+                continue
+            clean.append({"name": name, "desc": desc})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
