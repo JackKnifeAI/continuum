@@ -217,10 +217,42 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            try:
+                from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+                if not self.ibm_token:
+                    raise ValueError("IBM_QUANTUM_TOKEN not set")
+
+                service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+                ibm_backend = service.least_busy(operational=True, simulator=False)
+                logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+                pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+                isa_qc = pm.run(qc)
+
+                sampler = Sampler(ibm_backend)
+                job = sampler.run([isa_qc], shots=shots)
+                pub_result = job.result()[0]
+                ibm_counts = pub_result.data.c.get_counts()
+
+                bits: List[int] = []
+                for bitstring, count in ibm_counts.items():
+                    bits.extend([int(b) for b in bitstring] * count)
+                    if len(bits) >= n_bits:
+                        break
+                return bits[:n_bits]
+            except ImportError:
+                logger.warning("qiskit-ibm-runtime not installed; falling back to Aer simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
+            except Exception as e:
+                logger.warning(f"IBM Quantum unavailable ({e}); falling back to Aer simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
 
         # Extract bits from measurement results
         bits = []
