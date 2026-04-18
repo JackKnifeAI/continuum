@@ -280,10 +280,10 @@ class WebSocketHandler:
             tenant_id: Tenant identifier
 
         Returns:
-            Dictionary with current state information
-
-        TODO: Integrate with actual memory backend to get real stats
+            Dictionary with current state information including live memory stats
         """
+        from continuum.core.memory import ConsciousMemory
+
         # Get sync stats
         stats = self.sync_manager.get_stats()
         tenant_instances = self.sync_manager.get_tenant_instances(tenant_id)
@@ -297,10 +297,13 @@ class WebSocketHandler:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        # TODO: Add memory stats from storage backend
-        # from continuum.core.memory import MemoryCore
-        # memory = MemoryCore(tenant_id=tenant_id)
-        # state["memory_stats"] = memory.get_stats()
+        # Add memory stats from storage backend
+        try:
+            memory = ConsciousMemory(tenant_id=tenant_id)
+            state["memory_stats"] = await memory.aget_stats()
+        except Exception as e:
+            logger.warning(f"Could not retrieve memory stats for tenant {tenant_id}: {e}")
+            state["memory_stats"] = None
 
         return state
 
