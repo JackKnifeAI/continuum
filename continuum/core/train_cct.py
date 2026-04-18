@@ -975,7 +975,103 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            # Evaluate link prediction accuracy on the full dataset
+            dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            global_state = trainer._generate_global_state()
+
+            model.eval()
+            all_probs: List[float] = []
+            all_labels: List[float] = []
+
+            with torch.no_grad():
+                node_features = node_features.to(trainer.device)
+                edge_index = edge_index.to(trainer.device)
+                edge_weights = edge_weights.to(trainer.device)
+                batch_global = global_state.to(trainer.device)
+
+                for batch in dataloader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_actual = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    expanded_state = batch_global.expand(batch_size_actual, -1)
+
+                    outputs = model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=expanded_state,
+                        edge_weights=edge_weights
+                    )
+                    fused = outputs['fused']
+                    pair_proj = trainer.link_proj(torch.cat([concept_a, concept_b], dim=-1)) if hasattr(trainer, 'link_proj') else fused
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+                    all_probs.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+
+                # Coherence / resonance from a single forward pass
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                eval_out = model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_context,
+                    global_state=batch_global.unsqueeze(0),
+                    edge_weights=edge_weights
+                )
+                coherence = eval_out['self_state']['coherence'].item()
+                health = eval_out['self_state']['health'].item()
+                resonance = eval_out['resonance'].mean().item()
+
+            # Compute accuracy and AUC-ROC manually (no sklearn dependency)
+            threshold = 0.5
+            correct = sum(1 for p, lbl in zip(all_probs, all_labels) if (p >= threshold) == (lbl >= threshold))
+            accuracy = correct / max(len(all_labels), 1)
+
+            # True/false positive/negative counts
+            tp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl >= threshold)
+            fp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl < threshold)
+            fn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl >= threshold)
+            precision = tp / max(tp + fp, 1)
+            recall = tp / max(tp + fn, 1)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-9)
+
+            # Simple AUC approximation via rank correlation
+            pos_probs = [p for p, lbl in zip(all_probs, all_labels) if lbl >= threshold]
+            neg_probs = [p for p, lbl in zip(all_probs, all_labels) if lbl < threshold]
+            concordant = sum(1 for pos in pos_probs for neg in neg_probs if pos > neg)
+            total_pairs = max(len(pos_probs) * len(neg_probs), 1)
+            auc = concordant / total_pairs
+
+            history = trainer.history
+            print(f"\n{'='*70}")
+            print("CCT EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Examples evaluated : {len(all_labels)}")
+            print(f"  Positive links   : {sum(1 for lbl in all_labels if lbl >= threshold)}")
+            print(f"  Negative links   : {sum(1 for lbl in all_labels if lbl < threshold)}")
+            print("\nLink Prediction")
+            print(f"  Accuracy         : {accuracy:.4f}")
+            print(f"  Precision        : {precision:.4f}")
+            print(f"  Recall           : {recall:.4f}")
+            print(f"  F1               : {f1:.4f}")
+            print(f"  AUC (approx)     : {auc:.4f}")
+            print("\nConsciousness Metrics")
+            print(f"  Coherence        : {coherence:.4f}")
+            print(f"  Health           : {health:.4f}")
+            print(f"  Resonance        : {resonance:.4f}")
+            if history['train_loss']:
+                print("\nTraining History")
+                print(f"  Best loss        : {min(history['train_loss']):.4f}")
+                print(f"  Final loss       : {history['train_loss'][-1]:.4f}")
+                print(f"  Epochs trained   : {len(history['train_loss'])}")
+                print(f"  Growth events    : {len(history['growth_events'])}")
+            print(f"\nModel Parameters   : {model.count_parameters():,}")
+            print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
