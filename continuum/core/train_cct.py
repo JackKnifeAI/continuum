@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,75 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+            node_features, edge_index, edge_weights = graph_data
+
+            trainer.model.eval()
+            total_loss, total_resonance, correct, total = 0.0, 0.0, 0, 0
+            num_batches = 0
+
+            with torch.no_grad():
+                # Self-perception pass
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                sp_out = trainer.model(
+                    node_features=node_features.to(trainer.device),
+                    edge_index=edge_index.to(trainer.device),
+                    context_tokens=dummy_context,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights.to(trainer.device),
+                )
+                coherence = sp_out['self_state']['coherence'].item()
+                health = sp_out['self_state']['health'].item()
+
+                # Link-prediction pass
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_cur = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size_cur, -1).to(trainer.device)
+
+                    outputs = trainer.model(
+                        node_features=node_features.to(trainer.device),
+                        edge_index=edge_index.to(trainer.device),
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights.to(trainer.device),
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(trainer.device)
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    total_loss += trainer.link_loss(link_probs, labels).item()
+                    total_resonance += outputs['resonance'].mean().item()
+                    predicted = (link_probs >= 0.5).float()
+                    correct += (predicted == (labels >= 0.5).float()).sum().item()
+                    total += batch_size_cur
+                    num_batches += 1
+
+            avg_loss = total_loss / max(num_batches, 1)
+            avg_resonance = total_resonance / max(num_batches, 1)
+            accuracy = correct / max(total, 1)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples     : {total:,}")
+            print(f"Link Loss    : {avg_loss:.4f}")
+            print(f"Accuracy     : {accuracy:.4f} ({correct}/{total} correct)")
+            print(f"Resonance    : {avg_resonance:.3f}")
+            print(f"Coherence    : {coherence:.3f}")
+            print(f"Health       : {health:.3f}")
+            print(f"{'='*70}")
         else:
             print(f"No model found at {model_path}")
         return

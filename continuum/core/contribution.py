@@ -35,12 +35,23 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
+
+_PII_PATTERNS = [
+    re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"),  # email
+    re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),  # phone (US/intl)
+]
+
+def _scrub_pii(text: str) -> str:
+    for pattern in _PII_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
 
 logger = logging.getLogger("CONTRIBUTION")
 
@@ -110,9 +121,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,10 +138,9 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
             clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
+                "name": _scrub_pii(c["name"].lower().strip()),
+                "desc": _scrub_pii(c["desc"])[:200] if c["desc"] else "",
             })
         return clean
 
@@ -138,12 +148,12 @@ class ContributionManager:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": link["a"].lower().strip(),
+                "b": link["b"].lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"],
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:
