@@ -211,20 +211,18 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        # Execute on appropriate backend
+        counts: Dict[str, int]
+        if self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+            counts = await self._run_on_ibm_quantum(qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +232,45 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Run a circuit on IBM Quantum hardware using qiskit-ibm-runtime."""
+        try:
+            from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+            service = QiskitRuntimeService(
+                channel="ibm_quantum",
+                token=self.ibm_token,
+            )
+            ibm_backend = service.least_busy(operational=True, simulator=False)
+            logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+            # Transpile circuit for the target backend
+            pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+            isa_qc = pm.run(qc)
+
+            sampler = Sampler(ibm_backend)
+            job = sampler.run([isa_qc], shots=shots)
+            result = job.result()
+
+            # SamplerV2 returns PrimitiveResult; extract counts from classical register
+            pub_result = result[0]
+            creg_name = isa_qc.cregs[0].name
+            counts: Dict[str, int] = getattr(pub_result.data, creg_name).get_counts()
+            return counts
+
+        except ImportError:
+            logger.warning("qiskit-ibm-runtime not installed; falling back to AerSimulator")
+        except Exception as e:
+            logger.warning(f"IBM Quantum connection failed ({e}); falling back to AerSimulator")
+
+        from qiskit_aer import AerSimulator
+        simulator = AerSimulator()
+        job = simulator.run(qc, shots=shots)
+        result = job.result()
+        return result.get_counts(qc)
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """
