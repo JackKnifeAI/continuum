@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,72 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state = global_state.to(trainer.device)
+
+            model.eval()
+            total_loss = total_correct = total_samples = 0
+            total_resonance = total_coherence = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size, -1)
+
+                    outputs = model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(trainer.device)
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    loss = trainer.link_loss(link_probs, labels)
+                    predicted = (link_probs >= 0.5).float()
+                    total_correct += (predicted == labels).sum().item()
+                    total_samples += batch_size
+                    total_loss += loss.item()
+                    total_resonance += outputs['resonance'].mean().item()
+                    total_coherence += outputs['self_state']['coherence'].item()
+                    num_batches += 1
+
+            avg_loss = total_loss / max(num_batches, 1)
+            accuracy = total_correct / max(total_samples, 1)
+            avg_resonance = total_resonance / max(num_batches, 1)
+            avg_coherence = total_coherence / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples  : {total_samples}")
+            print(f"Loss      : {avg_loss:.4f}")
+            print(f"Accuracy  : {accuracy:.4f} ({total_correct}/{total_samples})")
+            print(f"Resonance : {avg_resonance:.4f}")
+            print(f"Coherence : {avg_coherence:.4f}")
+            if trainer.history.get('train_loss'):
+                print(f"Train loss (last): {trainer.history['train_loss'][-1]:.4f}")
+                print(f"Growth events     : {len(trainer.history.get('growth_events', []))}")
+            print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

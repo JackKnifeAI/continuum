@@ -215,16 +215,20 @@ class QuantumInterface:
         if self.backend == QuantumBackend.SIMULATOR:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = job.result().get_counts(qc)
+        elif self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+            counts = await self._run_ibm_quantum(qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
+            logger.warning(
+                "Backend %s not yet implemented, falling back to AerSimulator",
+                self.backend.value,
+            )
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = job.result().get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +238,30 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Run a Qiskit circuit on IBM Quantum hardware using qiskit-ibm-runtime."""
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+        except ImportError as exc:
+            raise ImportError(
+                "qiskit-ibm-runtime is required for IBM Quantum access; "
+                "install it with: pip install qiskit-ibm-runtime"
+            ) from exc
+
+        loop = asyncio.get_event_loop()
+
+        def _run() -> Dict[str, int]:
+            service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+            backend = service.least_busy(operational=True, simulator=False)
+            logger.info("Connected to IBM Quantum backend: %s", backend.name)
+            sampler = Sampler(mode=backend)
+            job = sampler.run([qc], shots=shots)
+            result = job.result()
+            return result[0].data.c.get_counts()
+
+        return await loop.run_in_executor(None, _run)
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """
