@@ -975,7 +975,89 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("\nRunning evaluation...")
+            trainer.model.eval()
+
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+            node_features, edge_index, edge_weights = graph_data
+
+            total_correct = 0
+            total_samples = 0
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_eval = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.unsqueeze(0).expand(batch_size_eval, -1).to(trainer.device)
+
+                    outputs = trainer.model(
+                        node_features=node_features.to(trainer.device),
+                        edge_index=edge_index.to(trainer.device),
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights.to(trainer.device)
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_logits = (fused * pair_proj).sum(dim=-1)
+                    link_probs = torch.sigmoid(link_logits)
+
+                    predicted = (link_probs > 0.5).float()
+                    actual = (labels > 0.5).float()
+                    total_correct += (predicted == actual).sum().item()
+                    total_samples += batch_size_eval
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                # Self-state from full graph pass
+                dummy_ctx = torch.randn(1, 2, 128).to(trainer.device)
+                self_outputs = trainer.model(
+                    node_features=node_features.to(trainer.device),
+                    edge_index=edge_index.to(trainer.device),
+                    context_tokens=dummy_ctx,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights.to(trainer.device)
+                )
+                self_state = self_outputs['self_state']
+                coherence = self_state['coherence'].item()
+                health = self_state['health'].item()
+                capacity = self_state['capacity_utilization'].item()
+
+            accuracy = total_correct / max(total_samples, 1)
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Parameters:      {model.count_parameters():,}")
+            print(f"Dataset size:    {len(dataset):,}")
+            print(f"Link Accuracy:   {accuracy:.1%}")
+            print(f"Mean Resonance:  {avg_resonance:.4f}")
+            print(f"Coherence:       {coherence:.4f}")
+            print(f"Health:          {health:.4f}")
+            print(f"Capacity:        {capacity:.4f}")
+            if trainer.history.get('train_loss'):
+                print(f"Training epochs: {len(trainer.history['train_loss'])}")
+                print(f"Best train loss: {min(trainer.history['train_loss']):.4f}")
+                print(f"Growth events:   {len(trainer.history['growth_events'])}")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
