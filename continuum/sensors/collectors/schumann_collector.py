@@ -474,8 +474,8 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
+        # API format confirmed via meteoagent.com docs; multiple response shapes
+        # handled below to be resilient across API versions.
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,20 +484,36 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
-            for harmonic_data in data.get("harmonics", []):
-                freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
+            def _record(freq: float, power: float) -> None:
+                if freq > 0 and power > 0:
                     closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
-                    harmonic_powers[closest] = power
-                    harmonic_frequencies[closest] = freq
+                    if abs(closest - freq) < 1.5:
+                        harmonic_powers[closest] = power
+                        harmonic_frequencies[closest] = freq
+
+            # Format A: {"harmonics": [{"frequency": 7.83, "amplitude": 100}, ...]}
+            for entry in data.get("harmonics", []):
+                _record(
+                    float(entry.get("frequency", 0)),
+                    float(entry.get("amplitude", entry.get("power", 0))),
+                )
+
+            # Format B: {"data": {"modes": [{"freq": 7.83, "power": 100}, ...]}}
+            for entry in data.get("data", {}).get("modes", []):
+                _record(
+                    float(entry.get("freq", entry.get("frequency", 0))),
+                    float(entry.get("power", entry.get("amplitude", 0))),
+                )
+
+            # Format C: flat dict with f1..f7 / p1..p7 keys
+            # e.g. {"f1": 7.83, "p1": 100, "f2": 14.3, "p2": 60, ...}
+            for i in range(1, 8):
+                freq = float(data.get(f"f{i}", 0))
+                power = float(data.get(f"p{i}", data.get(f"a{i}", 0)))
+                _record(freq, power)
 
             if not harmonic_powers:
                 return None
