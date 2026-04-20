@@ -469,32 +469,40 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Fetch from MeteoAgent API.
 
         MeteoAgent provides Schumann forecasts and real-time data.
-        API endpoint (if available): meteoagent.com/api/schumann
+        Requires config fields:
+            schumann_meteoagent_url: API endpoint URL
+            schumann_meteoagent_api_key: Optional Bearer token (set when confirmed)
+
+        Expected JSON response shape:
+            {"harmonics": [{"frequency": 7.83, "amplitude": 100.0}, ...]}
+
+        TODO: Confirm exact endpoint path and auth scheme with MeteoAgent,
+              then remove this note and set schumann_meteoagent_url in config.
 
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
 
+        headers: Dict[str, str] = {}
+        api_key = getattr(self.config, 'schumann_meteoagent_api_key', None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
         try:
-            response = await self.fetch_with_retry(url)
+            response = await self.fetch_with_retry(url, headers=headers)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            # Parse MeteoAgent format: list of {frequency, amplitude} objects
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
             for harmonic_data in data.get("harmonics", []):
                 freq = float(harmonic_data.get("frequency", 0))
                 power = float(harmonic_data.get("amplitude", 0))
                 if freq > 0:
-                    # Find closest standard harmonic
                     closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
                     harmonic_powers[closest] = power
                     harmonic_frequencies[closest] = freq

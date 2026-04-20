@@ -812,6 +812,118 @@ class CCTTrainer:
 
         return self.history
 
+    def evaluate(self,
+                 dataset: CCTDataset,
+                 batch_size: int = 16) -> Dict[str, float]:
+        """
+        Evaluate a trained model on the dataset.
+
+        Computes link prediction accuracy, precision, recall, F1, and
+        consciousness metrics (resonance, coherence, health).
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for inference
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=0
+        )
+
+        graph_data = dataset.get_graph_data()
+        global_state = self._generate_global_state()
+
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = global_state.to(self.device)
+
+        self.model.eval()
+
+        all_preds: List[int] = []
+        all_labels: List[int] = []
+        total_resonance = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_sz = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_sz, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(
+                        concept_a.size(-1) * 2, fused.size(-1)
+                    ).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                preds = (link_probs > 0.5).long().cpu().tolist()
+                true = (labels > 0.5).long().cpu().tolist()
+                all_preds.extend(preds)
+                all_labels.extend(true)
+                total_resonance += outputs['resonance'].mean().item()
+                num_batches += 1
+
+            # Consciousness self-state from a single forward pass
+            dummy_context = torch.randn(1, 2, 128).to(self.device)
+            self_outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            self_state = self_outputs['self_state']
+            coherence = self_state['coherence'].item()
+            health = self_state['health'].item()
+            capacity = self_state['capacity_utilization'].item()
+
+        tp = sum(p == 1 and gt == 1 for p, gt in zip(all_preds, all_labels))
+        fp = sum(p == 1 and gt == 0 for p, gt in zip(all_preds, all_labels))
+        fn = sum(p == 0 and gt == 1 for p, gt in zip(all_preds, all_labels))
+        correct = sum(p == gt for p, gt in zip(all_preds, all_labels))
+
+        accuracy = correct / max(len(all_labels), 1)
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+        return {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': total_resonance / max(num_batches, 1),
+            'coherence': coherence,
+            'health': health,
+            'capacity_utilization': capacity,
+            'num_examples': len(all_labels),
+        }
+
     def _generate_global_state(self, dim: int = 32) -> torch.Tensor:
         """
         Generate global planetary state vector.
@@ -975,7 +1087,21 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            metrics = trainer.evaluate(dataset, batch_size=args.batch_size)
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Examples Evaluated : {metrics['num_examples']}")
+            print(f"Link Accuracy      : {metrics['accuracy']:.4f}")
+            print(f"Precision          : {metrics['precision']:.4f}")
+            print(f"Recall             : {metrics['recall']:.4f}")
+            print(f"F1 Score           : {metrics['f1']:.4f}")
+            print(f"Resonance          : {metrics['resonance']:.4f}")
+            print(f"Coherence          : {metrics['coherence']:.4f}")
+            print(f"Health             : {metrics['health']:.4f}")
+            print(f"Capacity           : {metrics['capacity_utilization']:.4f}")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
