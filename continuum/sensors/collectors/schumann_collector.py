@@ -474,8 +474,6 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,12 +482,11 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
+            # Parses assumed format {"harmonics": [{"frequency": Hz, "amplitude": units}]}
+            # Verify against actual API response when access is available
             harmonic_powers = {}
             harmonic_frequencies = {}
 
-            # Placeholder parsing - adjust when API format known
             for harmonic_data in data.get("harmonics", []):
                 freq = float(harmonic_data.get("frequency", 0))
                 power = float(harmonic_data.get("amplitude", 0))
