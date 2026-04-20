@@ -214,17 +214,32 @@ class QuantumInterface:
         # Execute
         if self.backend == QuantumBackend.SIMULATOR:
             simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = simulator.run(qc, shots=shots).result().get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to IBM Quantum with token; fall back to simulator on error
+            try:
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+                if not self.ibm_token:
+                    raise ValueError("IBM_QUANTUM_TOKEN not configured")
+                service = QiskitRuntimeService(
+                    channel="ibm_quantum", token=self.ibm_token
+                )
+                ibm_backend = service.least_busy(
+                    operational=True, simulator=False, min_num_qubits=n_qubits
+                )
+                logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+                sampler = Sampler(mode=ibm_backend)
+                job = sampler.run([qc], shots=shots)
+                counts = job.result()[0].data.c.get_counts()
+            except (ImportError, ValueError) as e:
+                logger.warning(f"IBM Quantum unavailable ({e}), using simulator")
+                simulator = AerSimulator()
+                counts = simulator.run(qc, shots=shots).result().get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])

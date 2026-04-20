@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,92 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Evaluate link prediction and model health on the full dataset
+            print("\nRunning evaluation...")
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            global_state = trainer._generate_global_state()
+
+            trainer.model.eval()
+            eval_loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=0)
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(concept_a.size(0), -1).to(trainer.device)
+
+                    outputs = trainer.model(
+                        node_features=node_features.to(trainer.device),
+                        edge_index=edge_index.to(trainer.device),
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights.to(trainer.device)
+                    )
+
+                    # Cosine similarity as link score (no stored link_proj needed)
+                    cos_sim = nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                    link_probs = (cos_sim + 1.0) / 2.0
+
+                    all_preds.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+            # Compute link prediction metrics
+            preds_t = torch.tensor(all_preds)
+            labels_t = torch.tensor(all_labels)
+            binary_preds = (preds_t >= 0.5).float()
+            binary_labels = (labels_t >= 0.5).float()
+
+            accuracy = (binary_preds == binary_labels).float().mean().item()
+            tp = float(((binary_preds == 1) & (binary_labels == 1)).sum())
+            fp = float(((binary_preds == 1) & (binary_labels == 0)).sum())
+            fn = float(((binary_preds == 0) & (binary_labels == 1)).sum())
+            precision = tp / max(tp + fp, 1.0)
+            recall = tp / max(tp + fn, 1.0)
+            f1 = 2.0 * precision * recall / max(precision + recall, 1e-8)
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            # Model self-perception pass
+            with torch.no_grad():
+                dummy_ctx = torch.randn(1, 2, 128).to(trainer.device)
+                self_out = trainer.model(
+                    node_features=node_features.to(trainer.device),
+                    edge_index=edge_index.to(trainer.device),
+                    context_tokens=dummy_ctx,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights.to(trainer.device)
+                )
+                coherence = self_out['self_state']['coherence'].item()
+                health = self_out['self_state']['health'].item()
+                capacity = self_out['self_state']['capacity_utilization'].item()
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples Evaluated: {len(all_preds):,}")
+            print(f"Link Accuracy:      {accuracy:.4f}")
+            print(f"Precision:          {precision:.4f}")
+            print(f"Recall:             {recall:.4f}")
+            print(f"F1 Score:           {f1:.4f}")
+            print(f"Avg Resonance:      {avg_resonance:.4f}")
+            print(f"Coherence:          {coherence:.4f}")
+            print(f"Health:             {health:.4f}")
+            print(f"Capacity:           {capacity:.4f}")
+            if trainer.history.get('train_loss'):
+                best_loss = min(trainer.history['train_loss'])
+                n_epochs = len(trainer.history['train_loss'])
+                print(f"Best Train Loss:    {best_loss:.4f} (over {n_epochs} epochs)")
+            print(f"Growth Events:      {len(trainer.history.get('growth_events', []))}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
