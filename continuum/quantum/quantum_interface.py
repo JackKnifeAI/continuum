@@ -217,10 +217,32 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to IBM Quantum with token when available
+            if self.ibm_token:
+                try:
+                    from qiskit_ibm_runtime import QiskitRuntimeService
+                    service = QiskitRuntimeService(
+                        channel="ibm_quantum",
+                        token=self.ibm_token,
+                    )
+                    ibm_backend = service.least_busy(
+                        operational=True,
+                        simulator=False,
+                        min_num_qubits=n_qubits,
+                    )
+                    logger.info(f"Connected to IBM Quantum: {ibm_backend.name}")
+                    job = ibm_backend.run(qc, shots=shots)
+                    result = job.result()
+                except Exception as e:
+                    logger.warning(f"IBM Quantum connection failed, falling back to simulator: {e}")
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
+            else:
+                logger.warning("IBM_QUANTUM_TOKEN not set, falling back to simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
 
         # Extract bits from measurement results
         bits = []
