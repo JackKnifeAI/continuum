@@ -215,16 +215,12 @@ class QuantumInterface:
         if self.backend == QuantumBackend.SIMULATOR:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = job.result().get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = await self._run_on_ibm_quantum(qc, shots, n_qubits)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +230,58 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_ibm_quantum(
+        self,
+        qc: Any,
+        shots: int,
+        n_qubits: int,
+    ) -> Dict[str, int]:
+        """
+        Execute a circuit on IBM Quantum hardware via qiskit_ibm_runtime.
+
+        Falls back to AerSimulator if the token is missing or the connection fails.
+        Uses SamplerV2 (the current qiskit-ibm-runtime primitive) and converts its
+        BitArray result into the counts dict format used throughout this module.
+        """
+        if not self.ibm_token:
+            logger.warning("IBM_QUANTUM_TOKEN not set — falling back to AerSimulator")
+            return await self._aer_counts(qc, shots)
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+            service = QiskitRuntimeService(
+                channel="ibm_quantum",
+                token=self.ibm_token,
+            )
+            ibm_backend = service.least_busy(
+                operational=True,
+                simulator=False,
+                min_num_qubits=n_qubits,
+            )
+            logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+            sampler = Sampler(mode=ibm_backend)
+            job = sampler.run([qc], shots=shots)
+            pub_result = job.result()[0]
+
+            # SamplerV2 returns a BitArray per classical register
+            creg_name = qc.cregs[0].name
+            bit_array = getattr(pub_result.data, creg_name)
+            return bit_array.get_counts()
+
+        except Exception as e:
+            logger.warning(f"IBM Quantum execution failed ({e}) — falling back to AerSimulator")
+            return await self._aer_counts(qc, shots)
+
+    async def _aer_counts(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Run a circuit on AerSimulator and return a counts dict."""
+        from qiskit_aer import AerSimulator
+        simulator = AerSimulator()
+        job = simulator.run(qc, shots=shots)
+        return job.result().get_counts(qc)
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """

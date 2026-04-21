@@ -469,37 +469,67 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Fetch from MeteoAgent API.
 
         MeteoAgent provides Schumann forecasts and real-time data.
-        API endpoint (if available): meteoagent.com/api/schumann
+        Configure via:
+          schumann_meteoagent_url: API endpoint URL
+          schumann_meteoagent_api_key: Optional API key (Bearer token)
+
+        Handles three known response shapes:
+          {"harmonics": [{"frequency": 7.83, "amplitude": 100.0}, ...]}
+          {"data": {"7.83": {"power": 100.0}, ...}}
+          {"schumann": {"fundamental": 7.83, "power": 100.0}}
 
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
 
+        api_key = getattr(self.config, 'schumann_meteoagent_api_key', None)
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+
         try:
-            response = await self.fetch_with_retry(url)
+            response = await self.fetch_with_retry(url, headers=headers)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
-            for harmonic_data in data.get("harmonics", []):
-                freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
-                    closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
-                    harmonic_powers[closest] = power
-                    harmonic_frequencies[closest] = freq
+            # Format 1: {"harmonics": [{"frequency": 7.83, "amplitude": 100.0}, ...]}
+            if "harmonics" in data:
+                for harmonic_data in data["harmonics"]:
+                    freq = float(harmonic_data.get("frequency", 0))
+                    power = float(harmonic_data.get("amplitude", harmonic_data.get("power", 0)))
+                    if freq > 0 and power > 0:
+                        closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                        if abs(closest - freq) < 1.0:
+                            harmonic_powers[closest] = power
+                            harmonic_frequencies[closest] = freq
+
+            # Format 2: {"data": {"7.83": {"power": 100.0}, ...}}
+            elif "data" in data and isinstance(data["data"], dict):
+                for freq_str, values in data["data"].items():
+                    try:
+                        freq = float(freq_str)
+                        power = float(values.get("power", values.get("amplitude", 0)))
+                        if freq > 0 and power > 0:
+                            closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                            if abs(closest - freq) < 1.0:
+                                harmonic_powers[closest] = power
+                                harmonic_frequencies[closest] = freq
+                    except (ValueError, AttributeError):
+                        continue
+
+            # Format 3: {"schumann": {"fundamental": 7.83, "power": 100.0}}
+            elif "schumann" in data:
+                schumann = data["schumann"]
+                fund_freq = float(schumann.get("fundamental", SCHUMANN_FUNDAMENTAL))
+                fund_power = float(schumann.get("power", HARMONIC_POWER_BASELINE[SCHUMANN_FUNDAMENTAL]))
+                harmonic_powers[SCHUMANN_FUNDAMENTAL] = fund_power
+                harmonic_frequencies[SCHUMANN_FUNDAMENTAL] = fund_freq
 
             if not harmonic_powers:
+                logger.debug("MeteoAgent: unrecognized response format or no harmonic data")
                 return None
 
             return self._create_reading_from_data(

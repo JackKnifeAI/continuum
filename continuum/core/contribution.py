@@ -35,12 +35,20 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
+
+# PII patterns: match before redaction so no private data enters the federation
+_PII_PATTERNS: List[re.Pattern] = [
+    re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", re.IGNORECASE),  # email
+    re.compile(r"\b(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}\b"),         # US/CA phone
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                                                # SSN
+]
 
 logger = logging.getLogger("CONTRIBUTION")
 
@@ -110,9 +118,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,23 +135,31 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = self._scrub_pii(c["name"].lower().strip())
+            # Drop concepts whose name was entirely PII (nothing useful remains)
+            if not name or name == "[REDACTED]":
+                continue
+            desc = self._scrub_pii(c["desc"][:200]) if c["desc"] else ""
+            clean.append({"name": name, "desc": desc})
         return clean
+
+    @staticmethod
+    def _scrub_pii(text: str) -> str:
+        """Replace emails, phone numbers, and SSNs with [REDACTED]."""
+        for pattern in _PII_PATTERNS:
+            text = pattern.sub("[REDACTED]", text)
+        return text
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": link["a"].lower().strip(),
+                "b": link["b"].lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"],
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:
