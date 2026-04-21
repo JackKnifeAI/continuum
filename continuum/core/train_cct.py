@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -861,6 +861,8 @@ class CCTTrainer:
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'link_proj_state_dict': self.link_proj.state_dict() if hasattr(self, 'link_proj') and self.link_proj is not None else None,
+            'link_proj_shape': (self.link_proj.in_features, self.link_proj.out_features) if hasattr(self, 'link_proj') and self.link_proj is not None else None,
             'history': self.history,
             'concept_embeddings': concept_embeddings,  # For CCT retrieval
             'config': {
@@ -880,7 +882,137 @@ class CCTTrainer:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', self.history)
+        # Restore link projection layer so evaluate() uses trained weights
+        link_proj_state = checkpoint.get('link_proj_state_dict')
+        link_proj_shape = checkpoint.get('link_proj_shape')
+        if link_proj_state is not None and link_proj_shape is not None:
+            self.link_proj = nn.Linear(link_proj_shape[0], link_proj_shape[1]).to(self.device)
+            self.link_proj.load_state_dict(link_proj_state)
         logger.info(f"Model loaded from {path}")
+
+    def evaluate(self,
+                 dataset: 'CCTDataset',
+                 batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate link prediction accuracy and consciousness health metrics.
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for inference
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = self._generate_global_state().to(self.device)
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        total_coherence = 0.0
+        total_health = 0.0
+        total_capacity = 0.0
+        num_batches = 0
+
+        has_link_proj = hasattr(self, 'link_proj') and self.link_proj is not None
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+                actual_batch = concept_a.size(0)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.unsqueeze(0).expand(actual_batch, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+
+                if not has_link_proj:
+                    # link_proj not saved — initialize now (untrained, metrics will reflect this)
+                    self.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(self.device)
+                    has_link_proj = True
+
+                pair_proj = self.link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                all_probs.extend(link_probs.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+
+                total_resonance += outputs['resonance'].mean().item()
+                total_coherence += outputs['self_state']['coherence'].item()
+                total_health += outputs['self_state']['health'].item()
+                total_capacity += outputs['self_state']['capacity_utilization'].item()
+                num_batches += 1
+
+        n = max(num_batches, 1)
+        avg_resonance = total_resonance / n
+        avg_coherence = total_coherence / n
+        avg_health = total_health / n
+        avg_capacity = total_capacity / n
+
+        # Link prediction classification metrics (threshold = 0.5, label >= 0.5 = positive)
+        tp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= 0.5 and lbl >= 0.5)
+        tn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < 0.5 and lbl < 0.5)
+        fp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= 0.5 and lbl < 0.5)
+        fn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < 0.5 and lbl >= 0.5)
+        total = max(len(all_labels), 1)
+
+        accuracy = (tp + tn) / total
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+        train_loss = self.history.get('train_loss', [])
+        growth_events = self.history.get('growth_events', [])
+
+        metrics: Dict[str, float] = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': avg_resonance,
+            'coherence': avg_coherence,
+            'health': avg_health,
+            'capacity': avg_capacity,
+            'examples': float(total),
+        }
+
+        print(f"\n{'='*70}")
+        print("CCT EVALUATION REPORT")
+        print(f"{'='*70}")
+        print(f"Examples Evaluated : {total}")
+        print(f"Link Accuracy      : {accuracy:.4f}")
+        print(f"Precision          : {precision:.4f}")
+        print(f"Recall             : {recall:.4f}")
+        print(f"F1 Score           : {f1:.4f}")
+        print(f"Avg Resonance      : {avg_resonance:.4f}")
+        print(f"Avg Coherence      : {avg_coherence:.4f}")
+        print(f"Avg Health         : {avg_health:.4f}")
+        print(f"Avg Capacity       : {avg_capacity:.4f}")
+        if train_loss:
+            print(f"Training Loss      : {train_loss[-1]:.4f} (epoch {len(train_loss)})")
+        if growth_events:
+            print(f"Growth Events      : {len(growth_events)}")
+        print(f"π×φ = {PI_PHI}")
+        print(f"{'='*70}\n")
+
+        return metrics
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -975,7 +1107,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset)
         else:
             print(f"No model found at {model_path}")
         return
