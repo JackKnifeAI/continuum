@@ -193,6 +193,34 @@ class QuantumInterface:
 
         return bits
 
+    def _connect_ibm_quantum(self) -> Any:
+        """Connect to IBM Quantum and return the least-busy real backend."""
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+        except ImportError as e:
+            raise RuntimeError(
+                "qiskit-ibm-runtime not installed. Run: pip install qiskit-ibm-runtime"
+            ) from e
+        if not self.ibm_token:
+            raise ValueError(
+                "IBM_QUANTUM_TOKEN is required for IBM Quantum backend. "
+                "Set the environment variable or pass ibm_token to QuantumInterface."
+            )
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        backend = service.least_busy(operational=True, simulator=False)
+        logger.info(f"Connected to IBM Quantum backend: {backend.name}")
+        return backend
+
+    def _run_circuit_ibm(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Run a circuit on IBM Quantum hardware and return measurement counts."""
+        from qiskit_ibm_runtime import SamplerV2 as Sampler
+        backend = self._connect_ibm_quantum()
+        sampler = Sampler(backend)
+        job = sampler.run([qc], shots=shots)
+        result = job.result()
+        # SamplerV2 DataBin: classical register 'c' from QuantumCircuit(n, n)
+        return result[0].data.c.get_counts()
+
     async def _generate_qiskit_random(self, n_bits: int) -> List[int]:
         """Generate random bits using Qiskit on real quantum hardware."""
         from qiskit import QuantumCircuit
@@ -211,20 +239,19 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
+        # Execute and get counts
         if self.backend == QuantumBackend.SIMULATOR:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to IBM Quantum with token; run in executor to avoid blocking
+            loop = asyncio.get_running_loop()
+            counts = await loop.run_in_executor(None, lambda: self._run_circuit_ibm(qc, shots))
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
