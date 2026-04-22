@@ -54,6 +54,7 @@ from typing import Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from ..storage.base import StorageBackend
 from .events import (
     BaseEvent,
     EventType,
@@ -76,14 +77,20 @@ class WebSocketHandler:
     HEARTBEAT_INTERVAL = 30.0  # Seconds between heartbeats
     HEARTBEAT_TIMEOUT = 90.0   # Seconds before considering connection dead
 
-    def __init__(self, sync_manager: Optional[SyncManager] = None):
+    def __init__(
+        self,
+        sync_manager: Optional[SyncManager] = None,
+        storage: Optional[StorageBackend] = None,
+    ):
         """
         Initialize WebSocket handler.
 
         Args:
             sync_manager: Optional SyncManager instance (uses global if None)
+            storage: Optional StorageBackend for memory statistics
         """
         self.sync_manager = sync_manager or get_sync_manager()
+        self.storage = storage
 
     async def handle(
         self,
@@ -280,9 +287,8 @@ class WebSocketHandler:
             tenant_id: Tenant identifier
 
         Returns:
-            Dictionary with current state information
-
-        TODO: Integrate with actual memory backend to get real stats
+            Dictionary with current state information including storage stats
+            when a StorageBackend is configured.
         """
         # Get sync stats
         stats = self.sync_manager.get_stats()
@@ -297,10 +303,15 @@ class WebSocketHandler:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        # TODO: Add memory stats from storage backend
-        # from continuum.core.memory import MemoryCore
-        # memory = MemoryCore(tenant_id=tenant_id)
-        # state["memory_stats"] = memory.get_stats()
+        # Add memory stats from storage backend when available
+        if self.storage is not None:
+            try:
+                state["memory_stats"] = self.storage.get_stats()
+                state["storage_healthy"] = self.storage.is_healthy()
+            except Exception as e:
+                logger.warning(f"Failed to fetch storage stats: {e}")
+                state["memory_stats"] = None
+                state["storage_healthy"] = False
 
         return state
 

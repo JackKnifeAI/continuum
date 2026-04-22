@@ -216,8 +216,26 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+        elif self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+            try:
+                from qiskit import transpile as qiskit_transpile
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                service = QiskitRuntimeService(
+                    channel="ibm_quantum",
+                    token=self.ibm_token,
+                )
+                ibm_backend = service.least_busy(simulator=False, operational=True)
+                logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+                transpiled = qiskit_transpile(qc, ibm_backend)
+                job = ibm_backend.run(transpiled, shots=shots)
+                result = job.result()
+            except Exception as e:
+                logger.warning(f"IBM Quantum connection failed: {e}. Falling back to AerSimulator.")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
+            logger.warning(f"Backend {self.backend.value} not yet implemented. Using AerSimulator.")
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
