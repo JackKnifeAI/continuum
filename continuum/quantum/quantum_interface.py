@@ -105,6 +105,7 @@ class QuantumInterface:
         self.ibm_token = ibm_token or os.environ.get("IBM_QUANTUM_TOKEN")
         self._qiskit_available = False
         self._backend_instance = None
+        self._ibm_service: Optional[Any] = None
 
         # Try to import Qiskit
         try:
@@ -211,20 +212,19 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        # Execute on appropriate backend
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            counts = self._run_ibm_quantum_circuit(qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
+            if self.backend != QuantumBackend.SIMULATOR:
+                logger.warning(
+                    f"Backend {self.backend.value} not yet implemented, using local simulator"
+                )
             simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = simulator.run(qc, shots=shots).result().get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +234,53 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    def _get_ibm_service(self) -> Any:
+        """Get or create a cached IBM Quantum service connection."""
+        if self._ibm_service is not None:
+            return self._ibm_service
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+        except ImportError as e:
+            raise RuntimeError(
+                "qiskit-ibm-runtime not installed: pip install qiskit-ibm-runtime"
+            ) from e
+
+        if not self.ibm_token:
+            raise ValueError(
+                "IBM Quantum token not configured. "
+                "Set IBM_QUANTUM_TOKEN env var or pass ibm_token to QuantumInterface."
+            )
+
+        self._ibm_service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        logger.info("Connected to IBM Quantum service")
+        return self._ibm_service
+
+    def _run_ibm_quantum_circuit(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Execute a circuit on IBM Quantum hardware, returning counts dict."""
+        try:
+            from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+            service = self._get_ibm_service()
+            backend = service.least_busy(operational=True, simulator=False)
+            logger.info(f"Submitting to IBM Quantum backend: {backend.name}")
+
+            # Transpile for the specific device topology
+            pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
+            isa_circuit = pm.run(qc)
+
+            sampler = Sampler(backend)
+            job = sampler.run([isa_circuit], shots=shots)
+            result = job.result()
+            # SamplerV2 returns PrimitiveResult; classical register is named 'c' by default
+            return result[0].data.c.get_counts()
+
+        except Exception as e:
+            logger.error(f"IBM Quantum execution failed: {e} — falling back to local simulator")
+            from qiskit_aer import AerSimulator
+            return AerSimulator().run(qc, shots=shots).result().get_counts(qc)
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """

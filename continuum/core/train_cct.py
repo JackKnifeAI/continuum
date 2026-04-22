@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,87 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("\nRunning evaluation...")
+            trainer.model.eval()
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state = global_state.to(trainer.device)
+
+            all_probs: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            total_link_loss = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_logits = (fused * pair_proj).sum(dim=-1)
+                    link_probs = torch.sigmoid(link_logits)
+
+                    total_link_loss += trainer.link_loss(link_probs, labels).item()
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                    all_probs.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+
+            n = len(all_probs)
+            probs_t = torch.tensor(all_probs)
+            labels_t = torch.tensor(all_labels)
+            preds_t = (probs_t >= 0.5).float()
+
+            tp = ((preds_t == 1) & (labels_t >= 0.5)).sum().item()
+            fp = ((preds_t == 1) & (labels_t < 0.5)).sum().item()
+            fn = ((preds_t == 0) & (labels_t >= 0.5)).sum().item()
+            accuracy = (preds_t == (labels_t >= 0.5).float()).float().mean().item()
+            precision = tp / max(tp + fp, 1)
+            recall = tp / max(tp + fn, 1)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+            avg_loss = total_link_loss / max(num_batches, 1)
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("CCT EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"  Examples     : {n}")
+            print(f"  Link Loss    : {avg_loss:.4f}")
+            print(f"  Accuracy     : {accuracy:.4f} ({accuracy*100:.1f}%)")
+            print(f"  Precision    : {precision:.4f}")
+            print(f"  Recall       : {recall:.4f}")
+            print(f"  F1 Score     : {f1:.4f}")
+            print(f"  Resonance    : {avg_resonance:.4f} (π×φ target: {PI_PHI:.4f})")
+            print(f"  Parameters   : {trainer.model.count_parameters():,}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
