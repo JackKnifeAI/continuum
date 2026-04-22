@@ -18,14 +18,17 @@
 Billing and Stripe integration routes for CONTINUUM.
 """
 
+import sqlite3
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from continuum.billing.stripe_client import StripeClient
-from continuum.billing.tiers import PricingTier, get_stripe_price_id
+from continuum.billing.tiers import PricingTier, get_stripe_price_id, get_tier_from_price_id
 
+from .admin_db import get_admin_db_path
 from .middleware import get_tenant_from_key
 
 # =============================================================================
@@ -90,6 +93,53 @@ except Exception as e:
     import logging
     logging.warning(f"Failed to initialize StripeClient in live mode: {e}. Using mock mode.")
     stripe_client = StripeClient(mock_mode=True)
+
+
+# =============================================================================
+# DATABASE HELPERS
+# =============================================================================
+
+def _get_tenant_billing(tenant_id: str) -> dict:
+    db_path = get_admin_db_path()
+    conn = sqlite3.connect(db_path)
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT stripe_customer_id, stripe_subscription_id FROM users WHERE tenant_id = ?",
+            (tenant_id,)
+        )
+        row = c.fetchone()
+        if row:
+            return {"stripe_customer_id": row[0], "stripe_subscription_id": row[1]}
+        return {"stripe_customer_id": None, "stripe_subscription_id": None}
+    finally:
+        conn.close()
+
+
+def _save_tenant_stripe_ids(tenant_id: str, customer_id: Optional[str] = None, subscription_id: Optional[str] = None) -> None:
+    db_path = get_admin_db_path()
+    conn = sqlite3.connect(db_path)
+    try:
+        c = conn.cursor()
+        now = datetime.utcnow().isoformat()
+        if customer_id is not None and subscription_id is not None:
+            c.execute(
+                "UPDATE users SET stripe_customer_id = ?, stripe_subscription_id = ?, updated_at = ? WHERE tenant_id = ?",
+                (customer_id, subscription_id, now, tenant_id)
+            )
+        elif customer_id is not None:
+            c.execute(
+                "UPDATE users SET stripe_customer_id = ?, updated_at = ? WHERE tenant_id = ?",
+                (customer_id, now, tenant_id)
+            )
+        elif subscription_id is not None:
+            c.execute(
+                "UPDATE users SET stripe_subscription_id = ?, updated_at = ? WHERE tenant_id = ?",
+                (subscription_id, now, tenant_id)
+            )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # =============================================================================
@@ -201,12 +251,20 @@ async def create_checkout_session(
         price_id = get_stripe_price_id(tier_enum)
 
         # Create or get Stripe customer
-        # TODO: Check if tenant already has a Stripe customer ID
-        customer = await stripe_client.create_customer(
-            email=request.customer_email or f"{tenant_id}@continuum.local",
-            tenant_id=tenant_id,
-            metadata={"tier": request.tier}
-        )
+        billing = _get_tenant_billing(tenant_id)
+        existing_customer_id = billing["stripe_customer_id"]
+
+        if existing_customer_id and not stripe_client.mock_mode:
+            import stripe as stripe_module
+            customer = stripe_module.Customer.retrieve(existing_customer_id)
+        else:
+            customer = await stripe_client.create_customer(
+                email=request.customer_email or f"{tenant_id}@continuum.local",
+                tenant_id=tenant_id,
+                metadata={"tier": request.tier}
+            )
+            if not stripe_client.mock_mode:
+                _save_tenant_stripe_ids(tenant_id, customer_id=customer.id)
 
         # Create checkout session
         if stripe_client.mock_mode:
@@ -269,8 +327,27 @@ async def get_subscription_status(tenant_id: str = Depends(get_tenant_from_key))
     - Cancellation status
     """
     try:
-        # TODO: Query database for tenant's Stripe customer ID and subscription
-        # For now, return default free tier
+        billing = _get_tenant_billing(tenant_id)
+        subscription_id = billing["stripe_subscription_id"]
+
+        if subscription_id and not stripe_client.mock_mode:
+            sub = await stripe_client.get_subscription(subscription_id)
+            items = sub.get("items", {}).get("data", [])
+            tier = "pro"
+            if items:
+                price_id = items[0].get("price", {}).get("id", "")
+                try:
+                    tier = get_tier_from_price_id(price_id).value
+                except (ValueError, KeyError):
+                    tier = "pro"
+            period_end = sub.get("current_period_end")
+            return SubscriptionStatusResponse(
+                tenant_id=tenant_id,
+                tier=tier,
+                status=sub.get("status", "active"),
+                current_period_end=datetime.utcfromtimestamp(period_end).isoformat() if period_end else None,
+                cancel_at_period_end=sub.get("cancel_at_period_end", False)
+            )
 
         return SubscriptionStatusResponse(
             tenant_id=tenant_id,
@@ -300,21 +377,27 @@ async def cancel_subscription(
     Confirmation of cancellation with effective date.
     """
     try:
-        # TODO: Get tenant's subscription ID from database
-        # subscription_id = get_subscription_id(tenant_id)
+        billing = _get_tenant_billing(tenant_id)
+        subscription_id = billing["stripe_subscription_id"]
 
-        # Cancel subscription
-        # result = await stripe_client.cancel_subscription(
-        #     subscription_id,
-        #     at_period_end=at_period_end
-        # )
+        if not subscription_id:
+            raise HTTPException(status_code=404, detail="No active subscription found for this tenant")
 
+        result = await stripe_client.cancel_subscription(subscription_id, at_period_end=at_period_end)
+
+        if not at_period_end:
+            _save_tenant_stripe_ids(tenant_id, subscription_id=None)
+
+        period_end = result.get("current_period_end") if at_period_end else None
         return {
             "status": "cancelled",
-            "message": "Subscription cancellation not yet implemented",
-            "at_period_end": at_period_end
+            "message": "Subscription will be cancelled at end of billing period" if at_period_end else "Subscription cancelled immediately",
+            "at_period_end": at_period_end,
+            "effective_date": datetime.utcfromtimestamp(period_end).isoformat() if period_end else None,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cancellation failed: {str(e)}") from e
 
@@ -393,22 +476,34 @@ async def report_usage(
     not by end users directly.
     """
     try:
-        # TODO: Get subscription item ID from database
-        # subscription_item_id = get_subscription_item_id(tenant_id)
+        billing = _get_tenant_billing(tenant_id)
+        subscription_id = billing["stripe_subscription_id"]
 
-        # Report usage to Stripe
-        # result = await stripe_client.report_usage(
-        #     subscription_item_id,
-        #     quantity=quantity
-        # )
+        if not subscription_id:
+            raise HTTPException(status_code=404, detail="No active subscription found for usage reporting")
 
+        if stripe_client.mock_mode:
+            return {
+                "status": "reported",
+                "quantity": quantity,
+                "tenant_id": tenant_id,
+            }
+
+        sub = await stripe_client.get_subscription(subscription_id)
+        items = sub.get("items", {}).get("data", [])
+        if not items:
+            raise HTTPException(status_code=404, detail="No subscription items found")
+        subscription_item_id = items[0]["id"]
+
+        await stripe_client.report_usage(subscription_item_id, quantity=quantity)
         return {
             "status": "reported",
             "quantity": quantity,
             "tenant_id": tenant_id,
-            "message": "Usage reporting not yet implemented"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Usage reporting failed: {str(e)}") from e
 

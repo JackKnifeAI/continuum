@@ -90,16 +90,17 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
-def verify_key(key: str, stored_hash: str) -> bool:
+def verify_key(key: str, stored_hash: str) -> tuple[bool, bool]:
     """
     Verify API key against stored PBKDF2 hash.
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash in format salt_hex:hash_hex, or legacy SHA-256 hex
 
     Returns:
-        True if key matches, False otherwise
+        Tuple of (is_valid, needs_migration). needs_migration is True when the key
+        matched via the legacy SHA-256 format and should be re-hashed with PBKDF2.
     """
     try:
         salt_hex, hash_hex = stored_hash.split(':')
@@ -110,12 +111,11 @@ def verify_key(key: str, stored_hash: str) -> bool:
             salt,
             100000
         )
-        return hmac.compare_digest(key_hash.hex(), hash_hex)
+        return hmac.compare_digest(key_hash.hex(), hash_hex), False
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy SHA-256 hashes; matched keys are lazily migrated to PBKDF2
         old_hash = hashlib.sha256(key.encode()).hexdigest()
-        return hmac.compare_digest(old_hash, stored_hash)
+        return hmac.compare_digest(old_hash, stored_hash), True
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -142,12 +142,21 @@ def validate_api_key(key: str) -> Optional[str]:
     rows = c.fetchall()
 
     for stored_hash, tenant_id in rows:
-        if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+        is_valid, needs_migration = verify_key(key, stored_hash)
+        if is_valid:
+            now = datetime.now().isoformat()
+            if needs_migration:
+                # Lazily upgrade legacy SHA-256 hash to PBKDF2 on first use
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash)
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash)
+                )
             conn.commit()
             conn.close()
             return tenant_id
@@ -220,8 +229,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # =============================================================================
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
-
-from typing import Optional
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware

@@ -20,10 +20,14 @@ System management routes for CONTINUUM admin dashboard.
 
 import os
 import sqlite3
+import threading
+import time
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 import psutil
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
 from continuum.core.memory import TenantManager
@@ -77,9 +81,18 @@ router = APIRouter(prefix="/system", tags=["System"])
 # =============================================================================
 
 # Track server start time
-import time
-
 _SERVER_START_TIME = time.time()
+
+# Global error counter - increment via increment_error_counter() from middleware
+_error_counter: int = 0
+_error_counter_lock = threading.Lock()
+
+
+def increment_error_counter() -> None:
+    """Increment the API error counter. Call from middleware on 4xx/5xx responses."""
+    global _error_counter
+    with _error_counter_lock:
+        _error_counter += 1
 
 
 def get_database_stats() -> Dict[str, Any]:
@@ -255,7 +268,10 @@ async def system_health(admin_user: dict = Depends(get_current_admin_user)):
 
 
 @router.get("/metrics", response_model=SystemMetrics)
-async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
+async def system_metrics(
+    request: Request,
+    admin_user: dict = Depends(get_current_admin_user),
+):
     """
     Get comprehensive system metrics.
 
@@ -267,15 +283,27 @@ async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
 
     **Authentication:** Required
     """
+    from continuum.billing.metering import get_global_metering
+
+    endpoint_count = sum(1 for r in request.app.routes if isinstance(r, APIRoute))
+
+    metering = get_global_metering()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    requests_total = sum(
+        v.get("api_calls", 0)
+        for k, v in metering._usage_cache.items()
+        if k.endswith(f":{today}")
+    )
+
     return SystemMetrics(
         platform=get_platform_info(),
         resources=get_resource_usage(),
         tenants=get_tenant_stats(),
         api={
-            "endpoints": 50,  # TODO: Calculate from FastAPI routes
-            "requests_total": 0,  # TODO: Implement request counter
-            "errors_total": 0  # TODO: Implement error counter
-        }
+            "endpoints": endpoint_count,
+            "requests_total": requests_total,
+            "errors_total": _error_counter,
+        },
     )
 
 
@@ -293,24 +321,33 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
 
     **Authentication:** Required
     """
+    rate_limit_enabled = os.environ.get("CONTINUUM_RATE_LIMIT_ENABLED", "true").lower() == "true"
+
+    try:
+        import strawberry  # noqa: F401
+        graphql_available = True
+    except ImportError:
+        graphql_available = False
+
+    db_stats = get_database_stats()
     return SystemConfig(
         api={
             "base_url": os.environ.get("CONTINUUM_API_URL", "http://localhost:8420"),
             "cors_origins": os.environ.get("CONTINUUM_CORS_ORIGINS", "http://localhost:3000").split(","),
             "require_api_key": os.environ.get("CONTINUUM_REQUIRE_API_KEY", "true").lower() == "true",
-            "rate_limit_enabled": False  # TODO: Implement
+            "rate_limit_enabled": rate_limit_enabled,
         },
         database={
             "type": "sqlite",
-            "path": str(get_database_stats().get("path", "")),
-            "size_mb": get_database_stats().get("size_mb", 0)
+            "path": str(db_stats.get("path", "")),
+            "size_mb": db_stats.get("size_mb", 0),
         },
         features={
-            "graphql": True,  # TODO: Check if GraphQL is available
+            "graphql": graphql_available,
             "websockets": True,
             "semantic_search": True,
             "federation": True,
-            "billing": True
+            "billing": True,
         },
         limits={
             "max_memories_per_tenant": 1000000,

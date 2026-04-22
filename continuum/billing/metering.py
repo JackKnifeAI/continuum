@@ -31,6 +31,17 @@ from .tiers import PricingTier, get_tier_limits
 
 logger = logging.getLogger(__name__)
 
+# Module-level singleton shared across the application
+_global_metering: Optional["UsageMetering"] = None
+
+
+def get_global_metering() -> "UsageMetering":
+    """Return the process-wide UsageMetering singleton, creating it if needed."""
+    global _global_metering
+    if _global_metering is None:
+        _global_metering = UsageMetering()
+    return _global_metering
+
 
 class UsageMetering:
     """
