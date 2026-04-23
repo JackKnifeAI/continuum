@@ -112,8 +112,9 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy plain SHA-256 hashes (no salt, no iterations).
+        # Auto-migration in validate_api_key() rehashes on successful login,
+        # so this branch becomes unreachable once all stored hashes contain ':'.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
 
@@ -143,11 +144,19 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+            now = datetime.now().isoformat()
+            if ':' not in stored_hash:
+                # Migrate legacy SHA-256 hash to PBKDF2 in-place.
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash),
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash),
+                )
             conn.commit()
             conn.close()
             return tenant_id
@@ -220,8 +229,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # =============================================================================
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
-
-from typing import Optional
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware

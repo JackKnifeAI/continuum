@@ -40,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from continuum.billing.metering import RateLimiter, UsageMetering
+from continuum.billing.metering import RateLimiter, get_global_metering
 from continuum.billing.middleware import BillingMiddleware
 
 from .admin_memories_routes import router as admin_memories_router
@@ -62,6 +62,7 @@ from .routes import router
 
 # S-HAI Truth Council API
 from .shai_routes import router as shai_router
+from .system_routes import RequestMetricsMiddleware
 from .system_routes import router as system_router
 from .users_routes import router as users_router
 
@@ -276,7 +277,7 @@ app.add_middleware(
 app.add_middleware(DonationNagMiddleware)
 
 # Billing enforcement (rate limits, usage tracking)
-metering = UsageMetering()
+metering = get_global_metering()
 rate_limiter = RateLimiter(metering)
 app.add_middleware(
     BillingMiddleware,
@@ -298,6 +299,9 @@ app.add_middleware(
 # Authentication middleware (extract tenant_id from X-API-Key)
 # MUST be added AFTER BillingMiddleware (middleware runs in reverse order of add_middleware)
 app.add_middleware(AuthenticationMiddleware)
+
+# Request metrics counter (outermost layer so every request is counted)
+app.add_middleware(RequestMetricsMiddleware)
 
 
 # =============================================================================

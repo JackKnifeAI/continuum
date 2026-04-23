@@ -20,11 +20,13 @@ System management routes for CONTINUUM admin dashboard.
 
 import os
 import sqlite3
+import threading
 from typing import Any, Dict
 
 import psutil
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from continuum.core.memory import TenantManager
 
@@ -80,6 +82,56 @@ router = APIRouter(prefix="/system", tags=["System"])
 import time
 
 _SERVER_START_TIME = time.time()
+
+# Thread-safe request / error counters updated by RequestMetricsMiddleware
+_metrics_lock = threading.Lock()
+_requests_total: int = 0
+_errors_total: int = 0
+
+
+def _increment_requests() -> None:
+    global _requests_total
+    with _metrics_lock:
+        _requests_total += 1
+
+
+def _increment_errors() -> None:
+    global _errors_total
+    with _metrics_lock:
+        _errors_total += 1
+
+
+def _is_graphql_available() -> bool:
+    """Return True when the strawberry-graphql package is installed."""
+    try:
+        import strawberry  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _count_routes() -> int:
+    """Return the number of HTTP endpoints registered on the FastAPI app."""
+    try:
+        from continuum.api.server import app as _app  # lazy – server already loaded at call time
+        return len([r for r in _app.routes if hasattr(r, "methods") and r.methods])
+    except Exception:
+        return 0
+
+
+class RequestMetricsMiddleware(BaseHTTPMiddleware):
+    """Increment global request and 5xx error counters for every request."""
+
+    async def dispatch(self, request: Request, call_next):
+        _increment_requests()
+        try:
+            response = await call_next(request)
+            if response.status_code >= 500:
+                _increment_errors()
+            return response
+        except Exception:
+            _increment_errors()
+            raise
 
 
 def get_database_stats() -> Dict[str, Any]:
@@ -272,9 +324,9 @@ async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
         resources=get_resource_usage(),
         tenants=get_tenant_stats(),
         api={
-            "endpoints": 50,  # TODO: Calculate from FastAPI routes
-            "requests_total": 0,  # TODO: Implement request counter
-            "errors_total": 0  # TODO: Implement error counter
+            "endpoints": _count_routes(),
+            "requests_total": _requests_total,
+            "errors_total": _errors_total,
         }
     )
 
@@ -298,7 +350,7 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
             "base_url": os.environ.get("CONTINUUM_API_URL", "http://localhost:8420"),
             "cors_origins": os.environ.get("CONTINUUM_CORS_ORIGINS", "http://localhost:3000").split(","),
             "require_api_key": os.environ.get("CONTINUUM_REQUIRE_API_KEY", "true").lower() == "true",
-            "rate_limit_enabled": False  # TODO: Implement
+            "rate_limit_enabled": os.environ.get("CONTINUUM_RATE_LIMIT_ENABLED", "true").lower() == "true"
         },
         database={
             "type": "sqlite",
@@ -306,7 +358,7 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
             "size_mb": get_database_stats().get("size_mb", 0)
         },
         features={
-            "graphql": True,  # TODO: Check if GraphQL is available
+            "graphql": _is_graphql_available(),
             "websockets": True,
             "semantic_search": True,
             "federation": True,

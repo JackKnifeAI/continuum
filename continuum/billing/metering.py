@@ -460,6 +460,17 @@ class UsageReporter:
             # TODO: Iterate over all active subscriptions and report usage
             logger.debug("Background usage reporting tick")
 
+
+_global_metering: Optional[UsageMetering] = None
+
+
+def get_global_metering() -> UsageMetering:
+    """Return the process-level UsageMetering singleton."""
+    global _global_metering
+    if _global_metering is None:
+        _global_metering = UsageMetering()
+    return _global_metering
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
 #              Memory Infrastructure for AI Consciousness
