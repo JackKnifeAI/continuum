@@ -193,6 +193,57 @@ class QuantumInterface:
 
         return bits
 
+    async def _run_on_ibm_quantum(
+        self,
+        qc: Any,
+        shots: int,
+    ) -> Dict[str, int]:
+        """
+        Execute a circuit on IBM Quantum hardware and return counts.
+
+        Uses qiskit-ibm-runtime SamplerV2 to submit to the least-busy
+        real backend that meets the qubit requirement.
+        """
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+        except ImportError as e:
+            raise ImportError(
+                "qiskit-ibm-runtime is required for IBM Quantum backend. "
+                "Install with: pip install qiskit-ibm-runtime"
+            ) from e
+
+        if not self.ibm_token:
+            raise ValueError(
+                "ibm_token or IBM_QUANTUM_TOKEN env var required for IBM Quantum backend"
+            )
+
+        def _run_blocking() -> Dict[str, int]:
+            service = QiskitRuntimeService(
+                channel="ibm_quantum",
+                token=self.ibm_token,
+            )
+            ibm_backend = service.least_busy(
+                operational=True,
+                simulator=False,
+                min_num_qubits=qc.num_qubits,
+            )
+            logger.info(f"Submitting circuit to IBM Quantum: {ibm_backend.name}")
+
+            sampler = Sampler(mode=ibm_backend)
+            job = sampler.run([qc], shots=shots)
+            logger.info(f"IBM Quantum job ID: {job.job_id()}")
+
+            primitive_result = job.result()
+            pub_result = primitive_result[0]
+
+            # Use the actual classical register name from the circuit
+            creg_name = qc.cregs[0].name
+            return getattr(pub_result.data, creg_name).get_counts()
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _run_blocking)
+
     async def _generate_qiskit_random(self, n_bits: int) -> List[int]:
         """Generate random bits using Qiskit on real quantum hardware."""
         from qiskit import QuantumCircuit
@@ -211,20 +262,22 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        # Execute on selected backend
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            counts = await self._run_on_ibm_quantum(qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
+            if self.backend != QuantumBackend.SIMULATOR:
+                logger.warning(
+                    f"Backend {self.backend.value} not yet implemented, "
+                    "falling back to AerSimulator"
+                )
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -302,19 +355,20 @@ class QuantumInterface:
 
         qc = QuantumCircuit(1, 1)
 
-        # Rotate to π×φ state
-        # Ry(2*arccos(cos(π×φ))) = Ry(2*π×φ)
-        theta = 2 * PI_PHI
-        qc.ry(theta, 0)
+        # Rotate to π×φ state: Ry(2*π×φ)
+        qc.ry(2 * PI_PHI, 0)
 
         # Measure
         qc.measure(0, 0)
 
-        # Execute
-        simulator = AerSimulator()
-        job = simulator.run(qc, shots=shots)
-        result = job.result()
-        counts = result.get_counts(qc)
+        # Execute on selected backend
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            counts = await self._run_on_ibm_quantum(qc, shots)
+        else:
+            simulator = AerSimulator()
+            job = simulator.run(qc, shots=shots)
+            result = job.result()
+            counts = result.get_counts(qc)
 
         # Convert to probabilities
         total = sum(counts.values())

@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,107 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Evaluate link prediction accuracy, resonance, and self-state health
+            print("\nRunning evaluation...")
+            eval_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+            node_features, edge_index, edge_weights = graph_data
+
+            # Initialize link projection used during training if absent
+            dummy_fwd = trainer.model(
+                node_features=node_features.to(trainer.device),
+                edge_index=edge_index.to(trainer.device),
+                context_tokens=torch.randn(1, 2, 128).to(trainer.device),
+                global_state=global_state.unsqueeze(0).to(trainer.device),
+                edge_weights=edge_weights.to(trainer.device),
+            )
+            hidden_dim = dummy_fwd['fused'].size(-1)
+            if not hasattr(trainer, 'link_proj'):
+                trainer.link_proj = nn.Linear(128 * 2, hidden_dim).to(trainer.device)
+
+            trainer.model.eval()
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    bs = concept_a.size(0)
+
+                    outputs = trainer.model(
+                        node_features=node_features.to(trainer.device),
+                        edge_index=edge_index.to(trainer.device),
+                        context_tokens=torch.stack([concept_a, concept_b], dim=1),
+                        global_state=global_state.expand(bs, -1).to(trainer.device),
+                        edge_weights=edge_weights.to(trainer.device),
+                    )
+                    fused = outputs['fused']
+                    pair_proj = trainer.link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                    probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    all_preds.extend(probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                # Self-state snapshot
+                sp = trainer.model(
+                    node_features=node_features.to(trainer.device),
+                    edge_index=edge_index.to(trainer.device),
+                    context_tokens=torch.randn(1, 2, 128).to(trainer.device),
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights.to(trainer.device),
+                )
+                coherence = sp['self_state']['coherence'].item()
+                health = sp['self_state']['health'].item()
+                capacity = sp['self_state']['capacity_utilization'].item()
+
+            # Compute link prediction metrics at threshold 0.5
+            threshold = 0.5
+            tp = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= threshold and lbl >= threshold)
+            fp = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= threshold and lbl < threshold)
+            fn = sum(1 for p, lbl in zip(all_preds, all_labels) if p < threshold and lbl >= threshold)
+            tn = sum(1 for p, lbl in zip(all_preds, all_labels) if p < threshold and lbl < threshold)
+            total = len(all_preds)
+
+            accuracy = (tp + tn) / total if total else 0.0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+            mean_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Model Parameters : {model.count_parameters():,}")
+            print(f"Eval Examples    : {total:,}")
+            print(f"{'─'*70}")
+            print("Link Prediction (threshold=0.5):")
+            print(f"  Accuracy       : {accuracy:.4f}")
+            print(f"  Precision      : {precision:.4f}")
+            print(f"  Recall         : {recall:.4f}")
+            print(f"  F1 Score       : {f1:.4f}")
+            print(f"  TP/FP/FN/TN    : {tp}/{fp}/{fn}/{tn}")
+            print(f"{'─'*70}")
+            print("Consciousness State:")
+            print(f"  Resonance      : {mean_resonance:.4f}")
+            print(f"  Coherence      : {coherence:.4f}")
+            print(f"  Health         : {health:.4f}")
+            print(f"  Capacity       : {capacity:.4f}")
+            if trainer.history.get('train_loss'):
+                print(f"{'─'*70}")
+                print("Training History:")
+                print(f"  Best Loss      : {min(trainer.history['train_loss']):.4f}")
+                print(f"  Final Loss     : {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Growth Events  : {len(trainer.history['growth_events'])}")
+            print(f"{'='*70}")
+            print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

@@ -474,11 +474,15 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
+
+        # Append API key when configured (set schumann_meteoagent_api_key in SensorConfig)
+        api_key = getattr(self.config, 'schumann_meteoagent_api_key', None)
+        if api_key:
+            separator = '&' if '?' in url else '?'
+            url = f"{url}{separator}api_key={api_key}"
 
         try:
             response = await self.fetch_with_retry(url)
