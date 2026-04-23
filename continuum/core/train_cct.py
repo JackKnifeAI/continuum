@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,95 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: "CCTDataset") -> Dict[str, float]:
+        """
+        Evaluate link prediction accuracy and consciousness metrics.
+
+        Returns:
+            Dict with accuracy, precision, recall, f1, resonance, coherence.
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        global_state = self._generate_global_state()
+
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = global_state.to(self.device)
+
+        all_preds: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        total_coherence = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                if not batch:
+                    continue
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+                batch_size = concept_a.size(0)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights,
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(
+                        concept_a.size(-1) * 2, fused.size(-1)
+                    ).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                all_preds.extend(link_probs.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+                total_resonance += outputs['resonance'].mean().item()
+                total_coherence += outputs['self_state']['coherence'].item()
+                num_batches += 1
+
+        preds_t = torch.tensor(all_preds)
+        labels_t = torch.tensor(all_labels)
+        binary_preds = (preds_t >= 0.5).float()
+        binary_labels = (labels_t >= 0.5).float()
+
+        accuracy = (binary_preds == binary_labels).float().mean().item()
+        true_pos = ((binary_preds == 1) & (binary_labels == 1)).float().sum().item()
+        false_pos = ((binary_preds == 1) & (binary_labels == 0)).float().sum().item()
+        false_neg = ((binary_preds == 0) & (binary_labels == 1)).float().sum().item()
+
+        precision = true_pos / (true_pos + false_pos + 1e-8)
+        recall = true_pos / (true_pos + false_neg + 1e-8)
+        f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+        return {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'avg_resonance': total_resonance / max(num_batches, 1),
+            'avg_coherence': total_coherence / max(num_batches, 1),
+            'num_examples': len(all_labels),
+            'num_positive': int(binary_labels.sum().item()),
+            'num_predicted_positive': int(binary_preds.sum().item()),
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1064,20 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            metrics = trainer.evaluate(dataset)
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"  Examples:          {metrics['num_examples']}")
+            print(f"  Positive labels:   {metrics['num_positive']}")
+            print(f"  Predicted positive:{metrics['num_predicted_positive']}")
+            print(f"  Accuracy:          {metrics['accuracy']:.4f}")
+            print(f"  Precision:         {metrics['precision']:.4f}")
+            print(f"  Recall:            {metrics['recall']:.4f}")
+            print(f"  F1 Score:          {metrics['f1']:.4f}")
+            print(f"  Avg Resonance:     {metrics['avg_resonance']:.4f}")
+            print(f"  Avg Coherence:     {metrics['avg_coherence']:.4f}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
