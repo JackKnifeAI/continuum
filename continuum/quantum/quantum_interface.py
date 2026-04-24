@@ -211,20 +211,16 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
+        # Execute on the configured backend
         if self.backend == QuantumBackend.SIMULATOR:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = job.result().get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = await self._run_on_ibm_quantum(qc, shots)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +230,58 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """
+        Execute a Qiskit circuit on IBM Quantum hardware.
+
+        Requires IBM_QUANTUM_TOKEN env var or ibm_token constructor arg.
+        Falls back to AerSimulator if token is missing or connection fails.
+        """
+        from qiskit_aer import AerSimulator
+
+        def _fallback() -> Dict[str, int]:
+            simulator = AerSimulator()
+            return simulator.run(qc, shots=shots).result().get_counts(qc)
+
+        if not self.ibm_token:
+            logger.warning("IBM_QUANTUM_TOKEN not set — falling back to AerSimulator")
+            return _fallback()
+
+        import importlib.util
+        if not importlib.util.find_spec("qiskit_ibm_runtime"):
+            logger.warning("qiskit-ibm-runtime not installed — falling back to AerSimulator")
+            return _fallback()
+
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                self._ibm_quantum_sync,
+                qc,
+                shots,
+            )
+        except Exception as e:
+            logger.warning(f"IBM Quantum execution failed ({e}) — falling back to AerSimulator")
+            return _fallback()
+
+    def _ibm_quantum_sync(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Synchronous IBM Quantum execution; intended to run in a thread executor."""
+        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+        from qiskit_ibm_runtime import QiskitRuntimeService
+        from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        ibm_backend = service.least_busy(operational=True, simulator=False)
+        logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+        pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+        isa_circuit = pm.run(qc)
+
+        sampler = Sampler(ibm_backend)
+        job = sampler.run([isa_circuit], shots=shots)
+        pub_result = job.result()[0]
+        return pub_result.data.c.get_counts()
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """

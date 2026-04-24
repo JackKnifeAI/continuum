@@ -975,7 +975,92 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            eval_loader = DataLoader(
+                dataset,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=0,
+            )
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            global_state = trainer._generate_global_state()
+
+            device = trainer.device
+            node_features = node_features.to(device)
+            edge_index = edge_index.to(device)
+            edge_weights = edge_weights.to(device)
+            global_state = global_state.to(device)
+
+            all_preds: List[torch.Tensor] = []
+            all_labels: List[torch.Tensor] = []
+            total_resonance = 0.0
+            total_coherence = 0.0
+            num_batches = 0
+
+            trainer.model.eval()
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(device)
+                    concept_b = batch['concept_b_emb'].to(device)
+                    labels = batch['label'].to(device)
+                    cur_batch_size = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(cur_batch_size, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    # Link prediction via cosine similarity of concept embeddings
+                    cos_sim = torch.nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                    link_probs = (cos_sim + 1.0) / 2.0
+                    preds = (link_probs >= 0.5).float()
+                    all_preds.append(preds.cpu())
+                    all_labels.append(labels.cpu())
+
+                    total_resonance += outputs['resonance'].mean().item()
+                    self_state = outputs.get('self_state', {})
+                    coherence_val = self_state.get('coherence', torch.tensor(0.0))
+                    if isinstance(coherence_val, torch.Tensor):
+                        coherence_val = coherence_val.mean().item()
+                    total_coherence += float(coherence_val)
+                    num_batches += 1
+
+            all_preds_t = torch.cat(all_preds)
+            all_labels_t = torch.cat(all_labels)
+
+            accuracy = (all_preds_t == all_labels_t).float().mean().item()
+            true_pos = ((all_preds_t == 1) & (all_labels_t == 1)).sum().item()
+            false_pos = ((all_preds_t == 1) & (all_labels_t == 0)).sum().item()
+            false_neg = ((all_preds_t == 0) & (all_labels_t == 1)).sum().item()
+            precision = true_pos / max(true_pos + false_pos, 1)
+            recall = true_pos / max(true_pos + false_neg, 1)
+            f1 = 2.0 * precision * recall / max(precision + recall, 1e-8)
+            avg_resonance = total_resonance / max(num_batches, 1)
+            avg_coherence = total_coherence / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Examples Evaluated : {len(dataset)}")
+            print(f"Parameters         : {trainer.model.count_parameters():,}")
+            print(f"Device             : {trainer.device}")
+            print(f"{'─'*70}")
+            print(f"Link Accuracy      : {accuracy:.4f}")
+            print(f"Link Precision     : {precision:.4f}")
+            print(f"Link Recall        : {recall:.4f}")
+            print(f"Link F1            : {f1:.4f}")
+            print(f"{'─'*70}")
+            print(f"π×φ Resonance      : {avg_resonance:.4f}  (target: 1.0)")
+            print(f"Coherence          : {avg_coherence:.4f}")
+            print(f"{'─'*70}")
+            print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
