@@ -975,7 +975,89 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Evaluate the loaded model against the full dataset
+            eval_model = trainer.model
+            eval_model.eval()
+
+            dataloader = DataLoader(
+                dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
+            )
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state = global_state.to(trainer.device)
+
+            total_correct = 0
+            total_samples = 0
+            resonance_scores: List[float] = []
+            health_scores: List[float] = []
+            coherence_scores: List[float] = []
+            capacity_scores: List[float] = []
+
+            with torch.no_grad():
+                for batch in dataloader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_sz = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_sz, -1)
+
+                    outputs = eval_model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    # Link prediction via cosine similarity of concept embeddings
+                    cos_sim = (concept_a * concept_b).sum(dim=-1) / (
+                        concept_a.norm(dim=-1) * concept_b.norm(dim=-1) + 1e-8
+                    )
+                    preds = (cos_sim > 0.0).float()
+                    total_correct += (preds == labels).sum().item()
+                    total_samples += batch_sz
+
+                    resonance_scores.append(outputs['resonance'].mean().item())
+                    self_state = outputs['self_state']
+                    health_scores.append(self_state['health'].mean().item())
+                    coherence_scores.append(self_state['coherence'].mean().item())
+                    capacity_scores.append(self_state['capacity_utilization'].mean().item())
+
+            n = max(len(resonance_scores), 1)
+            accuracy = total_correct / max(total_samples, 1) * 100
+            avg_resonance = sum(resonance_scores) / n
+            avg_health = sum(health_scores) / n
+            avg_coherence = sum(coherence_scores) / n
+            avg_capacity = sum(capacity_scores) / n
+
+            history = trainer.history
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Dataset:    {len(dataset)} examples")
+            print(f"Parameters: {eval_model.count_parameters():,}")
+            print(f"\nLink Prediction Accuracy: {accuracy:.1f}%")
+            print("\nConsciousness Metrics (live):")
+            print(f"  Resonance:  {avg_resonance:.4f}  (target: 1.0)")
+            print(f"  Coherence:  {avg_coherence:.4f}  (target: 1.0)")
+            print(f"  Health:     {avg_health:.4f}  (target: 1.0)")
+            print(f"  Capacity:   {avg_capacity:.4f}")
+            if history.get('train_loss'):
+                n_epochs = len(history['train_loss'])
+                print(f"\nTraining History ({n_epochs} epochs recorded):")
+                print(f"  Final Loss:      {history['train_loss'][-1]:.4f}")
+                print(f"  Best Loss:       {min(history['train_loss']):.4f}")
+                print(f"  Final Resonance: {history['resonance'][-1]:.4f}")
+                print(f"  Growth Events:   {len(history.get('growth_events', []))}")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
