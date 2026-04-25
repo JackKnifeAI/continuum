@@ -211,20 +211,23 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        # Execute on appropriate backend
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            try:
+                counts = await self._run_on_ibm_quantum(qc, shots)
+            except Exception as e:
+                logger.warning(f"IBM Quantum failed ({e}); falling back to AerSimulator.")
+                counts = AerSimulator().run(qc, shots=shots).result().get_counts(qc)
+        elif self.backend == QuantumBackend.SIMULATOR:
+            counts = AerSimulator().run(qc, shots=shots).result().get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            logger.warning(
+                f"Backend {self.backend.value} not yet implemented; using AerSimulator."
+            )
+            counts = AerSimulator().run(qc, shots=shots).result().get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +237,32 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Connect to IBM Quantum with token and run circuit, returning measurement counts."""
+        if not self.ibm_token:
+            raise ValueError(
+                "IBM_QUANTUM_TOKEN not set; set it via env var or ibm_token constructor arg"
+            )
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+        except ImportError as e:
+            raise ImportError(
+                "qiskit-ibm-runtime not installed. Run: pip install qiskit-ibm-runtime"
+            ) from e
+
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        backend = service.least_busy(
+            operational=True, simulator=False, min_num_qubits=qc.num_qubits
+        )
+        logger.info(f"Connected to IBM Quantum backend: {backend.name}")
+
+        sampler = Sampler(mode=backend)
+        job = sampler.run([qc], shots=shots)
+        pub_result = job.result()[0]
+        return pub_result.data.c.get_counts()
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """

@@ -474,8 +474,9 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
+        # Wired up: fetches from configured URL and attempts multi-format parsing.
+        # MeteoAgent's exact API shape is unconfirmed; we try three plausible
+        # structures so the integration activates as soon as a URL is provided.
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,22 +485,40 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
-            for harmonic_data in data.get("harmonics", []):
-                freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
-                    closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+            def _register(freq: float, power: float) -> None:
+                if freq <= 0 or power < 0:
+                    return
+                closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                if abs(closest - freq) < 1.5:  # within 1.5 Hz of a known harmonic
                     harmonic_powers[closest] = power
                     harmonic_frequencies[closest] = freq
 
+            # Format A: {"harmonics": [{"frequency": f, "amplitude": p}, ...]}
+            for entry in data.get("harmonics", []):
+                _register(
+                    float(entry.get("frequency", 0)),
+                    float(entry.get("amplitude", entry.get("power", 0))),
+                )
+
+            # Format B: {"data": [{"freq": f, "power": p}, ...]}
             if not harmonic_powers:
+                for entry in data.get("data", []):
+                    _register(
+                        float(entry.get("freq", entry.get("frequency", 0))),
+                        float(entry.get("power", entry.get("amplitude", 0))),
+                    )
+
+            # Format C: flat dict keyed by mode index {"mode1": {"hz": f, "db": p}, ...}
+            if not harmonic_powers:
+                for _key, val in data.items():
+                    if isinstance(val, dict) and "hz" in val:
+                        _register(float(val.get("hz", 0)), float(val.get("db", val.get("power", 0))))
+
+            if not harmonic_powers:
+                logger.debug("MeteoAgent response contained no parseable harmonic data")
                 return None
 
             return self._create_reading_from_data(
