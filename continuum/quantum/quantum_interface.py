@@ -217,7 +217,42 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
+            # Connect to IBM Quantum with token, fall back to simulator on failure
+            try:
+                from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+                if not self.ibm_token:
+                    raise ValueError("IBM_QUANTUM_TOKEN not set")
+
+                service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+                ibm_backend = service.least_busy(
+                    simulator=False, operational=True, min_num_qubits=n_qubits
+                )
+                logger.info(f"Connected to IBM Quantum: {ibm_backend.name}")
+
+                pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+                isa_qc = pm.run(qc)
+                sampler = Sampler(ibm_backend)
+                job = sampler.run([isa_qc], shots=shots)
+                ibm_counts = job.result()[0].data.c.get_counts()
+
+                bits = []
+                for bitstring, count in ibm_counts.items():
+                    for _ in range(count):
+                        bits.extend([int(b) for b in bitstring])
+                        if len(bits) >= n_bits:
+                            break
+                    if len(bits) >= n_bits:
+                        break
+                return bits[:n_bits]
+
+            except ImportError:
+                logger.warning("qiskit-ibm-runtime not installed, using local simulator")
+            except Exception as e:
+                logger.error(f"IBM Quantum error: {e}, using local simulator")
+
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
