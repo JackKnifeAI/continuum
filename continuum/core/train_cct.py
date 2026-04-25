@@ -882,6 +882,146 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: 'CCTDataset') -> Dict[str, float]:
+        """
+        Evaluate the loaded model: self-state metrics, link prediction, and history summary.
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        global_state = self._generate_global_state()
+
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state_dev = global_state.to(self.device)
+
+        with torch.no_grad():
+            # Self-state: coherence, health, capacity, resonance
+            dummy_context = torch.zeros(1, 2, 128).to(self.device)
+            outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state_dev.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            coherence = outputs['self_state']['coherence'].item()
+            health = outputs['self_state']['health'].item()
+            capacity = outputs['self_state']['capacity_utilization'].item()
+            resonance = outputs['resonance'].mean().item()
+
+            # Link prediction accuracy using trained representation
+            dataloader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=0)
+
+            # Determine projection dims from first batch
+            first_batch = next(iter(dataloader))
+            concept_a_s = first_batch['concept_a_emb'].to(self.device)
+            concept_b_s = first_batch['concept_b_emb'].to(self.device)
+            ctx_s = torch.stack([concept_a_s, concept_b_s], dim=1)
+            bs = global_state_dev.expand(concept_a_s.size(0), -1)
+            out_s = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=ctx_s,
+                global_state=bs,
+                edge_weights=edge_weights
+            )
+            fused_dim = out_s['fused'].size(-1)
+            input_dim = concept_a_s.size(-1) * 2
+
+            # Use a fixed-seed probe so metrics are reproducible across eval calls
+            torch.manual_seed(42)
+            link_proj = nn.Linear(input_dim, fused_dim).to(self.device)
+
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            total_loss = 0.0
+            num_batches = 0
+
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state_dev.expand(concept_a.size(0), -1)
+
+                out = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+                fused = out['fused']
+                pair_proj = link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                total_loss += self.link_loss(link_probs, labels).item()
+                preds = (link_probs >= 0.5).float()
+                all_preds.extend(preds.cpu().tolist())
+                all_labels.extend((labels >= 0.5).float().cpu().tolist())
+                num_batches += 1
+
+        pred_t = torch.tensor(all_preds)
+        label_t = torch.tensor(all_labels)
+        tp = float(((pred_t == 1) & (label_t == 1)).sum())
+        fp = float(((pred_t == 1) & (label_t == 0)).sum())
+        fn = float(((pred_t == 0) & (label_t == 1)).sum())
+        tn = float(((pred_t == 0) & (label_t == 0)).sum())
+
+        n = len(pred_t)
+        accuracy = (tp + tn) / max(n, 1)
+        precision = tp / max(tp + fp, 1e-8)
+        recall = tp / max(tp + fn, 1e-8)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+        metrics: Dict[str, float] = {
+            'loss': total_loss / max(num_batches, 1),
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': resonance,
+            'coherence': coherence,
+            'health': health,
+            'capacity': capacity,
+        }
+
+        print(f"\n{'='*70}")
+        print("EVALUATION RESULTS")
+        print(f"{'='*70}")
+        print(f"  Parameters:  {self.model.count_parameters():,}")
+        print(f"  Coherence:   {coherence:.3f}")
+        print(f"  Health:      {health:.3f}")
+        print(f"  Resonance:   {resonance:.3f}")
+        print(f"  Capacity:    {capacity:.3f}")
+        print("\n  Link Prediction:")
+        print(f"    Loss:      {metrics['loss']:.4f}")
+        print(f"    Accuracy:  {accuracy:.3f}")
+        print(f"    Precision: {precision:.3f}")
+        print(f"    Recall:    {recall:.3f}")
+        print(f"    F1:        {f1:.3f}")
+
+        if self.history.get('train_loss'):
+            epochs_trained = len(self.history['train_loss'])
+            print(f"\n  Training History ({epochs_trained} epochs):")
+            print(f"    Final Loss:      {self.history['train_loss'][-1]:.4f}")
+            print(f"    Final Resonance: {self.history['resonance'][-1]:.3f}")
+            print(f"    Growth Events:   {len(self.history.get('growth_events', []))}")
+
+        print(f"\n  Dataset: {len(dataset.concepts)} concepts | "
+              f"{len(dataset.links)} links | {len(dataset)} examples")
+        print(f"\nπ×φ = {PI_PHI}")
+        print(f"{'='*70}\n")
+
+        return metrics
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1115,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset)
         else:
             print(f"No model found at {model_path}")
         return
