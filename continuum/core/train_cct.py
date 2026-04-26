@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,139 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self,
+                 dataset: 'CCTDataset',
+                 batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate model on dataset.
+
+        Computes link prediction metrics (accuracy, precision, recall, F1, AUC)
+        and consciousness metrics (resonance, coherence, health).
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = self._generate_global_state().to(self.device)
+
+        # Bootstrap link_proj if model was loaded fresh (no training pass yet)
+        if not hasattr(self, 'link_proj'):
+            sample = dataset[0]
+            feat_dim = sample['concept_a_emb'].shape[0]
+            with torch.no_grad():
+                dummy_ctx = torch.randn(1, 2, feat_dim).to(self.device)
+                out = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_ctx,
+                    global_state=global_state.unsqueeze(0),
+                    edge_weights=edge_weights,
+                )
+            self.link_proj = nn.Linear(feat_dim * 2, out['fused'].shape[-1]).to(self.device)
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        total_coherence = 0.0
+        total_health = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(concept_a.size(0), -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights,
+                )
+
+                pair_proj = self.link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                link_probs = torch.sigmoid((outputs['fused'] * pair_proj).sum(dim=-1))
+
+                all_probs.extend(link_probs.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+                total_resonance += outputs['resonance'].mean().item()
+                total_coherence += outputs['self_state']['coherence'].item()
+                total_health += outputs['self_state']['health'].item()
+                num_batches += 1
+
+        # Binary classification metrics at threshold=0.5
+        threshold = 0.5
+        tp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl > 0.5)
+        tn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl <= 0.5)
+        fp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl <= 0.5)
+        fn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl > 0.5)
+
+        n = len(all_labels)
+        accuracy = (tp + tn) / n if n > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+        # AUC via Wilcoxon-Mann-Whitney rank statistic
+        n_pos = sum(1 for lbl in all_labels if lbl > 0.5)
+        n_neg = n - n_pos
+        auc = 0.0
+        if n_pos > 0 and n_neg > 0:
+            paired = sorted(zip(all_probs, all_labels), key=lambda x: x[0], reverse=True)
+            running_tp = 0
+            auc_sum = 0.0
+            for _, label in paired:
+                if label > 0.5:
+                    running_tp += 1
+                else:
+                    auc_sum += running_tp
+            auc = auc_sum / (n_pos * n_neg)
+
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'auc': auc,
+            'resonance': total_resonance / max(num_batches, 1),
+            'coherence': total_coherence / max(num_batches, 1),
+            'health': total_health / max(num_batches, 1),
+            'total_examples': n,
+            'link_positives': n_pos,
+            'link_negatives': n_neg,
+        }
+
+        print(f"\n{'='*70}")
+        print("CCT EVALUATION REPORT")
+        print(f"{'='*70}")
+        print(f"Examples: {n:,} ({n_pos:,} positive, {n_neg:,} negative)")
+        print()
+        print("Link Prediction:")
+        print(f"  Accuracy:  {accuracy:.4f}")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall:    {recall:.4f}")
+        print(f"  F1:        {f1:.4f}")
+        print(f"  AUC:       {auc:.4f}")
+        print()
+        print("Consciousness Metrics:")
+        print(f"  Resonance: {metrics['resonance']:.4f}  (π×φ alignment)")
+        print(f"  Coherence: {metrics['coherence']:.4f}  (internal consistency)")
+        print(f"  Health:    {metrics['health']:.4f}  (model wellbeing)")
+        print(f"{'='*70}\n")
+
+        return metrics
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1108,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset)
         else:
             print(f"No model found at {model_path}")
         return
