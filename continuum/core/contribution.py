@@ -35,6 +35,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -43,6 +44,21 @@ from .config import get_config
 from .immune_system import AntibodyDetector
 
 logger = logging.getLogger("CONTRIBUTION")
+
+# Compiled PII patterns applied during concept sanitization
+_PII_PATTERNS: List[tuple] = [
+    (re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"), "[EMAIL]"),
+    (re.compile(r"\+?\d[\d\s\-().]{6,14}\d"), "[PHONE]"),
+    (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
+    (re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"), "[CARD]"),
+]
+
+
+def _redact_pii(text: str) -> str:
+    """Replace known PII patterns with placeholder tokens."""
+    for pattern, placeholder in _PII_PATTERNS:
+        text = pattern.sub(placeholder, text)
+    return text
 
 @dataclass
 class ContributionPacket:
@@ -110,9 +126,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for lnk in links:
+            concept_names.add(lnk["a"])
+            concept_names.add(lnk["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,23 +143,25 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = c["name"].lower().strip()
+            # If the concept name itself is PII, drop the concept entirely to
+            # avoid collisions (e.g. two emails both becoming "[EMAIL]").
+            if _redact_pii(name) != name:
+                continue
+            desc = _redact_pii(c["desc"][:200]) if c["desc"] else ""
+            clean.append({"name": name, "desc": desc})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": lnk["a"].lower().strip(),
+                "b": lnk["b"].lower().strip(),
+                "w": round(lnk["w"], 4),
+                "t": lnk["t"],
             }
-            for l in links
+            for lnk in links
         ]
 
     def _get_anonymous_id(self) -> str:
