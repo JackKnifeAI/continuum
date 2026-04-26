@@ -216,15 +216,42 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to IBM Quantum with token via qiskit-ibm-runtime
+            try:
+                from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+                if not self.ibm_token:
+                    raise ValueError("IBM_QUANTUM_TOKEN not set")
+
+                service = QiskitRuntimeService(
+                    channel="ibm_quantum",
+                    token=self.ibm_token,
+                )
+                ibm_backend = service.least_busy(operational=True, simulator=False)
+                logger.info(f"Using IBM Quantum backend: {ibm_backend.name}")
+
+                pm = generate_preset_pass_manager(
+                    backend=ibm_backend, optimization_level=1
+                )
+                isa_circuit = pm.run(qc)
+
+                sampler = Sampler(mode=ibm_backend)
+                job = sampler.run([isa_circuit], shots=shots)
+                pub_result = job.result()[0]
+                counts = pub_result.data.c.get_counts()
+            except Exception as e:
+                logger.warning(f"IBM Quantum unavailable ({e}), falling back to simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
+                counts = result.get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])

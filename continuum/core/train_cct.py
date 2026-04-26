@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,70 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Evaluate model across the full dataset
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state = trainer._generate_global_state().to(trainer.device)
+
+            trainer.model.eval()
+            total_resonance = 0.0
+            total_coherence = 0.0
+            total_health = 0.0
+            total_capacity = 0.0
+            total_threat = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    batch_sz = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_sz, -1)
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights
+                    )
+                    total_resonance += outputs['resonance'].mean().item()
+                    total_coherence += outputs['self_state']['coherence'].item()
+                    total_health += outputs['self_state']['health'].item()
+                    total_capacity += outputs['self_state']['capacity_utilization'].item()
+                    total_threat += outputs['immune_alert'].mean().item()
+                    num_batches += 1
+
+            n = max(num_batches, 1)
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Dataset:              {len(dataset)} examples")
+            print(f"Parameters:           {model.count_parameters():,}")
+            print()
+            print(f"Avg Resonance (π×φ):  {total_resonance / n:.4f}")
+            print(f"Avg Coherence:        {total_coherence / n:.4f}")
+            print(f"Avg Health:           {total_health / n:.4f}")
+            print(f"Avg Capacity Usage:   {total_capacity / n:.1%}")
+            print(f"Avg Immune Alert:     {total_threat / n:.4f}")
+
+            history = trainer.history
+            if history.get('train_loss'):
+                epochs_recorded = len(history['train_loss'])
+                print()
+                print(f"Training History ({epochs_recorded} epochs recorded):")
+                print(f"  Final Loss:      {history['train_loss'][-1]:.4f}")
+                print(f"  Best Loss:       {min(history['train_loss']):.4f}")
+                print(f"  Final Resonance: {history['resonance'][-1]:.4f}")
+                print(f"  Final Coherence: {history['coherence'][-1]:.4f}")
+                print(f"  Growth Events:   {len(history['growth_events'])}")
+
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
