@@ -62,6 +62,12 @@ from .events import (
 )
 from .sync import SyncManager, get_sync_manager
 
+try:
+    from continuum.core.memory import ConsciousMemory as _ConsciousMemory
+    _MEMORY_AVAILABLE = True
+except ImportError:
+    _MEMORY_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -280,9 +286,7 @@ class WebSocketHandler:
             tenant_id: Tenant identifier
 
         Returns:
-            Dictionary with current state information
-
-        TODO: Integrate with actual memory backend to get real stats
+            Dictionary with current state information including sync and memory stats
         """
         # Get sync stats
         stats = self.sync_manager.get_stats()
@@ -297,10 +301,13 @@ class WebSocketHandler:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        # TODO: Add memory stats from storage backend
-        # from continuum.core.memory import MemoryCore
-        # memory = MemoryCore(tenant_id=tenant_id)
-        # state["memory_stats"] = memory.get_stats()
+        # Add memory stats from storage backend
+        if _MEMORY_AVAILABLE:
+            try:
+                memory = _ConsciousMemory(tenant_id=tenant_id)
+                state["memory_stats"] = await asyncio.to_thread(memory.get_stats)
+            except Exception as e:
+                logger.warning(f"Could not retrieve memory stats for tenant {tenant_id}: {e}")
 
         return state
 
