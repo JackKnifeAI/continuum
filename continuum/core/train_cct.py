@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,81 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            eval_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            global_state = trainer._generate_global_state()
+
+            trainer.model.eval()
+            total_correct = 0
+            total_samples = 0
+            total_resonance = 0.0
+            total_loss = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                nf = node_features.to(trainer.device)
+                ei = edge_index.to(trainer.device)
+                ew = edge_weights.to(trainer.device)
+
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size, -1).to(trainer.device)
+
+                    outputs = trainer.model(
+                        node_features=nf,
+                        edge_index=ei,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=ew
+                    )
+
+                    fused = outputs['fused']
+
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+
+                    pair_proj = trainer.link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    total_loss += trainer.link_loss(link_probs, labels).item()
+                    binary_labels = (labels >= 0.5).float()
+                    total_correct += (link_probs.ge(0.5) == binary_labels.bool()).sum().item()
+                    total_samples += batch_size
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                # Self-state
+                self_out = trainer.model(
+                    node_features=nf,
+                    edge_index=ei,
+                    context_tokens=torch.randn(1, 2, 128).to(trainer.device),
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=ew
+                )
+                ss = self_out['self_state']
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Dataset:       {len(dataset)} examples")
+            print(f"Link Accuracy: {total_correct / max(total_samples, 1):.4f}"
+                  f" ({total_correct}/{total_samples})")
+            print(f"Link Loss:     {total_loss / max(num_batches, 1):.4f}")
+            print(f"Resonance:     {total_resonance / max(num_batches, 1):.4f}")
+            print(f"Coherence:     {ss['coherence'].item():.4f}")
+            print(f"Health:        {ss['health'].item():.4f}")
+            print(f"Parameters:    {trainer.model.count_parameters():,}")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

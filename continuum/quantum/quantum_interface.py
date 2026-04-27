@@ -217,10 +217,48 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            if not self.ibm_token:
+                logger.warning("IBM_QUANTUM_TOKEN not set, falling back to AerSimulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
+            else:
+                try:
+                    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+                    from qiskit_ibm_runtime import QiskitRuntimeService
+
+                    if self._backend_instance is None:
+                        service = QiskitRuntimeService(
+                            channel="ibm_quantum",
+                            token=self.ibm_token,
+                        )
+                        self._backend_instance = service.least_busy(
+                            operational=True, simulator=False
+                        )
+                        logger.info(
+                            f"Connected to IBM Quantum: {self._backend_instance.name}"
+                        )
+
+                    pm = generate_preset_pass_manager(
+                        backend=self._backend_instance, optimization_level=1
+                    )
+                    isa_circuit = pm.run(qc)
+                    job = self._backend_instance.run(isa_circuit, shots=shots)
+                    result = job.result()
+                except ImportError:
+                    logger.warning(
+                        "qiskit-ibm-runtime not installed, falling back to AerSimulator"
+                    )
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
+                except Exception as e:
+                    logger.error(
+                        f"IBM Quantum connection failed ({e}), falling back to AerSimulator"
+                    )
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
 
         # Extract bits from measurement results
         bits = []
