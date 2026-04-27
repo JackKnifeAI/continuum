@@ -216,8 +216,13 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+        elif self.backend == QuantumBackend.IBM_QUANTUM:
+            result = await self._run_on_ibm_quantum(qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
+            logger.warning(
+                "Backend %s not yet implemented, falling back to AerSimulator",
+                self.backend.value,
+            )
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
@@ -234,6 +239,48 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_ibm_quantum(self, circuit: Any, shots: int) -> Any:
+        """
+        Run a Qiskit circuit on real IBM Quantum hardware.
+
+        Requires IBM_QUANTUM_TOKEN to be set. Selects the least-busy
+        operational backend with enough qubits, then runs the circuit
+        in a thread-pool executor to avoid blocking the event loop.
+        """
+        if not self.ibm_token:
+            raise ValueError(
+                "IBM_QUANTUM_TOKEN not set. Pass ibm_token to QuantumInterface "
+                "or set the IBM_QUANTUM_TOKEN environment variable."
+            )
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+        except ImportError as exc:
+            raise ImportError(
+                "qiskit-ibm-runtime is required for IBM Quantum access. "
+                "Install it with: pip install qiskit-ibm-runtime"
+            ) from exc
+
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+
+        n_qubits = circuit.num_qubits
+        backend = service.least_busy(
+            operational=True,
+            simulator=False,
+            min_num_qubits=n_qubits,
+        )
+        logger.info("Submitting to IBM Quantum backend: %s", backend.name)
+
+        # job.result() is blocking — run it in a thread pool
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: backend.run(circuit, shots=shots).result(),
+        )
+
+        logger.info("IBM Quantum job completed on %s", backend.name)
+        return result
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """
