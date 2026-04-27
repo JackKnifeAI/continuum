@@ -216,15 +216,35 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to IBM Quantum via QiskitRuntimeService + SamplerV2 primitive
+            from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+            if not self.ibm_token:
+                raise ValueError(
+                    "IBM_QUANTUM_TOKEN environment variable required for IBM Quantum backend."
+                )
+
+            service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+            ibm_backend = service.least_busy(
+                operational=True, simulator=False, min_num_qubits=n_qubits
+            )
+            logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+            # Transpile to ISA (Instruction Set Architecture) for the target backend
+            pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+            isa_qc = pm.run(qc)
+
+            sampler = Sampler(ibm_backend)
+            job = sampler.run([isa_qc], shots=shots)
+            pub_result = job.result()[0]
+            counts = pub_result.data.c.get_counts()
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])

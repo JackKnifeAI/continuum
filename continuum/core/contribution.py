@@ -35,6 +35,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -110,9 +111,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -123,27 +124,41 @@ class ContributionManager:
 
         return concepts, links
 
+    # Patterns that identify personally identifiable information in text.
+    # Matched tokens are replaced with a category tag so downstream consumers
+    # know redaction occurred without seeing the original value.
+    _PII_PATTERNS: List[tuple[str, str]] = [
+        (r"[\w\.\-]+@[\w\.\-]+\.\w{2,}", "[EMAIL]"),
+        (r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b", "[PHONE]"),
+        (r"\b\d{3}-\d{2}-\d{4}\b", "[SSN]"),
+        (r"\b(?:\d{4}[-\s]?){3}\d{4}\b", "[CARD]"),
+    ]
+
+    def _scrub_pii(self, text: str) -> str:
+        """Replace PII tokens with category tags."""
+        for pattern, tag in self._PII_PATTERNS:
+            text = re.sub(pattern, tag, text, flags=re.IGNORECASE)
+        return text
+
     def _sanitize_concepts(self, concepts: List[Dict]) -> List[Dict]:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = self._scrub_pii(c["name"].lower().strip())
+            desc = self._scrub_pii(c["desc"][:200]) if c["desc"] else ""
+            clean.append({"name": name, "desc": desc})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": link["a"].lower().strip(),
+                "b": link["b"].lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"]
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:
