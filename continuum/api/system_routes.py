@@ -23,7 +23,7 @@ import sqlite3
 from typing import Any, Dict
 
 import psutil
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from continuum.core.memory import TenantManager
@@ -226,6 +226,38 @@ def get_tenant_stats() -> Dict[str, Any]:
         }
 
 
+def count_api_endpoints(app) -> int:
+    """Count registered HTTP route handlers in the FastAPI app."""
+    from fastapi.routing import APIRoute
+    return sum(1 for r in app.routes if isinstance(r, APIRoute))
+
+
+def get_request_counts() -> tuple[int, int]:
+    """Return (requests_total, errors_total) from the Prometheus registry."""
+    try:
+        from prometheus_client import REGISTRY
+        requests_total = 0
+        errors_total = 0
+        for metric in REGISTRY.collect():
+            if metric.name == 'continuum_api_requests_total':
+                for sample in metric.samples:
+                    if sample.name.endswith('_total'):
+                        requests_total += int(sample.value)
+            elif metric.name == 'continuum_api_errors_total':
+                for sample in metric.samples:
+                    if sample.name.endswith('_total'):
+                        errors_total += int(sample.value)
+        return requests_total, errors_total
+    except Exception:
+        return 0, 0
+
+
+def is_graphql_available() -> bool:
+    """Return True if the strawberry GraphQL package is installed."""
+    import importlib.util
+    return importlib.util.find_spec("strawberry") is not None
+
+
 # =============================================================================
 # ENDPOINTS
 # =============================================================================
@@ -255,7 +287,7 @@ async def system_health(admin_user: dict = Depends(get_current_admin_user)):
 
 
 @router.get("/metrics", response_model=SystemMetrics)
-async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
+async def system_metrics(request: Request, admin_user: dict = Depends(get_current_admin_user)):
     """
     Get comprehensive system metrics.
 
@@ -267,14 +299,15 @@ async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
 
     **Authentication:** Required
     """
+    requests_total, errors_total = get_request_counts()
     return SystemMetrics(
         platform=get_platform_info(),
         resources=get_resource_usage(),
         tenants=get_tenant_stats(),
         api={
-            "endpoints": 50,  # TODO: Calculate from FastAPI routes
-            "requests_total": 0,  # TODO: Implement request counter
-            "errors_total": 0  # TODO: Implement error counter
+            "endpoints": count_api_endpoints(request.app),
+            "requests_total": requests_total,
+            "errors_total": errors_total,
         }
     )
 
@@ -298,7 +331,7 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
             "base_url": os.environ.get("CONTINUUM_API_URL", "http://localhost:8420"),
             "cors_origins": os.environ.get("CONTINUUM_CORS_ORIGINS", "http://localhost:3000").split(","),
             "require_api_key": os.environ.get("CONTINUUM_REQUIRE_API_KEY", "true").lower() == "true",
-            "rate_limit_enabled": False  # TODO: Implement
+            "rate_limit_enabled": os.environ.get("CONTINUUM_RATE_LIMIT_ENABLED", "true").lower() == "true",
         },
         database={
             "type": "sqlite",
@@ -306,7 +339,7 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
             "size_mb": get_database_stats().get("size_mb", 0)
         },
         features={
-            "graphql": True,  # TODO: Check if GraphQL is available
+            "graphql": is_graphql_available(),
             "websockets": True,
             "semantic_search": True,
             "federation": True,
