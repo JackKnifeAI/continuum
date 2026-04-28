@@ -474,8 +474,9 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
+        # Wired: fetches when schumann_meteoagent_url is set in config.
+        # Assumed response format: {"harmonics": [{"frequency": 7.83, "amplitude": 100.0}, ...]}
+        # Adjust parsing below once live API format is confirmed.
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,22 +485,37 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            if not isinstance(data, dict):
+                logger.debug("MeteoAgent response is not a JSON object")
+                return None
 
-            # Placeholder parsing - adjust when API format known
-            for harmonic_data in data.get("harmonics", []):
-                freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
-                    closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+            harmonic_list = data.get("harmonics", [])
+            if not isinstance(harmonic_list, list) or not harmonic_list:
+                logger.debug("MeteoAgent response missing 'harmonics' list")
+                return None
+
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
+
+            for harmonic_data in harmonic_list:
+                if not isinstance(harmonic_data, dict):
+                    continue
+                raw_freq = harmonic_data.get("frequency")
+                raw_amp = harmonic_data.get("amplitude")
+                if raw_freq is None or raw_amp is None:
+                    continue
+                freq = float(raw_freq)
+                power = float(raw_amp)
+                if freq <= 0 or power < 0:
+                    continue
+                closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                # Only accept if within 1 Hz of a known harmonic
+                if abs(closest - freq) < 1.0:
                     harmonic_powers[closest] = power
                     harmonic_frequencies[closest] = freq
 
             if not harmonic_powers:
+                logger.debug("MeteoAgent response contained no recognisable Schumann harmonics")
                 return None
 
             return self._create_reading_from_data(
