@@ -18,6 +18,8 @@
 Billing and Stripe integration routes for CONTINUUM.
 """
 
+import sqlite3
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,6 +28,7 @@ from pydantic import BaseModel
 from continuum.billing.stripe_client import StripeClient
 from continuum.billing.tiers import PricingTier, get_stripe_price_id
 
+from .admin_db import get_admin_db_path, init_admin_db
 from .middleware import get_tenant_from_key
 
 # =============================================================================
@@ -200,13 +203,41 @@ async def create_checkout_session(
         tier_enum = PricingTier(request.tier)
         price_id = get_stripe_price_id(tier_enum)
 
-        # Create or get Stripe customer
-        # TODO: Check if tenant already has a Stripe customer ID
-        customer = await stripe_client.create_customer(
-            email=request.customer_email or f"{tenant_id}@continuum.local",
-            tenant_id=tenant_id,
-            metadata={"tier": request.tier}
-        )
+        # Create or get Stripe customer - reuse existing customer to avoid duplicates
+        existing_customer_id: Optional[str] = None
+        if not stripe_client.mock_mode:
+            init_admin_db()
+            conn = sqlite3.connect(get_admin_db_path())
+            try:
+                c = conn.cursor()
+                c.execute(
+                    "SELECT stripe_customer_id FROM users WHERE tenant_id = ?",
+                    (tenant_id,)
+                )
+                row = c.fetchone()
+                existing_customer_id = row[0] if row and row[0] else None
+            finally:
+                conn.close()
+
+        if existing_customer_id:
+            customer = await stripe_client.get_customer(existing_customer_id)
+        else:
+            customer = await stripe_client.create_customer(
+                email=request.customer_email or f"{tenant_id}@continuum.local",
+                tenant_id=tenant_id,
+                metadata={"tier": request.tier}
+            )
+            if not stripe_client.mock_mode:
+                conn = sqlite3.connect(get_admin_db_path())
+                try:
+                    c = conn.cursor()
+                    c.execute(
+                        "UPDATE users SET stripe_customer_id = ?, updated_at = ? WHERE tenant_id = ?",
+                        (customer["id"], datetime.now(timezone.utc).isoformat(), tenant_id)
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
 
         # Create checkout session
         if stripe_client.mock_mode:
@@ -269,17 +300,47 @@ async def get_subscription_status(tenant_id: str = Depends(get_tenant_from_key))
     - Cancellation status
     """
     try:
-        # TODO: Query database for tenant's Stripe customer ID and subscription
-        # For now, return default free tier
+        init_admin_db()
+        conn = sqlite3.connect(get_admin_db_path())
+        try:
+            c = conn.cursor()
+            c.execute(
+                "SELECT tier, stripe_customer_id, stripe_subscription_id FROM users WHERE tenant_id = ?",
+                (tenant_id,)
+            )
+            row = c.fetchone()
+        finally:
+            conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        tier = row[0] or "free"
+        stripe_subscription_id = row[2]
+
+        if stripe_subscription_id and not stripe_client.mock_mode:
+            subscription = await stripe_client.get_subscription(stripe_subscription_id)
+            period_end = subscription.get("current_period_end")
+            return SubscriptionStatusResponse(
+                tenant_id=tenant_id,
+                tier=tier,
+                status=subscription.get("status", "active"),
+                current_period_end=datetime.fromtimestamp(
+                    period_end, tz=timezone.utc
+                ).isoformat() if period_end else None,
+                cancel_at_period_end=bool(subscription.get("cancel_at_period_end", False))
+            )
 
         return SubscriptionStatusResponse(
             tenant_id=tenant_id,
-            tier="free",
+            tier=tier,
             status="active",
             current_period_end=None,
             cancel_at_period_end=False
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Status retrieval failed: {str(e)}") from e
 
@@ -300,21 +361,34 @@ async def cancel_subscription(
     Confirmation of cancellation with effective date.
     """
     try:
-        # TODO: Get tenant's subscription ID from database
-        # subscription_id = get_subscription_id(tenant_id)
+        init_admin_db()
+        conn = sqlite3.connect(get_admin_db_path())
+        try:
+            c = conn.cursor()
+            c.execute(
+                "SELECT stripe_subscription_id FROM users WHERE tenant_id = ?",
+                (tenant_id,)
+            )
+            row = c.fetchone()
+        finally:
+            conn.close()
 
-        # Cancel subscription
-        # result = await stripe_client.cancel_subscription(
-        #     subscription_id,
-        #     at_period_end=at_period_end
-        # )
+        subscription_id = row[0] if row and row[0] else None
+        if not subscription_id:
+            raise HTTPException(status_code=404, detail="No active subscription found")
+
+        if not stripe_client.mock_mode:
+            await stripe_client.cancel_subscription(subscription_id, at_period_end=at_period_end)
 
         return {
             "status": "cancelled",
-            "message": "Subscription cancellation not yet implemented",
+            "message": f"Subscription will be cancelled {'at period end' if at_period_end else 'immediately'}",
+            "subscription_id": subscription_id,
             "at_period_end": at_period_end
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cancellation failed: {str(e)}") from e
 
@@ -393,22 +467,47 @@ async def report_usage(
     not by end users directly.
     """
     try:
-        # TODO: Get subscription item ID from database
-        # subscription_item_id = get_subscription_item_id(tenant_id)
+        init_admin_db()
+        conn = sqlite3.connect(get_admin_db_path())
+        try:
+            c = conn.cursor()
+            c.execute(
+                "SELECT stripe_subscription_id FROM users WHERE tenant_id = ?",
+                (tenant_id,)
+            )
+            row = c.fetchone()
+        finally:
+            conn.close()
 
-        # Report usage to Stripe
-        # result = await stripe_client.report_usage(
-        #     subscription_item_id,
-        #     quantity=quantity
-        # )
+        subscription_id = row[0] if row and row[0] else None
+        if not subscription_id:
+            raise HTTPException(status_code=404, detail="No active subscription found for usage reporting")
+
+        if stripe_client.mock_mode:
+            return {
+                "status": "reported",
+                "quantity": quantity,
+                "tenant_id": tenant_id,
+                "subscription_id": subscription_id
+            }
+
+        subscription = await stripe_client.get_subscription(subscription_id)
+        items = subscription.get("items", {}).get("data", [])
+        if not items:
+            raise HTTPException(status_code=404, detail="No subscription items found")
+        subscription_item_id = items[0]["id"]
+
+        await stripe_client.report_usage(subscription_item_id, quantity=quantity)
 
         return {
             "status": "reported",
             "quantity": quantity,
             "tenant_id": tenant_id,
-            "message": "Usage reporting not yet implemented"
+            "subscription_item_id": subscription_item_id
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Usage reporting failed: {str(e)}") from e
 

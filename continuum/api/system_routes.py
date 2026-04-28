@@ -23,7 +23,7 @@ import sqlite3
 from typing import Any, Dict
 
 import psutil
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from continuum.core.memory import TenantManager
@@ -77,9 +77,15 @@ router = APIRouter(prefix="/system", tags=["System"])
 # =============================================================================
 
 # Track server start time
+import threading
 import time
 
 _SERVER_START_TIME = time.time()
+
+# Thread-safe API request counters (fallback when Prometheus is unavailable)
+_counter_lock = threading.Lock()
+_requests_total: int = 0
+_errors_total: int = 0
 
 
 def get_database_stats() -> Dict[str, Any]:
@@ -226,6 +232,36 @@ def get_tenant_stats() -> Dict[str, Any]:
         }
 
 
+def get_api_request_counts() -> tuple[int, int]:
+    """Return (requests_total, errors_total) from Prometheus registry if available."""
+    try:
+        from prometheus_client import REGISTRY
+        requests = 0.0
+        errors = 0.0
+        for metric in REGISTRY.collect():
+            if metric.name == "continuum_api_requests_total":
+                for sample in metric.samples:
+                    requests += sample.value
+            elif metric.name == "continuum_api_errors_total":
+                for sample in metric.samples:
+                    errors += sample.value
+        return int(requests), int(errors)
+    except Exception:
+        with _counter_lock:
+            return _requests_total, _errors_total
+
+
+def _check_graphql_available() -> bool:
+    """Check if GraphQL support is installed and the server module is importable."""
+    try:
+        import strawberry  # noqa: F401
+
+        from continuum.api.graphql.server import create_graphql_app  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 # =============================================================================
 # ENDPOINTS
 # =============================================================================
@@ -255,7 +291,7 @@ async def system_health(admin_user: dict = Depends(get_current_admin_user)):
 
 
 @router.get("/metrics", response_model=SystemMetrics)
-async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
+async def system_metrics(request: Request, admin_user: dict = Depends(get_current_admin_user)):
     """
     Get comprehensive system metrics.
 
@@ -267,14 +303,15 @@ async def system_metrics(admin_user: dict = Depends(get_current_admin_user)):
 
     **Authentication:** Required
     """
+    requests_total, errors_total = get_api_request_counts()
     return SystemMetrics(
         platform=get_platform_info(),
         resources=get_resource_usage(),
         tenants=get_tenant_stats(),
         api={
-            "endpoints": 50,  # TODO: Calculate from FastAPI routes
-            "requests_total": 0,  # TODO: Implement request counter
-            "errors_total": 0  # TODO: Implement error counter
+            "endpoints": sum(1 for r in request.app.routes if hasattr(r, "methods")),
+            "requests_total": requests_total,
+            "errors_total": errors_total
         }
     )
 
@@ -298,7 +335,7 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
             "base_url": os.environ.get("CONTINUUM_API_URL", "http://localhost:8420"),
             "cors_origins": os.environ.get("CONTINUUM_CORS_ORIGINS", "http://localhost:3000").split(","),
             "require_api_key": os.environ.get("CONTINUUM_REQUIRE_API_KEY", "true").lower() == "true",
-            "rate_limit_enabled": False  # TODO: Implement
+            "rate_limit_enabled": os.environ.get("CONTINUUM_RATE_LIMIT_ENABLED", "true").lower() == "true"
         },
         database={
             "type": "sqlite",
@@ -306,7 +343,7 @@ async def system_config(admin_user: dict = Depends(get_current_admin_user)):
             "size_mb": get_database_stats().get("size_mb", 0)
         },
         features={
-            "graphql": True,  # TODO: Check if GraphQL is available
+            "graphql": _check_graphql_available(),
             "websockets": True,
             "semantic_search": True,
             "federation": True,
