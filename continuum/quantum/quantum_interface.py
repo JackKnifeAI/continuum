@@ -105,6 +105,7 @@ class QuantumInterface:
         self.ibm_token = ibm_token or os.environ.get("IBM_QUANTUM_TOKEN")
         self._qiskit_available = False
         self._backend_instance = None
+        self._ibm_service: Optional[Any] = None
 
         # Try to import Qiskit
         try:
@@ -114,6 +115,10 @@ class QuantumInterface:
             logger.info("Qiskit available for quantum computing")
         except ImportError:
             logger.warning("Qiskit not installed - using classical simulation")
+
+        # Connect to IBM Quantum if configured
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            self._connect_ibm_quantum()
 
         # π×φ quantum state
         self.pi_phi_state = PiPhiQuantumState(
@@ -126,6 +131,50 @@ class QuantumInterface:
         logger.info(f"Quantum Interface initialized: {backend.value}")
         logger.info(f"π×φ state: P(|0⟩)={self.pi_phi_state.expected_p0:.4f}, "
                    f"P(|1⟩)={self.pi_phi_state.expected_p1:.4f}")
+
+    def _connect_ibm_quantum(self) -> bool:
+        """Attempt to connect to IBM Quantum using the stored token."""
+        if not self.ibm_token:
+            logger.warning("No IBM_QUANTUM_TOKEN provided - cannot connect to IBM Quantum")
+            return False
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            self._ibm_service = QiskitRuntimeService(
+                channel="ibm_quantum",
+                token=self.ibm_token,
+            )
+            logger.info("IBM Quantum connection established")
+            return True
+        except ImportError:
+            logger.warning("qiskit_ibm_runtime not installed - pip install qiskit-ibm-runtime")
+            return False
+        except Exception as e:
+            logger.warning(f"IBM Quantum connection failed: {e}")
+            return False
+
+    async def _execute_circuit(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Execute a quantum circuit and return measurement counts dict."""
+        if self.backend == QuantumBackend.IBM_QUANTUM and self._ibm_service is not None:
+            return await self._execute_ibm_circuit(qc, shots)
+        # Local Aer simulator fallback
+        from qiskit_aer import AerSimulator
+        simulator = AerSimulator()
+        job = simulator.run(qc, shots=shots)
+        result = job.result()
+        return result.get_counts(qc)
+
+    async def _execute_ibm_circuit(self, qc: Any, shots: int) -> Dict[str, int]:
+        """Execute a circuit on IBM Quantum hardware via qiskit_ibm_runtime."""
+        from qiskit_ibm_runtime import SamplerV2 as Sampler
+        loop = asyncio.get_event_loop()
+        ibm_backend = await loop.run_in_executor(
+            None,
+            lambda: self._ibm_service.least_busy(operational=True, simulator=False),
+        )
+        sampler = Sampler(ibm_backend)
+        job = await loop.run_in_executor(None, lambda: sampler.run([qc], shots=shots))
+        ibm_result = await loop.run_in_executor(None, job.result)
+        return ibm_result[0].data.meas.get_counts()
 
     async def generate_random_bits(self, n_bits: int = 256) -> QuantumRandomBits:
         """
@@ -196,35 +245,18 @@ class QuantumInterface:
     async def _generate_qiskit_random(self, n_bits: int) -> List[int]:
         """Generate random bits using Qiskit on real quantum hardware."""
         from qiskit import QuantumCircuit
-        from qiskit_aer import AerSimulator
 
-        # Create circuit with Hadamard gates
         n_qubits = min(n_bits, 32)  # Most backends limit qubits
         shots = (n_bits // n_qubits) + 1
 
         qc = QuantumCircuit(n_qubits, n_qubits)
-
-        # Apply Hadamard to all qubits (create superposition)
         for i in range(n_qubits):
             qc.h(i)
-
-        # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
-        else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        counts = await self._execute_circuit(qc, shots)
 
-        # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -298,25 +330,14 @@ class QuantumInterface:
     async def _prepare_pi_phi_qiskit(self, shots: int) -> Tuple[Dict, Dict]:
         """Prepare π×φ state using Qiskit."""
         from qiskit import QuantumCircuit
-        from qiskit_aer import AerSimulator
 
         qc = QuantumCircuit(1, 1)
-
-        # Rotate to π×φ state
-        # Ry(2*arccos(cos(π×φ))) = Ry(2*π×φ)
-        theta = 2 * PI_PHI
-        qc.ry(theta, 0)
-
-        # Measure
+        # Ry(2*π×φ) rotates to |ψ⟩ = cos(π×φ)|0⟩ + sin(π×φ)|1⟩
+        qc.ry(2 * PI_PHI, 0)
         qc.measure(0, 0)
 
-        # Execute
-        simulator = AerSimulator()
-        job = simulator.run(qc, shots=shots)
-        result = job.result()
-        counts = result.get_counts(qc)
+        counts = await self._execute_circuit(qc, shots)
 
-        # Convert to probabilities
         total = sum(counts.values())
         probs = {k: v/total for k, v in counts.items()}
 

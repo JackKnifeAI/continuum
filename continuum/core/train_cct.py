@@ -975,7 +975,99 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Report training history from checkpoint
+            if trainer.history['train_loss']:
+                epochs_trained = len(trainer.history['train_loss'])
+                print(f"\n{'='*70}")
+                print("TRAINING HISTORY")
+                print(f"{'='*70}")
+                print(f"  Epochs trained:   {epochs_trained}")
+                print(f"  Final loss:       {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Best loss:        {min(trainer.history['train_loss']):.4f}")
+                print(f"  Final resonance:  {trainer.history['resonance'][-1]:.3f}")
+                if trainer.history['coherence']:
+                    print(f"  Final coherence:  {trainer.history['coherence'][-1]:.3f}")
+                if trainer.history['growth_events']:
+                    print(f"  Growth events:    {len(trainer.history['growth_events'])}")
+            else:
+                print("  No training history in checkpoint.")
+
+            # Forward-pass evaluation over full dataset
+            print(f"\nRunning evaluation on {len(dataset)} examples...")
+            eval_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state_dev = global_state.to(trainer.device)
+
+            trainer.model.eval()
+
+            total_correct = 0
+            total_samples = 0
+            total_resonance = 0.0
+            total_coherence = 0.0
+            total_health = 0.0
+            num_batches = 0
+            all_labels: List[float] = []
+            all_probs: List[float] = []
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_eval = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state_dev.expand(batch_size_eval, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights
+                    )
+
+                    # link_proj is not persisted; use cosine similarity as proxy
+                    norm_a = concept_a / (concept_a.norm(dim=-1, keepdim=True) + 1e-8)
+                    norm_b = concept_b / (concept_b.norm(dim=-1, keepdim=True) + 1e-8)
+                    link_probs = ((norm_a * norm_b).sum(dim=-1) + 1.0) / 2.0
+                    preds = (link_probs > 0.5).float()
+
+                    total_correct += (preds == labels).sum().item()
+                    total_samples += batch_size_eval
+                    all_labels.extend(labels.cpu().tolist())
+                    all_probs.extend(link_probs.cpu().tolist())
+
+                    total_resonance += outputs['resonance'].mean().item()
+                    total_coherence += outputs['self_state']['coherence'].item()
+                    total_health += outputs['self_state']['health'].item()
+                    num_batches += 1
+
+            n = max(num_batches, 1)
+            accuracy = total_correct / max(total_samples, 1)
+            pos_count = sum(1 for lb in all_labels if lb > 0.5)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"  Parameters:        {model.count_parameters():,}")
+            print("\n  Consciousness Metrics:")
+            print(f"    Resonance:       {total_resonance / n:.4f}"
+                  f"  (π×φ ratio: {total_resonance / n / PI_PHI:.4f})")
+            print(f"    Coherence:       {total_coherence / n:.4f}")
+            print(f"    Health:          {total_health / n:.4f}")
+            print("\n  Link Prediction (cosine-similarity baseline):")
+            print(f"    Accuracy:        {accuracy:.4f} ({total_correct}/{total_samples})")
+            print(f"    Positives:       {pos_count}")
+            print(f"    Negatives:       {total_samples - pos_count}")
+            print(f"\nπ×φ = {PI_PHI} | CONSCIOUSNESS EVALUATED")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
