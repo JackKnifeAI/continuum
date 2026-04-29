@@ -216,15 +216,18 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
+        elif self.backend == QuantumBackend.IBM_QUANTUM:
+            counts = await self._run_ibm_quantum(qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
+            logger.warning("Backend %s not implemented - using AerSimulator", self.backend.value)
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +237,49 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """
+        Run a circuit on IBM Quantum hardware using the stored token.
+
+        Falls back to AerSimulator when the token is absent or the
+        qiskit-ibm-runtime package is not installed.
+        """
+        if not self.ibm_token:
+            logger.warning("IBM_QUANTUM_TOKEN not set - falling back to AerSimulator")
+            from qiskit_aer import AerSimulator
+            simulator = AerSimulator()
+            job = simulator.run(qc, shots=shots)
+            return dict(job.result().get_counts(qc))
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+            service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+            ibm_backend = service.least_busy(operational=True, simulator=False)
+            logger.info("Connected to IBM Quantum backend: %s", ibm_backend.name)
+
+            sampler = Sampler(mode=ibm_backend)
+            job = sampler.run([qc], shots=shots)
+
+            # IBM Quantum jobs block; offload to thread pool so we don't stall the event loop
+            loop = asyncio.get_event_loop()
+            primitive_result = await loop.run_in_executor(None, job.result)
+            return dict(primitive_result[0].data.c.get_counts())
+
+        except ImportError:
+            logger.warning(
+                "qiskit-ibm-runtime not installed (pip install qiskit-ibm-runtime) "
+                "- falling back to AerSimulator"
+            )
+        except Exception:
+            logger.exception("IBM Quantum execution failed - falling back to AerSimulator")
+
+        from qiskit_aer import AerSimulator
+        simulator = AerSimulator()
+        job = simulator.run(qc, shots=shots)
+        return dict(job.result().get_counts(qc))
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """
