@@ -217,12 +217,68 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to real IBM Quantum hardware using qiskit-ibm-runtime
+            if not self.ibm_token:
+                logger.warning("IBM_QUANTUM_TOKEN not set, falling back to simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
+            else:
+                try:
+                    from qiskit.transpiler.preset_passmanagers import (
+                        generate_preset_pass_manager,
+                    )
+                    from qiskit_ibm_runtime import QiskitRuntimeService
+                    from qiskit_ibm_runtime import SamplerV2 as Sampler
 
-        # Extract bits from measurement results
+                    service = QiskitRuntimeService(
+                        channel="ibm_quantum",
+                        token=self.ibm_token,
+                    )
+                    ibm_backend = service.least_busy(operational=True, simulator=False)
+                    logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+                    pm = generate_preset_pass_manager(
+                        optimization_level=1, backend=ibm_backend
+                    )
+                    isa_circuit = pm.run(qc)
+
+                    sampler = Sampler(ibm_backend)
+                    loop = asyncio.get_event_loop()
+                    ibm_job = await loop.run_in_executor(
+                        None, lambda: sampler.run([isa_circuit], shots=shots)
+                    )
+                    ibm_result = await loop.run_in_executor(None, ibm_job.result)
+
+                    # SamplerV2 result format differs from AerSimulator
+                    bits: List[int] = []
+                    pub_result = ibm_result[0]
+                    counts_data = pub_result.data.c.get_counts()
+                    for bitstring, count in counts_data.items():
+                        for _ in range(count):
+                            bits.extend([int(b) for b in bitstring])
+                            if len(bits) >= n_bits:
+                                break
+                        if len(bits) >= n_bits:
+                            break
+                    return bits[:n_bits]
+
+                except ImportError:
+                    logger.warning(
+                        "qiskit-ibm-runtime not installed, falling back to simulator"
+                    )
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
+                except Exception as e:
+                    logger.error(
+                        f"IBM Quantum connection failed: {e}, falling back to simulator"
+                    )
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
+
+        # Extract bits from AerSimulator result
         bits = []
         counts = result.get_counts(qc)
         for bitstring, count in counts.items():
