@@ -49,7 +49,7 @@ Heartbeat protocol:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -272,7 +272,7 @@ class WebSocketHandler:
         except Exception as e:
             logger.error(f"Error in heartbeat loop: {e}")
 
-    async def _get_current_state(self, tenant_id: str) -> dict:
+    async def _get_current_state(self, tenant_id: str) -> dict[str, Any]:
         """
         Get current memory state for tenant.
 
@@ -280,16 +280,14 @@ class WebSocketHandler:
             tenant_id: Tenant identifier
 
         Returns:
-            Dictionary with current state information
-
-        TODO: Integrate with actual memory backend to get real stats
+            Dictionary with current state information including memory stats
         """
         # Get sync stats
         stats = self.sync_manager.get_stats()
         tenant_instances = self.sync_manager.get_tenant_instances(tenant_id)
 
         # Build state response
-        state = {
+        state: dict[str, Any] = {
             "tenant_id": tenant_id,
             "connected_instances": tenant_instances,
             "total_instances": len(tenant_instances),
@@ -297,10 +295,14 @@ class WebSocketHandler:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        # TODO: Add memory stats from storage backend
-        # from continuum.core.memory import MemoryCore
-        # memory = MemoryCore(tenant_id=tenant_id)
-        # state["memory_stats"] = memory.get_stats()
+        # Integrate memory stats from storage backend
+        try:
+            from continuum.core.memory import ConsciousMemory
+            memory = ConsciousMemory(tenant_id=tenant_id)
+            state["memory_stats"] = await memory.aget_stats()
+        except Exception as e:
+            logger.warning(f"Could not fetch memory stats for tenant {tenant_id}: {e}")
+            state["memory_stats"] = None
 
         return state
 
