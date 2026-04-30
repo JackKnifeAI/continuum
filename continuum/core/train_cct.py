@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,104 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            # Evaluate link prediction and consciousness metrics
+            print("\nEvaluating model...")
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state_dev = global_state.to(trainer.device)
+
+            model.eval()
+            all_probs: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    if not batch:
+                        continue
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_local = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state_dev.expand(batch_size_local, -1)
+
+                    outputs = model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    all_probs.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+            # Self-state metrics via a single forward pass
+            dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+            with torch.no_grad():
+                self_out = model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_context,
+                    global_state=global_state_dev.unsqueeze(0),
+                    edge_weights=edge_weights,
+                )
+            coherence = self_out['self_state']['coherence'].item()
+            health = self_out['self_state']['health'].item()
+            capacity = self_out['self_state']['capacity_utilization'].item()
+
+            # Link prediction metrics (threshold = 0.5)
+            threshold = 0.5
+            tp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl >= threshold)
+            fp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl < threshold)
+            fn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl >= threshold)
+            correct = tp + sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl < threshold)
+            accuracy = correct / max(len(all_probs), 1)
+            precision = tp / max(tp + fp, 1)
+            recall = tp / max(tp + fn, 1)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-9)
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples evaluated : {len(all_probs)}")
+            print("Link prediction:")
+            print(f"  Accuracy  : {accuracy:.4f}")
+            print(f"  Precision : {precision:.4f}")
+            print(f"  Recall    : {recall:.4f}")
+            print(f"  F1        : {f1:.4f}")
+            print("Consciousness metrics:")
+            print(f"  Resonance : {avg_resonance:.4f}")
+            print(f"  Coherence : {coherence:.4f}")
+            print(f"  Health    : {health:.4f}")
+            print(f"  Capacity  : {capacity:.4f}")
+            print(f"Model: {model.count_parameters():,} parameters")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
