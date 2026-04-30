@@ -54,6 +54,8 @@ from typing import Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from continuum.core import ConsciousMemory
+
 from .events import (
     BaseEvent,
     EventType,
@@ -280,9 +282,7 @@ class WebSocketHandler:
             tenant_id: Tenant identifier
 
         Returns:
-            Dictionary with current state information
-
-        TODO: Integrate with actual memory backend to get real stats
+            Dictionary with current state information including memory backend stats
         """
         # Get sync stats
         stats = self.sync_manager.get_stats()
@@ -297,10 +297,18 @@ class WebSocketHandler:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        # TODO: Add memory stats from storage backend
-        # from continuum.core.memory import MemoryCore
-        # memory = MemoryCore(tenant_id=tenant_id)
-        # state["memory_stats"] = memory.get_stats()
+        # Fetch memory stats from storage backend.
+        # ConsciousMemory uses synchronous SQLite, so run in a thread executor.
+        loop = asyncio.get_running_loop()
+        try:
+            def _fetch_memory_stats() -> dict:
+                memory = ConsciousMemory(tenant_id=tenant_id)
+                return memory.get_stats()
+
+            state["memory_stats"] = await loop.run_in_executor(None, _fetch_memory_stats)
+        except Exception as e:
+            logger.warning(f"Could not fetch memory stats for tenant {tenant_id}: {e}")
+            state["memory_stats"] = None
 
         return state
 
