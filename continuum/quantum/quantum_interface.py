@@ -88,6 +88,17 @@ class PiPhiQuantumState:
     expected_p1: float    # |amplitude_1|²
 
 
+class _IBMSamplerResult:
+    """Thin wrapper so IBM Runtime SamplerV2 results match the Aer result.get_counts() API."""
+
+    def __init__(self, counts: Dict[str, int], circuit: Any) -> None:
+        self._counts = counts
+        self._circuit = circuit
+
+    def get_counts(self, _circuit: Any = None) -> Dict[str, int]:
+        return self._counts
+
+
 class QuantumInterface:
     """
     Interface to quantum computing resources.
@@ -216,8 +227,35 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+        elif self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+            try:
+                from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+                service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+                ibm_backend = service.least_busy(operational=True, simulator=False)
+                logger.info(f"Connected to IBM Quantum backend: {ibm_backend.name}")
+
+                pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+                isa_circuit = pm.run(qc)
+
+                sampler = Sampler(ibm_backend)
+                job = sampler.run([isa_circuit], shots=shots)
+                pub_result = job.result()[0]
+                # BitArray -> counts dict compatible with the extraction loop below
+                counts = pub_result.data.c.get_counts()
+                result = _IBMSamplerResult(counts, qc)
+            except Exception as e:
+                logger.warning(f"IBM Quantum connection failed ({e}), falling back to simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
+            if self.backend == QuantumBackend.IBM_QUANTUM and not self.ibm_token:
+                logger.warning("IBM_QUANTUM_TOKEN not set; falling back to simulator")
+            else:
+                logger.warning(f"Backend {self.backend.value} not yet supported; falling back to simulator")
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
