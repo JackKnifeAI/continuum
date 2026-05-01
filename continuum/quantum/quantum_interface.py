@@ -216,8 +216,44 @@ class QuantumInterface:
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+        elif self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+            try:
+                from qiskit_ibm_runtime import QiskitRuntimeService
+                from qiskit_ibm_runtime import SamplerV2 as Sampler
+                service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+                ibm_backend = service.least_busy(
+                    operational=True, simulator=False, min_num_qubits=n_qubits
+                )
+                logger.info(f"Using IBM Quantum backend: {ibm_backend.name}")
+                sampler = Sampler(ibm_backend)
+                job = sampler.run([qc], shots=shots)
+                raw = job.result()
+                creg_name = qc.cregs[0].name
+                counts = getattr(raw[0].data, creg_name).get_counts()
+                ibm_bits = []
+                for bitstring, count in counts.items():
+                    for _ in range(count):
+                        ibm_bits.extend(int(b) for b in bitstring.replace(" ", ""))
+                        if len(ibm_bits) >= n_bits:
+                            return ibm_bits[:n_bits]
+                return ibm_bits[:n_bits]
+            except ImportError:
+                logger.warning("qiskit-ibm-runtime not installed, falling back to simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
+            except Exception as e:
+                logger.error(f"IBM Quantum connection failed: {e}, falling back to simulator")
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
+            if self.backend == QuantumBackend.IBM_QUANTUM:
+                logger.warning("IBM_QUANTUM_TOKEN not set, using simulator")
+            else:
+                logger.warning(
+                    f"Backend {self.backend.value} not fully implemented, using simulator"
+                )
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
