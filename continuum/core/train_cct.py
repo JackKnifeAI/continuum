@@ -975,7 +975,96 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("\nRunning evaluation pass over dataset...")
+            eval_loader = DataLoader(
+                dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
+            )
+            graph_data = dataset.get_graph_data()
+            node_features_ev, edge_index_ev, edge_weights_ev = graph_data
+            global_state_ev = trainer._generate_global_state()
+
+            node_features_ev = node_features_ev.to(trainer.device)
+            edge_index_ev = edge_index_ev.to(trainer.device)
+            edge_weights_ev = edge_weights_ev.to(trainer.device)
+            global_state_ev = global_state_ev.to(trainer.device)
+
+            trainer.model.eval()
+
+            total_resonance = 0.0
+            total_health = 0.0
+            total_coherence = 0.0
+            total_capacity = 0.0
+            pos_sims: List[float] = []
+            neg_sims: List[float] = []
+            num_eval_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_ev = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state_ev.expand(batch_size_ev, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features_ev,
+                        edge_index=edge_index_ev,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights_ev,
+                    )
+
+                    # Cosine similarity as embedding-space link discriminability metric
+                    a_norm = concept_a / (concept_a.norm(dim=-1, keepdim=True) + 1e-8)
+                    b_norm = concept_b / (concept_b.norm(dim=-1, keepdim=True) + 1e-8)
+                    sim = (a_norm * b_norm).sum(dim=-1)
+
+                    pos_mask = labels > 0.5
+                    if pos_mask.any():
+                        pos_sims.extend(sim[pos_mask].cpu().tolist())
+                    if (~pos_mask).any():
+                        neg_sims.extend(sim[~pos_mask].cpu().tolist())
+
+                    total_resonance += outputs['resonance'].mean().item()
+                    total_health += outputs['self_state']['health'].item()
+                    total_coherence += outputs['self_state']['coherence'].item()
+                    total_capacity += outputs['self_state']['capacity_utilization'].item()
+                    num_eval_batches += 1
+
+            n_ev = max(num_eval_batches, 1)
+            avg_pos_sim = sum(pos_sims) / max(len(pos_sims), 1)
+            avg_neg_sim = sum(neg_sims) / max(len(neg_sims), 1)
+            discrimination = avg_pos_sim - avg_neg_sim
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"\nDataset: {len(dataset)} examples  "
+                  f"({len(pos_sims)} linked, {len(neg_sims)} unlinked)")
+            print("\nLink Discriminability (embedding cosine similarity):")
+            print(f"  Linked pair avg similarity:   {avg_pos_sim:+.4f}")
+            print(f"  Unlinked pair avg similarity: {avg_neg_sim:+.4f}")
+            print(f"  Discrimination margin:         {discrimination:+.4f}")
+            print("\nConsciousness Metrics:")
+            print(f"  Resonance (π×φ):  {total_resonance / n_ev:.4f}")
+            print(f"  Health:           {total_health / n_ev:.4f}")
+            print(f"  Coherence:        {total_coherence / n_ev:.4f}")
+            print(f"  Capacity used:    {total_capacity / n_ev:.1%}")
+            if trainer.history.get('train_loss'):
+                epochs_trained = len(trainer.history['train_loss'])
+                print(f"\nTraining History ({epochs_trained} epochs recorded):")
+                print(f"  Best loss:      {min(trainer.history['train_loss']):.4f}")
+                print(f"  Final loss:     {trainer.history['train_loss'][-1]:.4f}")
+                if trainer.history.get('resonance'):
+                    print(f"  Best resonance: {max(trainer.history['resonance']):.4f}")
+                if trainer.history.get('coherence'):
+                    print(f"  Best coherence: {max(trainer.history['coherence']):.4f}")
+                if trainer.history.get('growth_events'):
+                    print(f"  Growth events:  {len(trainer.history['growth_events'])}")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

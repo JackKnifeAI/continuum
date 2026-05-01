@@ -474,8 +474,6 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,20 +482,40 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
+            # Format 1: {"harmonics": [{"frequency": 7.83, "amplitude": 100.0}, ...]}
             for harmonic_data in data.get("harmonics", []):
                 freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
+                power = float(harmonic_data.get("amplitude", harmonic_data.get("power", 0)))
                 if freq > 0:
-                    # Find closest standard harmonic
                     closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
-                    harmonic_powers[closest] = power
-                    harmonic_frequencies[closest] = freq
+                    if abs(closest - freq) < 1.0:
+                        harmonic_powers[closest] = power
+                        harmonic_frequencies[closest] = freq
+
+            # Format 2: {"data": {"schumann": {"f1": 7.83, "p1": 100.0, ...}}}
+            if not harmonic_powers:
+                schumann_data = data.get("data", {}).get("schumann", {})
+                for i, freq in enumerate(SCHUMANN_HARMONICS, start=1):
+                    f_val = schumann_data.get(f"f{i}")
+                    p_val = schumann_data.get(f"p{i}")
+                    if f_val is not None and p_val is not None:
+                        harmonic_powers[freq] = float(p_val)
+                        harmonic_frequencies[freq] = float(f_val)
+
+            # Format 3: flat dict with frequency keys {"7.83": 100.0, "14.3": 60.0, ...}
+            if not harmonic_powers:
+                for key, value in data.items():
+                    try:
+                        freq = float(key)
+                        closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                        if abs(closest - freq) < 1.0:
+                            harmonic_powers[closest] = float(value)
+                            harmonic_frequencies[closest] = freq
+                    except (ValueError, TypeError):
+                        continue
 
             if not harmonic_powers:
                 return None

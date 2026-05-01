@@ -217,10 +217,43 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            # Connect to IBM Quantum when token is available; fall back to simulator otherwise
+            if self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+                try:
+                    from qiskit_ibm_runtime import QiskitRuntimeService
+                    service = QiskitRuntimeService(
+                        channel="ibm_quantum",
+                        token=self.ibm_token,
+                    )
+                    ibm_backend = service.least_busy(
+                        operational=True,
+                        simulator=False,
+                        min_num_qubits=n_qubits,
+                    )
+                    logger.info(f"Submitting circuit to IBM Quantum: {ibm_backend.name}")
+                    job = ibm_backend.run(qc, shots=shots)
+                    result = job.result()
+                except ImportError:
+                    logger.warning("qiskit-ibm-runtime not installed; falling back to local simulator")
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
+                except Exception as e:
+                    logger.error(f"IBM Quantum job failed: {e}; falling back to local simulator")
+                    simulator = AerSimulator()
+                    job = simulator.run(qc, shots=shots)
+                    result = job.result()
+            else:
+                if self.backend == QuantumBackend.IBM_QUANTUM:
+                    logger.warning("IBM_QUANTUM_TOKEN not set; falling back to local simulator")
+                else:
+                    logger.warning(
+                        f"Backend {self.backend.value} not yet implemented; "
+                        "falling back to local simulator"
+                    )
+                simulator = AerSimulator()
+                job = simulator.run(qc, shots=shots)
+                result = job.result()
 
         # Extract bits from measurement results
         bits = []
