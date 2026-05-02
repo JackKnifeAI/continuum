@@ -471,11 +471,14 @@ class SchumannResonanceCollector(BaseSensorCollector):
         MeteoAgent provides Schumann forecasts and real-time data.
         API endpoint (if available): meteoagent.com/api/schumann
 
+        Handles three response schemas:
+        - {harmonics: [{frequency, amplitude|power}, ...]}
+        - {frequencies: [...], powers: [...]}  (parallel arrays)
+        - {data: [{freq|frequency, power|amplitude}, ...]}
+
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,23 +487,41 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
-            for harmonic_data in data.get("harmonics", []):
-                freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
-                    closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+            def _register(freq: float, power: float) -> None:
+                if freq <= 0 or power <= 0:
+                    return
+                closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                if abs(closest - freq) < 2.0:
                     harmonic_powers[closest] = power
                     harmonic_frequencies[closest] = freq
 
+            if "harmonics" in data:
+                for entry in data["harmonics"]:
+                    _register(
+                        float(entry.get("frequency", 0)),
+                        float(entry.get("amplitude", entry.get("power", 0))),
+                    )
+            elif "frequencies" in data and "powers" in data:
+                for freq, power in zip(data["frequencies"], data["powers"]):
+                    _register(float(freq), float(power))
+            elif "data" in data and isinstance(data["data"], list):
+                for entry in data["data"]:
+                    _register(
+                        float(entry.get("freq", entry.get("frequency", 0))),
+                        float(entry.get("power", entry.get("amplitude", 0))),
+                    )
+
             if not harmonic_powers:
                 return None
+
+            # Normalize if MeteoAgent returns fractional units (e.g. nT²/Hz)
+            max_power = max(harmonic_powers.values())
+            if 0 < max_power < 1.0:
+                scale = HARMONIC_POWER_BASELINE[SCHUMANN_FUNDAMENTAL] / max_power
+                harmonic_powers = {k: v * scale for k, v in harmonic_powers.items()}
 
             return self._create_reading_from_data(
                 harmonic_powers,
