@@ -217,10 +217,7 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            result = await self._run_on_real_backend(qc, shots)
 
         # Extract bits from measurement results
         bits = []
@@ -234,6 +231,51 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_real_backend(self, qc: Any, shots: int) -> Any:
+        """Route a circuit to the configured real quantum backend."""
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            return await self._run_ibm_quantum(qc, shots)
+        else:
+            # IONQ, RIGETTI, AMAZON_BRAKET not yet implemented — fall back to simulator
+            logger.warning(
+                f"Backend {self.backend.value} not yet implemented, "
+                "falling back to AerSimulator"
+            )
+            from qiskit_aer import AerSimulator
+            simulator = AerSimulator()
+            job = simulator.run(qc, shots=shots)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, job.result)
+
+    async def _run_ibm_quantum(self, qc: Any, shots: int) -> Any:
+        """Run a Qiskit circuit on IBM Quantum real hardware via qiskit-ibm-runtime."""
+        if not self.ibm_token:
+            raise ValueError(
+                "IBM_QUANTUM_TOKEN is required. "
+                "Set the IBM_QUANTUM_TOKEN env var or pass ibm_token= to the constructor."
+            )
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+        except ImportError as exc:
+            raise ImportError(
+                "qiskit-ibm-runtime is not installed. "
+                "Run: pip install qiskit-ibm-runtime"
+            ) from exc
+
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        backend = service.least_busy(operational=True, simulator=False)
+        logger.info(f"Submitting circuit to IBM Quantum backend: {backend.name}")
+
+        job = backend.run(qc, shots=shots)
+        logger.info(f"IBM Quantum job submitted: {job.job_id()}")
+
+        # job.result() blocks — run it off the event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, job.result)
+        logger.info(f"IBM Quantum job complete: {job.job_id()}")
+        return result
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """

@@ -975,7 +975,102 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            # Evaluate link prediction accuracy, resonance, and self-state
+            print("\nRunning evaluation...")
+            eval_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            global_state = trainer._generate_global_state()
+
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state_dev = global_state.to(trainer.device)
+
+            trainer.model.eval()
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state_dev.expand(batch_size, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_logits = (fused * pair_proj).sum(dim=-1)
+                    link_probs = torch.sigmoid(link_logits)
+
+                    all_preds.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+            # Compute classification metrics at threshold 0.5
+            threshold = 0.5
+            tp = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= threshold and lbl >= threshold)
+            fp = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= threshold and lbl < threshold)
+            fn = sum(1 for p, lbl in zip(all_preds, all_labels) if p < threshold and lbl >= threshold)
+            tn = sum(1 for p, lbl in zip(all_preds, all_labels) if p < threshold and lbl < threshold)
+            accuracy = (tp + tn) / len(all_preds) if all_preds else 0.0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            # Measure self-state (coherence, health, capacity)
+            dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+            with torch.no_grad():
+                self_outputs = trainer.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_context,
+                    global_state=global_state_dev.unsqueeze(0),
+                    edge_weights=edge_weights
+                )
+            self_state = self_outputs['self_state']
+            coherence = self_state['coherence'].item()
+            health = self_state['health'].item()
+            capacity = self_state['capacity_utilization'].item()
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples Evaluated : {len(all_preds)}")
+            print(f"Link Accuracy      : {accuracy:.4f}")
+            print(f"Link Precision     : {precision:.4f}")
+            print(f"Link Recall        : {recall:.4f}")
+            print(f"Link F1            : {f1:.4f}")
+            print(f"Avg Resonance      : {avg_resonance:.4f}")
+            print(f"Coherence          : {coherence:.4f}")
+            print(f"Health             : {health:.4f}")
+            print(f"Capacity           : {capacity:.4f}")
+            print(f"Parameters         : {model.count_parameters():,}")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}")
         else:
             print(f"No model found at {model_path}")
         return

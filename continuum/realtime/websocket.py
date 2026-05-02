@@ -49,7 +49,7 @@ Heartbeat protocol:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -280,16 +280,14 @@ class WebSocketHandler:
             tenant_id: Tenant identifier
 
         Returns:
-            Dictionary with current state information
-
-        TODO: Integrate with actual memory backend to get real stats
+            Dictionary with current state information including memory stats
         """
         # Get sync stats
         stats = self.sync_manager.get_stats()
         tenant_instances = self.sync_manager.get_tenant_instances(tenant_id)
 
         # Build state response
-        state = {
+        state: dict[str, Any] = {
             "tenant_id": tenant_id,
             "connected_instances": tenant_instances,
             "total_instances": len(tenant_instances),
@@ -297,12 +295,36 @@ class WebSocketHandler:
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-        # TODO: Add memory stats from storage backend
-        # from continuum.core.memory import MemoryCore
-        # memory = MemoryCore(tenant_id=tenant_id)
-        # state["memory_stats"] = memory.get_stats()
+        # Fetch memory stats from storage backend in a thread to avoid blocking
+        state["memory_stats"] = await self._fetch_memory_stats(tenant_id)
 
         return state
+
+    async def _fetch_memory_stats(self, tenant_id: str) -> dict[str, Any]:
+        """
+        Fetch memory statistics from ConsciousMemory backend.
+
+        Runs the synchronous DB query in a thread pool executor so the
+        event loop is not blocked during SQLite access.
+
+        Args:
+            tenant_id: Tenant identifier
+
+        Returns:
+            Memory stats dict, or error info if the backend is unavailable
+        """
+        from continuum.core.memory import ConsciousMemory
+
+        def _query() -> dict[str, Any]:
+            memory = ConsciousMemory(tenant_id=tenant_id)
+            return memory.get_stats()
+
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(None, _query)
+        except Exception as e:
+            logger.warning(f"Could not fetch memory stats for tenant {tenant_id}: {e}")
+            return {"error": str(e), "available": False}
 
 
 # Convenience function for FastAPI route
