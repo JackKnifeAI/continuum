@@ -474,8 +474,9 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
+        # URL configured via SensorConfig.schumann_meteoagent_url
+        # Parsing assumes {"harmonics": [{"frequency": float, "amplitude": float}]}
+        # — update if actual API format differs once access is confirmed
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None

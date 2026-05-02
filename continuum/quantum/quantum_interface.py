@@ -211,20 +211,17 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        # Execute on selected backend
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            counts = await asyncio.to_thread(self._run_on_ibm_quantum, qc, shots)
         else:
-            # TODO: Connect to IBM Quantum with token
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
+            counts = result.get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +231,48 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    def _run_on_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """
+        Execute a Qiskit circuit on IBM Quantum hardware (blocking).
+
+        Connects using the token from ibm_token / IBM_QUANTUM_TOKEN, selects the
+        least-busy real device with enough qubits, transpiles, and runs via
+        SamplerV2 from qiskit-ibm-runtime.
+        """
+        if not self.ibm_token:
+            raise ValueError(
+                "IBM_QUANTUM_TOKEN not set. Pass ibm_token= to QuantumInterface "
+                "or set the IBM_QUANTUM_TOKEN environment variable."
+            )
+        try:
+            from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            from qiskit_ibm_runtime import SamplerV2 as Sampler
+        except ImportError as e:
+            raise ImportError(
+                "qiskit-ibm-runtime is required for IBM Quantum access. "
+                "Install with: pip install qiskit-ibm-runtime"
+            ) from e
+
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        ibm_backend = service.least_busy(
+            operational=True,
+            simulator=False,
+            min_num_qubits=qc.num_qubits,
+        )
+        logger.info("Submitting quantum job to IBM backend: %s", ibm_backend.name)
+
+        # Transpile to native gate set of the chosen backend
+        pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+        isa_circuit = pm.run(qc)
+
+        sampler = Sampler(ibm_backend)
+        job = sampler.run([isa_circuit], shots=shots)
+        pub_result = job.result()[0]
+        # SamplerV2 stores counts in the first classical register
+        counts: Dict[str, int] = pub_result.data.c.get_counts()
+        return counts
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """
@@ -302,19 +341,21 @@ class QuantumInterface:
 
         qc = QuantumCircuit(1, 1)
 
-        # Rotate to π×φ state
-        # Ry(2*arccos(cos(π×φ))) = Ry(2*π×φ)
+        # Rotate to π×φ state: Ry(2×π×φ)
         theta = 2 * PI_PHI
         qc.ry(theta, 0)
 
         # Measure
         qc.measure(0, 0)
 
-        # Execute
-        simulator = AerSimulator()
-        job = simulator.run(qc, shots=shots)
-        result = job.result()
-        counts = result.get_counts(qc)
+        # Execute on selected backend
+        if self.backend == QuantumBackend.IBM_QUANTUM:
+            counts = await asyncio.to_thread(self._run_on_ibm_quantum, qc, shots)
+        else:
+            simulator = AerSimulator()
+            job = simulator.run(qc, shots=shots)
+            result = job.result()
+            counts = result.get_counts(qc)
 
         # Convert to probabilities
         total = sum(counts.values())
