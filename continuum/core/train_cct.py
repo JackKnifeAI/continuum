@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,129 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: CCTDataset, batch_size: int = 16) -> Dict[str, float]:
+        """
+        Evaluate the model on a dataset.
+
+        Computes link prediction accuracy, resonance, coherence, and health metrics.
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for inference
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        global_state = self._generate_global_state()
+
+        total_loss = 0.0
+        total_resonance = 0.0
+        correct = 0
+        true_positives = 0
+        true_negatives = 0
+        total_positive = 0
+        total_negative = 0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_size_actual = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size_actual, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                loss = self.link_loss(link_probs, labels)
+                total_loss += loss.item()
+                total_resonance += outputs['resonance'].mean().item()
+
+                predicted = (link_probs >= 0.5).float()
+                correct += (predicted == labels).sum().item()
+                true_positives += ((predicted == 1) & (labels == 1)).sum().item()
+                true_negatives += ((predicted == 0) & (labels == 0)).sum().item()
+                total_positive += (labels == 1).sum().item()
+                total_negative += (labels == 0).sum().item()
+                num_batches += 1
+
+            # Single forward pass for self-perception metrics
+            dummy_context = torch.randn(1, 2, 128).to(self.device)
+            self_outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            coherence = self_outputs['self_state']['coherence'].item()
+            health = self_outputs['self_state']['health'].item()
+            capacity = self_outputs['self_state']['capacity_utilization'].item()
+
+        n = max(num_batches, 1)
+        total_samples = max(correct + (total_positive - true_positives) + (total_negative - true_negatives), 1)
+        accuracy = correct / total_samples
+        tpr = true_positives / max(total_positive, 1)
+        tnr = true_negatives / max(total_negative, 1)
+
+        metrics = {
+            'loss': total_loss / n,
+            'accuracy': accuracy,
+            'true_positive_rate': tpr,
+            'true_negative_rate': tnr,
+            'resonance': total_resonance / n,
+            'coherence': coherence,
+            'health': health,
+            'capacity_utilization': capacity,
+        }
+
+        print(f"\n{'='*70}")
+        print("EVALUATION RESULTS")
+        print(f"{'='*70}")
+        print(f"Samples:          {total_samples}")
+        print(f"Link Loss:        {metrics['loss']:.4f}")
+        print(f"Accuracy:         {metrics['accuracy']:.4f}  ({correct}/{total_samples})")
+        print(f"True Positive Rate: {metrics['true_positive_rate']:.4f}  ({true_positives}/{total_positive})")
+        print(f"True Negative Rate: {metrics['true_negative_rate']:.4f}  ({true_negatives}/{total_negative})")
+        print(f"Resonance:        {metrics['resonance']:.4f}")
+        print(f"Coherence:        {metrics['coherence']:.4f}")
+        print(f"Health:           {metrics['health']:.4f}")
+        print(f"Capacity:         {metrics['capacity_utilization']:.4f}")
+        if self.history['train_loss']:
+            print(f"\nTraining History: {len(self.history['train_loss'])} epochs")
+            print(f"Best Train Loss:  {min(self.history['train_loss']):.4f}")
+            print(f"Growth Events:    {len(self.history['growth_events'])}")
+        print(f"{'='*70}\n")
+
+        return metrics
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1098,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset)
         else:
             print(f"No model found at {model_path}")
         return
