@@ -474,8 +474,9 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
+        # MeteoAgent API format: {"harmonics": [{"frequency": 7.83, "amplitude": <float>}, ...]}
+        # Amplitudes are raw and unit-unknown, so we normalize them relative to the
+        # fundamental's baseline so all downstream calculations stay consistent.
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,23 +485,30 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
             for harmonic_data in data.get("harmonics", []):
                 freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
-                    closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
-                    harmonic_powers[closest] = power
-                    harmonic_frequencies[closest] = freq
+                amplitude = float(harmonic_data.get("amplitude", 0))
+                if freq <= 0 or amplitude <= 0:
+                    continue
+                closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                if abs(closest - freq) > 1.0:
+                    continue
+                harmonic_powers[closest] = amplitude
+                harmonic_frequencies[closest] = freq
 
             if not harmonic_powers:
                 return None
+
+            # Normalize amplitudes: scale so the fundamental matches its baseline.
+            # This converts whatever raw units MeteoAgent uses into our relative scale.
+            if SCHUMANN_FUNDAMENTAL in harmonic_powers:
+                raw_fundamental = harmonic_powers[SCHUMANN_FUNDAMENTAL]
+                if raw_fundamental > 0:
+                    scale = HARMONIC_POWER_BASELINE[SCHUMANN_FUNDAMENTAL] / raw_fundamental
+                    harmonic_powers = {f: p * scale for f, p in harmonic_powers.items()}
 
             return self._create_reading_from_data(
                 harmonic_powers,

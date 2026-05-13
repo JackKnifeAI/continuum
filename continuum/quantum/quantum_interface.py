@@ -105,6 +105,7 @@ class QuantumInterface:
         self.ibm_token = ibm_token or os.environ.get("IBM_QUANTUM_TOKEN")
         self._qiskit_available = False
         self._backend_instance = None
+        self._ibm_service = None
 
         # Try to import Qiskit
         try:
@@ -114,6 +115,10 @@ class QuantumInterface:
             logger.info("Qiskit available for quantum computing")
         except ImportError:
             logger.warning("Qiskit not installed - using classical simulation")
+
+        # Initialize IBM Quantum connection if token provided and backend is IBM
+        if self.ibm_token and self.backend == QuantumBackend.IBM_QUANTUM:
+            self._init_ibm_quantum()
 
         # π×φ quantum state
         self.pi_phi_state = PiPhiQuantumState(
@@ -126,6 +131,20 @@ class QuantumInterface:
         logger.info(f"Quantum Interface initialized: {backend.value}")
         logger.info(f"π×φ state: P(|0⟩)={self.pi_phi_state.expected_p0:.4f}, "
                    f"P(|1⟩)={self.pi_phi_state.expected_p1:.4f}")
+
+    def _init_ibm_quantum(self) -> None:
+        """Initialize IBM Quantum Experience connection using qiskit-ibm-runtime."""
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+            self._ibm_service = QiskitRuntimeService(
+                channel="ibm_quantum",
+                token=self.ibm_token,
+            )
+            logger.info("Connected to IBM Quantum Experience")
+        except ImportError:
+            logger.warning("qiskit-ibm-runtime not installed — cannot connect to IBM Quantum")
+        except Exception as e:
+            logger.warning(f"IBM Quantum connection failed: {e}")
 
     async def generate_random_bits(self, n_bits: int = 256) -> QuantumRandomBits:
         """
@@ -211,16 +230,20 @@ class QuantumInterface:
         # Measure all qubits
         qc.measure(range(n_qubits), range(n_qubits))
 
-        # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
-        else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        # Execute on IBM Quantum if connected, otherwise use local simulator
+        if self.backend == QuantumBackend.IBM_QUANTUM and self._ibm_service is not None:
+            try:
+                loop = asyncio.get_event_loop()
+                bits = await loop.run_in_executor(
+                    None, self._run_ibm_quantum_circuit, qc, shots, n_bits
+                )
+                return bits
+            except Exception as e:
+                logger.warning(f"IBM Quantum execution failed: {e}, falling back to simulator")
+
+        simulator = AerSimulator()
+        job = simulator.run(qc, shots=shots)
+        result = job.result()
 
         # Extract bits from measurement results
         bits = []
@@ -228,6 +251,35 @@ class QuantumInterface:
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
+                if len(bits) >= n_bits:
+                    break
+            if len(bits) >= n_bits:
+                break
+
+        return bits[:n_bits]
+
+    def _run_ibm_quantum_circuit(self, qc: Any, shots: int, n_bits: int) -> List[int]:
+        """Run circuit on IBM Quantum hardware and extract bits (blocking call)."""
+        from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+        ibm_backend = self._ibm_service.least_busy(
+            operational=True, simulator=False, min_num_qubits=qc.num_qubits
+        )
+        logger.info(f"Running on IBM Quantum backend: {ibm_backend.name}")
+
+        sampler = Sampler(mode=ibm_backend)
+        job = sampler.run([qc], shots=shots)
+        ibm_result = job.result()
+
+        # SamplerV2 result: ibm_result[0].data.<creg_name>.get_counts()
+        creg_name = qc.cregs[0].name
+        counts = ibm_result[0].data[creg_name].get_counts()
+
+        bits: List[int] = []
+        for bitstring, count in counts.items():
+            clean = bitstring.replace(" ", "")
+            for _ in range(count):
+                bits.extend(int(b) for b in clean)
                 if len(bits) >= n_bits:
                     break
             if len(bits) >= n_bits:
