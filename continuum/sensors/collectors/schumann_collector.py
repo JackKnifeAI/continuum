@@ -474,8 +474,6 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
@@ -484,20 +482,52 @@ class SchumannResonanceCollector(BaseSensorCollector):
             response = await self.fetch_with_retry(url)
             data = response.json()
 
-            # Parse MeteoAgent format (structure TBD based on API)
-            # Expected: frequency, amplitude/power for each harmonic
-            harmonic_powers = {}
-            harmonic_frequencies = {}
+            harmonic_powers: Dict[float, float] = {}
+            harmonic_frequencies: Dict[float, float] = {}
 
-            # Placeholder parsing - adjust when API format known
-            for harmonic_data in data.get("harmonics", []):
-                freq = float(harmonic_data.get("frequency", 0))
-                power = float(harmonic_data.get("amplitude", 0))
-                if freq > 0:
-                    # Find closest standard harmonic
-                    closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
-                    harmonic_powers[closest] = power
-                    harmonic_frequencies[closest] = freq
+            def _closest_harmonic(freq: float) -> Optional[float]:
+                closest = min(SCHUMANN_HARMONICS, key=lambda x: abs(x - freq))
+                return closest if abs(closest - freq) < 1.0 else None
+
+            # Format 1: {"harmonics": [{"frequency": 7.83, "amplitude": 100.0}, ...]}
+            if "harmonics" in data:
+                for entry in data["harmonics"]:
+                    freq = float(entry.get("frequency", 0))
+                    power = float(entry.get("amplitude", entry.get("power", 0)))
+                    if freq > 0 and power > 0:
+                        key = _closest_harmonic(freq)
+                        if key is not None:
+                            harmonic_powers[key] = power
+                            harmonic_frequencies[key] = freq
+
+            # Format 2: {"data": [{"freq": 7.83, "power": 100.0}, ...]}
+            elif "data" in data and isinstance(data["data"], list):
+                for entry in data["data"]:
+                    freq = float(entry.get("freq", entry.get("frequency", 0)))
+                    power = float(entry.get("power", entry.get("amplitude", 0)))
+                    if freq > 0 and power > 0:
+                        key = _closest_harmonic(freq)
+                        if key is not None:
+                            harmonic_powers[key] = power
+                            harmonic_frequencies[key] = freq
+
+            # Format 3: flat keys {"schumann_1_freq": 7.83, "schumann_1_power": 100.0, ...}
+            elif any(k.startswith("schumann_") for k in data):
+                for i in range(1, len(SCHUMANN_HARMONICS) + 1):
+                    freq_val = data.get(f"schumann_{i}_freq", data.get(f"f{i}"))
+                    power_val = data.get(f"schumann_{i}_power", data.get(f"p{i}"))
+                    if freq_val is not None and power_val is not None:
+                        freq = float(freq_val)
+                        power = float(power_val)
+                        key = _closest_harmonic(freq)
+                        if key is not None:
+                            harmonic_powers[key] = power
+                            harmonic_frequencies[key] = freq
+
+            else:
+                logger.debug(
+                    f"MeteoAgent: unrecognized response format, keys={list(data.keys())[:10]}"
+                )
 
             if not harmonic_powers:
                 return None
