@@ -20,9 +20,15 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import smtplib
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.mime.text import MIMEText
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +152,64 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
+    Metric keys:
+      backup_success_total     - completed/verified backup count
+      backup_failure_total     - failed backup count
+      backup_in_progress_total - in-progress backup count
+      backup_duration_seconds  - list of backup durations (histogram samples)
+      backup_size_bytes        - list of compressed sizes (histogram samples)
+      total_storage_bytes      - sum of all compressed backup sizes
+
+    Args:
+        config: Optional backup configuration for querying the metadata store.
+
     Returns:
         Dictionary of metrics
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    metrics: Dict[str, Any] = {
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_in_progress_total": 0,
+        "backup_duration_seconds": [],
+        "backup_size_bytes": [],
+        "total_storage_bytes": 0,
+    }
 
-    return {}
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        store = MetadataStore(config.metadata_db_path)
+        backups = store.list_backups()
+
+        for b in backups:
+            status = b.status.value
+            if status in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif status == "failed":
+                metrics["backup_failure_total"] += 1
+            elif status == "in_progress":
+                metrics["backup_in_progress_total"] += 1
+
+            if b.completed_at and b.created_at:
+                duration = (b.completed_at - b.created_at).total_seconds()
+                metrics["backup_duration_seconds"].append(duration)
+
+            if b.compressed_size_bytes > 0:
+                metrics["backup_size_bytes"].append(b.compressed_size_bytes)
+                metrics["total_storage_bytes"] += b.compressed_size_bytes
+
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}")
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +234,125 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels: List[str] = config.notification_channels
+    if not channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            await _dispatch_alert(channel, alert_type, message)
+        except Exception as e:
+            logger.error(f"Failed to send alert to {channel!r}: {e}")
+
+async def _dispatch_alert(channel: str, alert_type: str, message: str) -> None:
+    """Route an alert to the correct notification backend.
+
+    Supported channel URI schemes:
+      http:// / https://   - Generic JSON webhook; Slack detected by hostname
+      smtp://user:pass@host:port/recipient - SMTP email
+      pagerduty://routing_key             - PagerDuty Events API v2
+    """
+    if channel.startswith(("http://", "https://")):
+        await asyncio.to_thread(_send_webhook, channel, alert_type, message)
+    elif channel.startswith("smtp://"):
+        await asyncio.to_thread(_send_smtp_email, channel, alert_type, message)
+    elif channel.startswith("pagerduty://"):
+        await asyncio.to_thread(_send_pagerduty, channel, alert_type, message)
+    else:
+        logger.warning(
+            f"Unsupported notification channel scheme: {channel!r}. "
+            "Supported: http://, https://, smtp://, pagerduty://"
+        )
+
+
+def _send_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON payload to an HTTP/HTTPS webhook. Slack format auto-detected."""
+    if "hooks.slack.com" in url:
+        payload: Dict[str, Any] = {"text": f"*[{alert_type.upper()}]* {message}"}
+    else:
+        payload = {
+            "alert_type": alert_type,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        logger.debug(f"Webhook {url} responded {resp.status}")
+
+
+def _send_smtp_email(channel: str, alert_type: str, message: str) -> None:
+    """Send an alert email via SMTP.
+
+    Channel format: smtp://user:pass@host:port/recipient@example.com
+    Port defaults to 587; STARTTLS is used when credentials are present.
+    """
+    parsed = urllib.parse.urlparse(channel)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 587
+    username = urllib.parse.unquote(parsed.username or "")
+    password = urllib.parse.unquote(parsed.password or "")
+    recipient = parsed.path.lstrip("/")
+
+    if not recipient:
+        logger.error("SMTP channel missing recipient in path: %s", channel)
+        return
+
+    sender = username or f"backup-monitor@{host}"
+    body = f"{message}\n\nTimestamp: {datetime.utcnow().isoformat()}"
+    msg = MIMEText(body)
+    msg["Subject"] = f"[Backup {alert_type.upper()}] Alert"
+    msg["From"] = sender
+    msg["To"] = recipient
+
+    with smtplib.SMTP(host, port) as smtp:
+        if username and password:
+            smtp.starttls()
+            smtp.login(username, password)
+        smtp.sendmail(sender, [recipient], msg.as_string())
+
+    logger.debug(f"Email alert sent to {recipient}")
+
+
+def _send_pagerduty(channel: str, alert_type: str, message: str) -> None:
+    """Send an alert to PagerDuty Events API v2.
+
+    Channel format: pagerduty://routing_key
+    """
+    routing_key = channel.removeprefix("pagerduty://")
+    if not routing_key:
+        logger.error("PagerDuty channel missing routing key")
+        return
+
+    severity = "critical" if alert_type == "failure" else "info"
+    payload = {
+        "routing_key": routing_key,
+        "event_action": "trigger",
+        "payload": {
+            "summary": message,
+            "severity": severity,
+            "source": "continuum-backup",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    }
+
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        "https://events.pagerduty.com/v2/enqueue",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        logger.debug(f"PagerDuty responded {resp.status}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

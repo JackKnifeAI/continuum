@@ -21,8 +21,10 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -51,10 +53,8 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or load encryption key from secure key store"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +64,42 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from secure key store.
+
+        Priority:
+        1. Env var CONTINUUM_KEY_{KEY_ID} (base64-encoded 32 bytes)
+        2. Key file ~/.continuum/keys/{key_id}.key (mode 0o600)
+        3. Generate and persist a new key
+        """
+        # 1. Environment variable override
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_')}"
+        env_val = os.environ.get(env_var)
+        if env_val:
+            key = base64.b64decode(env_val)
+            if len(key) != 32:
+                raise ValueError(f"Key in {env_var} must be 32 bytes (got {len(key)})")
+            return key
+
+        # 2. Filesystem key store
+        key_dir = Path.home() / ".continuum" / "keys"
+        key_path = key_dir / f"{key_id}.key"
+
+        if key_path.exists():
+            if key_path.stat().st_mode & 0o077:
+                key_path.chmod(0o600)
+                logger.warning(f"Restricted insecure permissions on key file {key_path}")
+            key = key_path.read_bytes()
+            if len(key) != 32:
+                raise ValueError(f"Key file {key_path} must contain exactly 32 bytes (got {len(key)})")
+            return key
+
+        # 3. Generate and persist new key
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key = os.urandom(32)
+        key_path.write_bytes(key)
+        key_path.chmod(0o600)
+        logger.info(f"Generated and stored new encryption key at {key_path}")
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
