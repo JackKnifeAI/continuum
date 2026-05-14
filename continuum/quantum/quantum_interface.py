@@ -217,10 +217,7 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            result = await self._run_on_ibm_quantum(qc, shots)
 
         # Extract bits from measurement results
         bits = []
@@ -234,6 +231,44 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _run_on_ibm_quantum(self, qc: Any, shots: int) -> Any:
+        """
+        Run a Qiskit circuit on IBM Quantum hardware, falling back to AerSimulator.
+
+        Uses qiskit-ibm-runtime to connect with IBM_QUANTUM_TOKEN.  Selects the
+        least-busy real backend automatically.  Any connection or import failure
+        triggers a transparent fallback to the local AerSimulator so callers
+        always receive a valid result object.
+        """
+        from qiskit_aer import AerSimulator
+
+        if not self.ibm_token:
+            logger.warning("IBM_QUANTUM_TOKEN not set — falling back to AerSimulator")
+            simulator = AerSimulator()
+            job = simulator.run(qc, shots=shots)
+            return job.result()
+
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService
+
+            service = QiskitRuntimeService(
+                channel="ibm_quantum",
+                token=self.ibm_token,
+            )
+            backend = service.least_busy(simulator=False, operational=True)
+            logger.info(f"IBM Quantum: submitting to {backend.name} ({backend.num_qubits} qubits)")
+            job = backend.run(qc, shots=shots)
+            return job.result()
+
+        except ImportError:
+            logger.warning("qiskit-ibm-runtime not installed — falling back to AerSimulator")
+        except Exception as e:
+            logger.warning(f"IBM Quantum connection failed ({type(e).__name__}: {e}) — falling back to AerSimulator")
+
+        simulator = AerSimulator()
+        job = simulator.run(qc, shots=shots)
+        return job.result()
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """

@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,92 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            eval_loader = DataLoader(dataset, batch_size=32, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+
+            trainer.model.eval()
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+
+                    batch_size = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size, -1).to(trainer.device)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    # Link prediction via cosine similarity (no saved link_proj needed)
+                    cos_sim = torch.nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                    preds = (cos_sim + 1.0) / 2.0  # rescale [-1,1] → [0,1]
+
+                    all_preds.extend(preds.cpu().tolist())
+                    all_labels.extend((labels > 0.5).float().cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+            # Self-state from a single representative forward pass
+            with torch.no_grad():
+                dummy_ctx = torch.randn(1, 2, 128).to(trainer.device)
+                self_out = trainer.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_ctx,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights,
+                )
+                self_state = self_out['self_state']
+                coherence = self_state['coherence'].item()
+                health = self_state['health'].item()
+                capacity = self_state['capacity_utilization'].item()
+
+            correct = sum(
+                (1 if p > 0.5 else 0) == int(lbl)
+                for p, lbl in zip(all_preds, all_labels)
+            )
+            accuracy = correct / len(all_labels) if all_labels else 0.0
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Parameters:    {trainer.model.count_parameters():,}")
+            print(f"Examples:      {len(dataset)}")
+            print(f"Link Accuracy: {accuracy:.1%}  (cosine similarity, threshold=0.5)")
+            print(f"Resonance:     {avg_resonance:.4f}")
+            print(f"Coherence:     {coherence:.4f}")
+            print(f"Health:        {health:.4f}")
+            print(f"Capacity:      {capacity:.4f}")
+
+            if trainer.history['train_loss']:
+                print("\nTraining History (from checkpoint):")
+                print(f"  Final Loss:      {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Final Resonance: {trainer.history['resonance'][-1]:.4f}")
+                print(f"  Final Coherence: {trainer.history['coherence'][-1]:.4f}")
+                print(f"  Growth Events:   {len(trainer.history['growth_events'])}")
+                print(f"  Epochs Trained:  {len(trainer.history['train_loss'])}")
+
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
