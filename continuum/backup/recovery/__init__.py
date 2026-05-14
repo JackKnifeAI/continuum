@@ -370,12 +370,126 @@ async def selective_restore(
     Returns:
         RestoreResult with status
     """
-    logger.info(f"Selective restore: {len(tables)} tables")
+    logger.info(f"Selective restore: {len(tables)} tables from backup {backup_id}")
 
-    # TODO: Implement selective restore logic
-    # Extract only specified tables from backup
+    result = RestoreResult(
+        success=False,
+        status=RestoreStatus.PENDING,
+    )
 
-    raise NotImplementedError("Selective restore not yet implemented")
+    try:
+        if not target.database_path:
+            raise ValueError("database_path required for selective restore")
+
+        # Fetch backup metadata to determine encryption/compression
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        metadata = metadata_store.get_metadata(backup_id)
+        if not metadata:
+            raise ValueError(f"Backup not found: {backup_id}")
+
+        # Download backup
+        result.status = RestoreStatus.DOWNLOADING
+        from ..storage import get_storage_backend
+        storage = get_storage_backend(config.primary_storage)
+        backup_data = await storage.download(backup_id)
+        result.bytes_restored = len(backup_data)
+        logger.info(f"Downloaded {len(backup_data)} bytes")
+
+        # Decrypt if encrypted
+        if metadata.encrypted:
+            result.status = RestoreStatus.DECRYPTING
+            from ..encryption import get_encryption_handler
+            encryption = get_encryption_handler(config.encryption)
+            backup_data = await encryption.decrypt(backup_data, metadata.encryption_key_id)
+            logger.info("Backup decrypted")
+
+        # Decompress if compressed
+        if metadata.compressed:
+            result.status = RestoreStatus.DECOMPRESSING
+            from ..compression import get_compression_handler
+            compression = get_compression_handler(metadata.compression_algorithm)
+            backup_data = await compression.decompress(backup_data)
+            logger.info("Backup decompressed")
+
+        # Copy only specified tables from backup into target database
+        result.status = RestoreStatus.RESTORING
+
+        def _restore_selected_tables():
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tf:
+                tf.write(backup_data)
+                temp_path = Path(tf.name)
+
+            try:
+                source_conn = sqlite3.connect(str(temp_path))
+                target.database_path.parent.mkdir(parents=True, exist_ok=True)
+                target_conn = sqlite3.connect(str(target.database_path))
+
+                records_restored = 0
+                tables_restored = 0
+
+                for table in tables:
+                    source_cursor = source_conn.cursor()
+                    source_cursor.execute(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    )
+                    schema_row = source_cursor.fetchone()
+                    if not schema_row:
+                        logger.warning(f"Table {table!r} not found in backup, skipping")
+                        continue
+
+                    target_cursor = target_conn.cursor()
+                    if target.overwrite:
+                        target_cursor.execute(f"DROP TABLE IF EXISTS {table}")  # noqa: S608
+                    target_cursor.execute(schema_row[0])
+
+                    source_cursor.execute(f"SELECT * FROM {table}")  # noqa: S608
+                    rows = source_cursor.fetchall()
+
+                    if rows:
+                        col_count = len(rows[0])
+                        placeholders = ','.join(['?' for _ in range(col_count)])
+                        target_cursor.executemany(
+                            f"INSERT OR REPLACE INTO {table} VALUES ({placeholders})",  # noqa: S608
+                            rows,
+                        )
+                        records_restored += len(rows)
+
+                    tables_restored += 1
+                    logger.info(f"Restored table {table!r}: {len(rows) if rows else 0} rows")
+
+                target_conn.commit()
+                target_conn.close()
+                source_conn.close()
+                return tables_restored, records_restored
+            finally:
+                temp_path.unlink(missing_ok=True)
+
+        tables_count, records_count = await asyncio.to_thread(_restore_selected_tables)
+        result.tables_restored = tables_count
+        result.records_restored = records_count
+
+        # Verify if requested
+        if target.verify_after_restore:
+            result.status = RestoreStatus.VERIFYING
+            verified = await _verify_restored_data(target)
+            result.verified = verified
+            if not verified:
+                result.verification_errors.append("Restore verification failed")
+
+        result.status = RestoreStatus.COMPLETED
+        result.success = True
+        logger.info(f"Selective restore complete: {tables_count} tables, {records_count} records")
+        return result
+
+    except Exception as e:
+        logger.error(f"Selective restore failed: {e}", exc_info=True)
+        result.status = RestoreStatus.FAILED
+        result.error = str(e)
+        return result
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

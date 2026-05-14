@@ -23,11 +23,53 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+
+class SecureKeyStore:
+    """
+    File-based secure key store for AES encryption keys.
+
+    Key lookup priority:
+    1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (hex-encoded)
+    2. Key file ``<store_path>/<key_id>.key`` (chmod 600, hex-encoded)
+
+    If a key_id is requested but no key exists, a fresh 256-bit key is
+    generated and persisted so subsequent calls return the same key.
+    """
+
+    DEFAULT_PATH = Path("continuum_data/keys")
+
+    def __init__(self, store_path: Optional[Path] = None):
+        self._path = store_path or self.DEFAULT_PATH
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Load a key by ID, returning None if not found."""
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_')}"
+        env_val = os.environ.get(env_var)
+        if env_val:
+            logger.debug("Loaded key %r from environment variable", key_id)
+            return bytes.fromhex(env_val)
+
+        key_file = self._path / f"{key_id}.key"
+        if key_file.exists():
+            logger.debug("Loaded key %r from %s", key_id, key_file)
+            return bytes.fromhex(key_file.read_text().strip())
+
+        return None
+
+    def save(self, key_id: str, key: bytes) -> None:
+        """Persist a key with owner-only read permissions."""
+        self._path.mkdir(parents=True, exist_ok=True)
+        key_file = self._path / f"{key_id}.key"
+        key_file.write_text(key.hex())
+        key_file.chmod(0o600)
+        logger.info("Saved encryption key %r to %s", key_id, key_file)
 
 
 class AESEncryptionHandler:
@@ -48,13 +90,12 @@ class AESEncryptionHandler:
 
     def __init__(self, config: EncryptionConfig):
         self.config = config
-        self._current_key = None
+        self._key_store = SecureKeyStore()
+        self._current_key: Optional[bytes] = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Return the active encryption key, loading from the key store if needed."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +105,15 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the secure key store, generating and persisting one if absent."""
+        key = self._key_store.load(key_id)
+        if key is not None:
+            return key
+
+        logger.warning("Key %r not found in store — generating new 256-bit key", key_id)
+        key = os.urandom(32)
+        self._key_store.save(key_id, key)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

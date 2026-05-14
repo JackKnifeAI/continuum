@@ -20,13 +20,53 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
+
+# In-process metrics store — counters and histogram data points accumulated at runtime.
+_metrics: Dict[str, Any] = {
+    "backup_duration_seconds": [],
+    "backup_size_bytes": [],
+    "backup_success_total": 0,
+    "backup_failure_total": 0,
+    "restore_duration_seconds": [],
+    "retention_deletions_total": 0,
+    "last_updated": None,
+}
+
+_HISTOGRAM_METRICS = {"backup_duration_seconds", "backup_size_bytes", "restore_duration_seconds"}
+_COUNTER_METRICS = {"backup_success_total", "backup_failure_total", "retention_deletions_total"}
+
+
+def record_backup_metric(metric: str, value: float) -> None:
+    """Increment a counter or append to a histogram by name."""
+    if metric in _HISTOGRAM_METRICS:
+        _metrics[metric].append(value)
+    elif metric in _COUNTER_METRICS:
+        _metrics[metric] += value
+    else:
+        return
+    _metrics["last_updated"] = datetime.utcnow().isoformat()
+
+
+def _histogram_summary(data: List[float]) -> Dict[str, float]:
+    if not data:
+        return {"count": 0, "sum": 0.0, "mean": 0.0, "min": 0.0, "max": 0.0}
+    return {
+        "count": len(data),
+        "sum": sum(data),
+        "mean": sum(data) / len(data),
+        "min": min(data),
+        "max": max(data),
+    }
 
 
 async def get_backup_health(config: BackupConfig) -> BackupHealth:
@@ -155,15 +195,39 @@ def get_backup_metrics() -> Dict[str, Any]:
     Returns:
         Dictionary of metrics
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    return {
+        "backup_duration_seconds": _histogram_summary(_metrics["backup_duration_seconds"]),
+        "backup_size_bytes": _histogram_summary(_metrics["backup_size_bytes"]),
+        "backup_success_total": _metrics["backup_success_total"],
+        "backup_failure_total": _metrics["backup_failure_total"],
+        "restore_duration_seconds": _histogram_summary(_metrics["restore_duration_seconds"]),
+        "retention_deletions_total": _metrics["retention_deletions_total"],
+        "last_updated": _metrics["last_updated"],
+    }
 
-    return {}
+
+def _post_slack_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a Slack-formatted message to a webhook URL."""
+    emoji = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:"}.get(
+        alert_type, ":bell:"
+    )
+    payload = json.dumps({"text": f"{emoji} *Backup {alert_type.upper()}*: {message}"}).encode()
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        logger.debug(f"Slack webhook response: {resp.status}")
+
+
+def _post_generic_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON payload to a generic webhook URL."""
+    payload = json.dumps({
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "source": "continuum-backup",
+    }).encode()
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        logger.debug(f"Webhook response: {resp.status}")
 
 
 async def send_alert(
@@ -188,14 +252,21 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels: List[str] = config.notification_channels
+    if not channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            if channel.startswith("https://hooks.slack.com/"):
+                _post_slack_webhook(channel, alert_type, message)
+            elif channel.startswith("http://") or channel.startswith("https://"):
+                _post_generic_webhook(channel, alert_type, message)
+            else:
+                logger.warning(f"Unsupported notification channel: {channel!r}")
+        except Exception as e:
+            logger.error(f"Failed to deliver alert to {channel!r}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
