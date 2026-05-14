@@ -63,6 +63,7 @@ PHYSICS MODEL (for simulation):
 
 import logging
 import math
+import os
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -474,14 +475,16 @@ class SchumannResonanceCollector(BaseSensorCollector):
         Returns:
             SchumannReading or None if unavailable
         """
-        # TODO: Wire up when API access confirmed
-        # For now, check if URL configured
         url = getattr(self.config, 'schumann_meteoagent_url', None)
         if not url:
             return None
 
         try:
-            response = await self.fetch_with_retry(url)
+            # API key from config or METEOAGENT_API_KEY env var
+            api_key = getattr(self.config, 'schumann_meteoagent_api_key', None) or os.environ.get('METEOAGENT_API_KEY')
+            headers = {'Authorization': f'Bearer {api_key}'} if api_key else None
+
+            response = await self.fetch_with_retry(url, headers=headers)
             data = response.json()
 
             # Parse MeteoAgent format (structure TBD based on API)

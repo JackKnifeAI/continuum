@@ -217,7 +217,40 @@ class QuantumInterface:
             job = simulator.run(qc, shots=shots)
             result = job.result()
         else:
-            # TODO: Connect to IBM Quantum with token
+            # Connect to IBM Quantum with token, fall back to simulator on failure
+            if self.ibm_token and self.backend == QuantumBackend.IBM_QUANTUM:
+                try:
+                    from qiskit_ibm_runtime import QiskitRuntimeService
+                    from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+                    service = QiskitRuntimeService(
+                        channel="ibm_quantum",
+                        token=self.ibm_token,
+                    )
+                    ibm_backend = service.least_busy(operational=True, simulator=False)
+                    logger.info(f"Running on IBM Quantum backend: {ibm_backend.name}")
+                    sampler = Sampler(mode=ibm_backend)
+                    job = sampler.run([qc], shots=shots)
+                    ibm_result = job.result()
+                    ibm_counts = ibm_result[0].data.c.get_counts()
+                    bits: List[int] = []
+                    for bitstring, count in ibm_counts.items():
+                        for _ in range(count):
+                            bits.extend([int(b) for b in bitstring])
+                            if len(bits) >= n_bits:
+                                break
+                        if len(bits) >= n_bits:
+                            break
+                    return bits[:n_bits]
+                except ImportError:
+                    logger.warning("qiskit-ibm-runtime not installed — falling back to simulator")
+                except Exception as e:
+                    logger.warning(f"IBM Quantum connection failed: {e} — falling back to simulator")
+            else:
+                logger.warning(
+                    f"Backend {self.backend.value} not configured or token missing"
+                    " — falling back to simulator"
+                )
             simulator = AerSimulator()
             job = simulator.run(qc, shots=shots)
             result = job.result()
