@@ -20,9 +20,12 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +149,56 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration used to query live metadata.
 
-    return {}
+    Returns:
+        Dictionary of metrics with counters and histogram samples.
+    """
+    metrics: Dict[str, Any] = {
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_duration_seconds": [],   # histogram samples
+        "backup_size_bytes": [],          # histogram samples (compressed)
+        "restore_duration_seconds": [],   # histogram samples
+        "retention_deletions_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        for backup in all_backups:
+            if backup.status.value in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif backup.status.value == "failed":
+                metrics["backup_failure_total"] += 1
+
+            if backup.completed_at and backup.created_at:
+                duration = (backup.completed_at - backup.created_at).total_seconds()
+                metrics["backup_duration_seconds"].append(duration)
+
+            if backup.compressed_size_bytes:
+                metrics["backup_size_bytes"].append(backup.compressed_size_bytes)
+
+        logger.debug(
+            f"Metrics collected: {metrics['backup_success_total']} successes, "
+            f"{metrics['backup_failure_total']} failures"
+        )
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}")
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +223,80 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels: List[str] = config.notification_channels
+    if not channels:
+        logger.warning(f"No notification channels configured; alert dropped: {message}")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            if "hooks.slack.com" in channel:
+                await _send_slack_webhook(channel, alert_type, message)
+            elif "pagerduty.com" in channel:
+                await _send_pagerduty_webhook(channel, alert_type, message)
+            elif channel.startswith("http://") or channel.startswith("https://"):
+                await _send_generic_webhook(channel, alert_type, message)
+            else:
+                logger.warning(f"Unsupported notification channel (no handler): {channel}")
+        except Exception as e:
+            logger.error(f"Failed to send alert to {channel}: {e}")
+
+def _post_json(url: str, payload: Dict[str, Any]) -> None:
+    """Synchronous JSON POST, called via asyncio.to_thread."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "User-Agent": "continuum-backup/1.0"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        if resp.status >= 400:
+            raise RuntimeError(f"HTTP {resp.status} from {url}")
+
+
+async def _send_slack_webhook(url: str, alert_type: str, message: str) -> None:
+    color_map = {"failure": "#FF0000", "warning": "#FFA500", "success": "#36A64F"}
+    payload: Dict[str, Any] = {
+        "attachments": [
+            {
+                "color": color_map.get(alert_type, "#808080"),
+                "title": f"Backup {alert_type.upper()}",
+                "text": message,
+                "footer": "continuum backup",
+                "ts": int(datetime.utcnow().timestamp()),
+            }
+        ]
+    }
+    await asyncio.to_thread(_post_json, url, payload)
+    logger.info(f"Slack alert sent ({alert_type})")
+
+
+async def _send_pagerduty_webhook(url: str, alert_type: str, message: str) -> None:
+    severity_map = {"failure": "critical", "warning": "warning", "success": "info"}
+    payload: Dict[str, Any] = {
+        "event_action": "trigger" if alert_type == "failure" else "resolve",
+        "payload": {
+            "summary": message,
+            "severity": severity_map.get(alert_type, "info"),
+            "source": "continuum-backup",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        },
+    }
+    await asyncio.to_thread(_post_json, url, payload)
+    logger.info(f"PagerDuty alert sent ({alert_type})")
+
+
+async def _send_generic_webhook(url: str, alert_type: str, message: str) -> None:
+    payload: Dict[str, Any] = {
+        "alert_type": alert_type,
+        "message": message,
+        "source": "continuum-backup",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+    await asyncio.to_thread(_post_json, url, payload)
+    logger.info(f"Webhook alert sent to {url} ({alert_type})")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
