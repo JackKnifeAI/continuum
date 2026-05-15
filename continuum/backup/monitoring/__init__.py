@@ -20,11 +20,17 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import os
+import smtplib
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.mime.text import MIMEText
+from typing import Any, Dict, Optional
 
-from ..types import BackupConfig, BackupHealth
+from ..types import BackupConfig, BackupHealth, BackupStatus
 
 logger = logging.getLogger(__name__)
 
@@ -146,24 +152,62 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration. When provided, reads live data from
+                the metadata store. When omitted, returns the metric schema with zeros.
 
-    return {}
+    Returns:
+        Dictionary of metrics with histogram (count/sum) and counter shapes.
+    """
+    metrics: Dict[str, Any] = {
+        "backup_duration_seconds": {"count": 0, "sum": 0.0},
+        "backup_size_bytes": {"count": 0, "sum": 0},
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "restore_duration_seconds": {"count": 0, "sum": 0.0},
+        "retention_deletions_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        success_statuses = {BackupStatus.COMPLETED.value, BackupStatus.VERIFIED.value}
+
+        for backup in all_backups:
+            if backup.status.value in success_statuses:
+                metrics["backup_success_total"] += 1
+            elif backup.status.value == BackupStatus.FAILED.value:
+                metrics["backup_failure_total"] += 1
+
+            if backup.original_size_bytes > 0:
+                metrics["backup_size_bytes"]["count"] += 1
+                metrics["backup_size_bytes"]["sum"] += backup.original_size_bytes
+
+            if backup.created_at and backup.completed_at:
+                duration = (backup.completed_at - backup.created_at).total_seconds()
+                metrics["backup_duration_seconds"]["count"] += 1
+                metrics["backup_duration_seconds"]["sum"] += duration
+
+        logger.debug(
+            f"Metrics collected: {metrics['backup_success_total']} successes, "
+            f"{metrics['backup_failure_total']} failures"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to collect metrics: {e}")
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +232,126 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.warning(f"No notification channels configured; alert not sent: {message}")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            if channel == "slack":
+                await _send_slack_alert(alert_type, message)
+            elif channel == "pagerduty":
+                await _send_pagerduty_alert(alert_type, message)
+            elif channel == "email":
+                await _send_email_alert(alert_type, message)
+            elif channel.startswith("http"):
+                await _send_webhook_alert(channel, alert_type, message)
+            else:
+                logger.warning(f"Unknown notification channel: {channel}")
+        except Exception as e:
+            logger.error(f"Failed to send {channel} alert: {e}")
+
+async def _send_slack_alert(alert_type: str, message: str) -> None:
+    """Send alert to Slack via incoming webhook. Reads SLACK_WEBHOOK_URL from env."""
+    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    if not webhook_url:
+        logger.warning("SLACK_WEBHOOK_URL not set; skipping Slack alert")
+        return
+
+    color = {"failure": "#FF0000", "warning": "#FFA500", "success": "#36A64F"}.get(
+        alert_type, "#808080"
+    )
+    payload: Dict[str, Any] = {
+        "attachments": [{
+            "color": color,
+            "title": f"Backup {alert_type.upper()}",
+            "text": message,
+            "ts": int(datetime.utcnow().timestamp()),
+        }]
+    }
+    await _post_json(webhook_url, payload)
+    logger.info("Slack alert sent")
+
+
+async def _send_pagerduty_alert(alert_type: str, message: str) -> None:
+    """Send alert to PagerDuty Events API v2. Reads PAGERDUTY_ROUTING_KEY from env."""
+    routing_key = os.environ.get("PAGERDUTY_ROUTING_KEY")
+    if not routing_key:
+        logger.warning("PAGERDUTY_ROUTING_KEY not set; skipping PagerDuty alert")
+        return
+
+    severity = {"failure": "critical", "warning": "warning", "success": "info"}.get(
+        alert_type, "info"
+    )
+    payload: Dict[str, Any] = {
+        "routing_key": routing_key,
+        "event_action": "trigger" if alert_type in ("failure", "warning") else "resolve",
+        "payload": {
+            "summary": message,
+            "severity": severity,
+            "source": "continuum-backup",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        },
+    }
+    await _post_json("https://events.pagerduty.com/v2/enqueue", payload)
+    logger.info("PagerDuty alert sent")
+
+
+async def _send_email_alert(alert_type: str, message: str) -> None:
+    """Send alert via SMTP. Reads SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, ALERT_EMAIL."""
+    smtp_host = os.environ.get("SMTP_HOST")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASSWORD")
+    alert_to = os.environ.get("ALERT_EMAIL")
+
+    if not all([smtp_host, smtp_user, smtp_pass, alert_to]):
+        logger.warning(
+            "Email not fully configured; set SMTP_HOST, SMTP_USER, SMTP_PASSWORD, ALERT_EMAIL"
+        )
+        return
+
+    def _send() -> None:
+        msg = MIMEText(message)
+        msg["Subject"] = f"[Continuum Backup] {alert_type.upper()}: Alert"
+        msg["From"] = smtp_user
+        msg["To"] = alert_to
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+    await asyncio.to_thread(_send)
+    logger.info(f"Email alert sent to {alert_to}")
+
+
+async def _send_webhook_alert(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to a custom webhook URL."""
+    payload: Dict[str, Any] = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "source": "continuum-backup",
+    }
+    await _post_json(url, payload)
+    logger.info(f"Webhook alert sent to {url}")
+
+
+async def _post_json(url: str, payload: Dict[str, Any]) -> None:
+    """POST JSON payload to a URL, executed in a thread to avoid blocking the event loop."""
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+    )
+
+    def _do_request() -> None:
+        urllib.request.urlopen(req, timeout=10)
+
+    await asyncio.to_thread(_do_request)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

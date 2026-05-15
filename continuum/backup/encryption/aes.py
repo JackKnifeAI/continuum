@@ -23,7 +23,8 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+import stat
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
@@ -46,15 +47,19 @@ class AESEncryptionHandler:
     - Multiple keys for different backup generations
     """
 
+    KEY_STORE_ENV = "CONTINUUM_KEY_STORE_PATH"
+    KEY_STORE_DEFAULT = "/var/lib/continuum/keys"
+
     def __init__(self, config: EncryptionConfig):
         self.config = config
         self._current_key = None
 
+    def _get_key_store_path(self) -> str:
+        return os.environ.get(self.KEY_STORE_ENV, self.KEY_STORE_DEFAULT)
+
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +69,68 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from filesystem key store with permission validation."""
+        key_store = self._get_key_store_path()
+        key_path = os.path.join(key_store, f"{key_id}.key")
+
+        if not os.path.exists(key_path):
+            raise FileNotFoundError(
+                f"Encryption key '{key_id}' not found at {key_path}. "
+                f"Provision it with AESEncryptionHandler.provision_key()."
+            )
+
+        file_stat = os.stat(key_path)
+        if file_stat.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            logger.warning(
+                "Key file %s has insecure permissions %s — expected 0600 or stricter",
+                key_path,
+                oct(file_stat.st_mode & 0o777),
+            )
+
+        with open(key_path, "rb") as f:
+            key = f.read()
+
+        if len(key) != 32:
+            raise ValueError(
+                f"Invalid key length for '{key_id}': expected 32 bytes, got {len(key)}"
+            )
+
+        return key
+
+    @staticmethod
+    def provision_key(key_id: str, key: Optional[bytes] = None) -> str:
+        """
+        Write a key into the filesystem key store.
+
+        Creates the store directory (mode 0700) if absent, then writes
+        the key file with mode 0600 so only the owner can read it.
+
+        Args:
+            key_id: Identifier that will be stored in EncryptionConfig.key_id.
+            key: 32-byte AES-256 key. A random key is generated if omitted.
+
+        Returns:
+            Absolute path to the stored key file.
+        """
+        key_store = os.environ.get(
+            AESEncryptionHandler.KEY_STORE_ENV,
+            AESEncryptionHandler.KEY_STORE_DEFAULT,
+        )
+        os.makedirs(key_store, mode=0o700, exist_ok=True)
+
+        if key is None:
+            key = os.urandom(32)
+
+        if len(key) != 32:
+            raise ValueError(f"Key must be 32 bytes for AES-256, got {len(key)}")
+
+        key_path = os.path.join(key_store, f"{key_id}.key")
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(key)
+
+        logger.info("Provisioned encryption key '%s' at %s", key_id, key_path)
+        return key_path
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
