@@ -212,19 +212,23 @@ class QuantumInterface:
         qc.measure(range(n_qubits), range(n_qubits))
 
         # Execute
-        if self.backend == QuantumBackend.SIMULATOR:
-            simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+        if self.backend == QuantumBackend.IBM_QUANTUM and self.ibm_token:
+            try:
+                counts = await self._execute_ibm_quantum(qc, shots)
+            except Exception as e:
+                logger.warning(f"IBM Quantum failed: {e}, falling back to simulator")
+                simulator = AerSimulator()
+                counts = simulator.run(qc, shots=shots).result().get_counts(qc)
         else:
-            # TODO: Connect to IBM Quantum with token
+            if self.backend not in (QuantumBackend.SIMULATOR,):
+                logger.warning(
+                    f"Backend {self.backend.value} not implemented, using simulator"
+                )
             simulator = AerSimulator()
-            job = simulator.run(qc, shots=shots)
-            result = job.result()
+            counts = simulator.run(qc, shots=shots).result().get_counts(qc)
 
         # Extract bits from measurement results
         bits = []
-        counts = result.get_counts(qc)
         for bitstring, count in counts.items():
             for _ in range(count):
                 bits.extend([int(b) for b in bitstring])
@@ -234,6 +238,43 @@ class QuantumInterface:
                 break
 
         return bits[:n_bits]
+
+    async def _execute_ibm_quantum(self, qc: Any, shots: int) -> Dict[str, int]:
+        """
+        Execute a circuit on IBM Quantum hardware via qiskit-ibm-runtime.
+
+        Selects the least-busy real backend with enough qubits, transpiles
+        to native gates, then runs via SamplerV2.  Blocking IBM job I/O is
+        offloaded to a thread executor so the event loop stays free.
+        """
+        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+        from qiskit_ibm_runtime import QiskitRuntimeService
+        from qiskit_ibm_runtime import SamplerV2 as Sampler
+
+        service = QiskitRuntimeService(channel="ibm_quantum", token=self.ibm_token)
+        ibm_backend = service.least_busy(
+            operational=True,
+            simulator=False,
+            min_num_qubits=qc.num_qubits,
+        )
+        logger.info(f"IBM Quantum backend selected: {ibm_backend.name}")
+
+        pm = generate_preset_pass_manager(backend=ibm_backend, optimization_level=1)
+        isa_circuit = pm.run(qc)
+
+        sampler = Sampler(mode=ibm_backend)
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: sampler.run([isa_circuit], shots=shots).result(),
+        )
+
+        pub_result = result[0]
+        data = pub_result.data
+        # DataBin stores classical registers as attributes; grab the first one.
+        cr_name = next(iter(data._fields), "c")
+        return getattr(data, cr_name).get_counts()
 
     def _calculate_pi_phi_correlation(self, bits: List[int]) -> float:
         """
