@@ -23,11 +23,56 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+import re
+import stat
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+_SAFE_KEY_ID = re.compile(r"[^a-zA-Z0-9_\-]")
+
+
+class FileKeyStore:
+    """
+    File-based secure key store.
+
+    Keys are written with mode 0o600 (owner read/write only) under a
+    directory that is itself restricted to 0o700.  Key IDs are sanitised
+    before use as filenames to prevent path traversal.
+    """
+
+    DEFAULT_PATH = Path("continuum_data/keystore")
+
+    def __init__(self, store_path: Optional[Path] = None):
+        self.store_path = store_path or self.DEFAULT_PATH
+
+    def _key_path(self, key_id: str) -> Path:
+        safe_id = _SAFE_KEY_ID.sub("_", key_id)
+        return self.store_path / f"{safe_id}.key"
+
+    def _ensure_store(self) -> None:
+        self.store_path.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.store_path, stat.S_IRWXU)  # 0o700
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Return key bytes, or None if not found."""
+        path = self._key_path(key_id)
+        if not path.exists():
+            return None
+        return path.read_bytes()
+
+    def store(self, key_id: str, key_bytes: bytes) -> None:
+        """Persist key bytes with restrictive permissions."""
+        self._ensure_store()
+        path = self._key_path(key_id)
+        path.write_bytes(key_bytes)
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+
+    def exists(self, key_id: str) -> bool:
+        return self._key_path(key_id).exists()
 
 
 class AESEncryptionHandler:
@@ -46,29 +91,33 @@ class AESEncryptionHandler:
     - Multiple keys for different backup generations
     """
 
-    def __init__(self, config: EncryptionConfig):
+    def __init__(self, config: EncryptionConfig, key_store: Optional[FileKeyStore] = None):
         self.config = config
-        self._current_key = None
+        self._key_store = key_store or FileKeyStore()
+        self._current_key: Optional[bytes] = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Return the active encryption key, loading or generating it as needed."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)  # 256-bit ephemeral key
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
-
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the file-based key store, generating and persisting one if absent."""
+        key = self._key_store.load(key_id)
+        if key is not None:
+            logger.debug("Loaded encryption key '%s' from key store", key_id)
+            return key
+
+        # First use: generate a fresh 256-bit key and persist it.
+        key = os.urandom(32)
+        self._key_store.store(key_id, key)
+        logger.info("Generated and stored new encryption key '%s'", key_id)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

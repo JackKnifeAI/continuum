@@ -424,9 +424,49 @@ class BackupManager:
         return f"backup-{strategy.value}-{timestamp}-{self.config.tenant_id}"
 
     async def _count_records(self, tables: Optional[List[str]] = None) -> int:
-        """Count total records in backup"""
-        # TODO: Implement actual record counting from database
-        return 0
+        """Count total records across tables in the source database."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._count_records_sync, tables)
+
+    def _count_records_sync(self, tables: Optional[List[str]] = None) -> int:
+        """Synchronous record count via sqlite3."""
+        import sqlite3
+
+        db_path = self.config.db_path
+        if not db_path.exists():
+            return 0
+
+        try:
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                if tables:
+                    target_tables = tables
+                else:
+                    cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                    )
+                    target_tables = [row[0] for row in cursor.fetchall()]
+
+                total = 0
+                for table in target_tables:
+                    # Table names cannot be parameterized; validate against existing tables
+                    cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    )
+                    if cursor.fetchone() is None:
+                        logger.warning(f"Table not found in source DB, skipping count: {table}")
+                        continue
+                    cursor.execute(f"SELECT COUNT(*) FROM \"{table}\"")  # noqa: S608
+                    row = cursor.fetchone()
+                    total += row[0] if row else 0
+
+                return total
+        except Exception as e:
+            logger.warning(f"Could not count records from {db_path}: {e}")
+            return 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
