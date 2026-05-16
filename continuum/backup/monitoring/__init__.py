@@ -20,13 +20,85 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import threading
+import urllib.request
+from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
+
+
+class _MetricsCollector:
+    """Thread-safe in-memory collector for backup metrics."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._counters: Dict[str, int] = defaultdict(int)
+        self._histograms: Dict[str, List[float]] = defaultdict(list)
+
+    def increment(self, name: str, value: int = 1) -> None:
+        with self._lock:
+            self._counters[name] += value
+
+    def observe(self, name: str, value: float) -> None:
+        with self._lock:
+            self._histograms[name].append(value)
+
+    def snapshot(self) -> Dict[str, Any]:
+        with self._lock:
+            result: Dict[str, Any] = {}
+            for name, count in self._counters.items():
+                result[name] = {"type": "counter", "value": count}
+            for name, values in self._histograms.items():
+                if values:
+                    result[name] = {
+                        "type": "histogram",
+                        "count": len(values),
+                        "sum": sum(values),
+                        "min": min(values),
+                        "max": max(values),
+                        "avg": sum(values) / len(values),
+                    }
+            return result
+
+
+_metrics = _MetricsCollector()
+
+
+def record_backup_duration(seconds: float) -> None:
+    """Record a backup operation duration."""
+    _metrics.observe("backup_duration_seconds", seconds)
+
+
+def record_restore_duration(seconds: float) -> None:
+    """Record a restore operation duration."""
+    _metrics.observe("restore_duration_seconds", seconds)
+
+
+def record_backup_size(size_bytes: int) -> None:
+    """Record the size of a completed backup."""
+    _metrics.observe("backup_size_bytes", float(size_bytes))
+
+
+def record_backup_success() -> None:
+    """Increment the backup success counter."""
+    _metrics.increment("backup_success_total")
+
+
+def record_backup_failure() -> None:
+    """Increment the backup failure counter."""
+    _metrics.increment("backup_failure_total")
+
+
+def record_retention_deletion(count: int = 1) -> None:
+    """Increment the retention deletion counter."""
+    _metrics.increment("retention_deletions_total", count)
 
 
 async def get_backup_health(config: BackupConfig) -> BackupHealth:
@@ -151,19 +223,31 @@ def get_backup_metrics() -> Dict[str, Any]:
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
+    Callers record individual events via record_backup_duration(),
+    record_backup_size(), record_backup_success(), etc.
 
     Returns:
-        Dictionary of metrics
+        Dictionary of metric snapshots keyed by metric name.
+        Each value is a dict with 'type' ('counter' or 'histogram')
+        and the relevant aggregates.
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    return _metrics.snapshot()
 
-    return {}
+
+def _post_webhook(url: str, payload: Dict[str, Any]) -> None:
+    """Synchronous helper to POST a JSON alert payload to a webhook URL."""
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.debug(f"Alert delivered to {url}: HTTP {resp.status}")
+    except Exception as exc:
+        logger.error(f"Alert delivery failed for {url}: {exc}")
 
 
 async def send_alert(
@@ -188,14 +272,26 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    if not config.notification_channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    payload: Dict[str, Any] = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    loop = asyncio.get_event_loop()
+    tasks = []
+    for channel in config.notification_channels:
+        if channel.startswith(("http://", "https://")):
+            tasks.append(loop.run_in_executor(None, _post_webhook, channel, payload))
+        else:
+            logger.warning(f"Unsupported notification channel (expected a webhook URL): {channel!r}")
+
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
