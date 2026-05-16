@@ -21,8 +21,10 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import hashlib
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -53,8 +55,6 @@ class AESEncryptionHandler:
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,10 +64,42 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
+        """Load key from secure key store.
+
+        Resolution order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (64-char hex string)
+        2. Key file at ``~/.continuum/keys/<key_id>`` (32 raw bytes)
+        3. Insecure SHA-256 derivation from key_id (development fallback, logs a warning)
+        """
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_')}"
+        key_hex = os.environ.get(env_var)
+        if key_hex:
+            try:
+                key = bytes.fromhex(key_hex)
+                if len(key) == 32:
+                    logger.debug("Loaded encryption key from environment variable %s", env_var)
+                    return key
+                logger.warning("Key in %s has wrong length %d (expected 32 bytes)", env_var, len(key))
+            except ValueError:
+                logger.warning("Invalid hex value in environment variable %s", env_var)
+
+        key_file = Path.home() / ".continuum" / "keys" / key_id
+        if key_file.exists():
+            try:
+                key_data = key_file.read_bytes()
+                if len(key_data) == 32:
+                    logger.debug("Loaded encryption key from %s", key_file)
+                    return key_data
+                logger.warning("Key file %s has wrong size %d (expected 32 bytes)", key_file, len(key_data))
+            except OSError as e:
+                logger.warning("Failed to read key file %s: %s", key_file, e)
+
+        # Insecure fallback — only acceptable for development/testing
+        logger.warning(
+            "Using insecure key derivation for key_id '%s'. "
+            "Set env var %s (64-char hex) or create key file %s (32 bytes) for production.",
+            key_id, env_var, key_file,
+        )
         return hashlib.sha256(key_id.encode()).digest()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
