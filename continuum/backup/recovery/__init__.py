@@ -23,7 +23,9 @@ Point-in-time recovery, full restore, and selective restore capabilities.
 import asyncio
 import json
 import logging
+import os
 import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -370,12 +372,224 @@ async def selective_restore(
     Returns:
         RestoreResult with status
     """
-    logger.info(f"Selective restore: {len(tables)} tables")
+    logger.info(f"Selective restore: {len(tables)} tables from {backup_id}")
 
-    # TODO: Implement selective restore logic
-    # Extract only specified tables from backup
+    result = RestoreResult(
+        success=False,
+        status=RestoreStatus.PENDING,
+    )
 
-    raise NotImplementedError("Selective restore not yet implemented")
+    try:
+        # Load backup metadata
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        metadata = metadata_store.get_metadata(backup_id)
+        if not metadata:
+            result.error = f"Backup not found: {backup_id}"
+            result.status = RestoreStatus.FAILED
+            return result
+
+        # Download backup
+        result.status = RestoreStatus.DOWNLOADING
+        from ..storage import get_storage_backend
+        storage = get_storage_backend(config.primary_storage)
+        backup_data = await storage.download(backup_id)
+
+        result.bytes_restored = len(backup_data)
+        logger.info(f"Downloaded {len(backup_data)} bytes")
+
+        # Decrypt if encrypted
+        if metadata.encrypted:
+            result.status = RestoreStatus.DECRYPTING
+            from ..encryption import get_encryption_handler
+            encryption = get_encryption_handler(config.encryption)
+            backup_data = await encryption.decrypt(
+                backup_data,
+                metadata.encryption_key_id
+            )
+            logger.info("Backup decrypted")
+
+        # Decompress if compressed
+        if metadata.compressed:
+            result.status = RestoreStatus.DECOMPRESSING
+            from ..compression import get_compression_handler
+            compression = get_compression_handler(metadata.compression_algorithm)
+            backup_data = await compression.decompress(backup_data)
+            logger.info("Backup decompressed")
+
+        # Restore only the requested tables
+        result.status = RestoreStatus.RESTORING
+
+        if metadata.strategy.value == 'full':
+            await _selective_restore_from_full(backup_data, tables, target, result)
+        else:
+            await _selective_restore_from_incremental(backup_data, tables, target, result)
+
+        # Verify if requested
+        if target.verify_after_restore:
+            result.status = RestoreStatus.VERIFYING
+            verified = await _verify_restored_data(target)
+            result.verified = verified
+            if not verified:
+                result.verification_errors.append("Selective restore verification failed")
+
+        result.status = RestoreStatus.COMPLETED
+        result.success = True
+
+        logger.info(
+            f"Selective restore completed: {result.tables_restored} tables, "
+            f"{result.records_restored} records"
+        )
+        return result
+
+    except Exception as e:
+        logger.error(f"Selective restore failed: {e}", exc_info=True)
+        result.status = RestoreStatus.FAILED
+        result.error = str(e)
+        return result
+
+
+async def _selective_restore_from_full(
+    backup_data: bytes,
+    tables: list[str],
+    target: RestoreTarget,
+    result: RestoreResult,
+) -> None:
+    """Extract and restore specific tables from a full SQLite backup."""
+    if not target.database_path:
+        raise ValueError("database_path required for selective restore")
+
+    def _extract_tables() -> tuple[int, int]:
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix='.db')
+        try:
+            os.write(tmp_fd, backup_data)
+            os.close(tmp_fd)
+
+            src_conn = sqlite3.connect(tmp_path)
+            src_cursor = src_conn.cursor()
+
+            src_cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            available = {row[0] for row in src_cursor.fetchall()}
+
+            missing = [t for t in tables if t not in available]
+            if missing:
+                logger.warning(f"Tables not found in backup: {missing}")
+
+            tables_to_restore = [t for t in tables if t in available]
+
+            target.database_path.parent.mkdir(parents=True, exist_ok=True)
+            dst_conn = sqlite3.connect(str(target.database_path))
+            dst_cursor = dst_conn.cursor()
+
+            total_records = 0
+
+            for table_name in tables_to_restore:
+                safe_name = table_name.replace('"', '""')
+
+                src_cursor.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                    (table_name,),
+                )
+                row = src_cursor.fetchone()
+
+                if row and row[0]:
+                    if target.overwrite:
+                        dst_cursor.execute(f'DROP TABLE IF EXISTS "{safe_name}"')
+                    # CREATE TABLE IF NOT EXISTS so a second call won't error
+                    create_sql = row[0].replace(
+                        "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1
+                    )
+                    dst_cursor.execute(create_sql)
+
+                # SELECT to discover column names via cursor.description
+                src_cursor.execute(f'SELECT * FROM "{safe_name}"')
+                cols = [desc[0] for desc in src_cursor.description]
+                rows = src_cursor.fetchall()
+
+                if rows:
+                    col_names = ','.join(f'"{c.replace(chr(34), chr(34)*2)}"' for c in cols)
+                    placeholders = ','.join(['?' for _ in cols])
+                    insert_sql = (
+                        f'INSERT OR REPLACE INTO "{safe_name}" ({col_names}) '
+                        f'VALUES ({placeholders})'
+                    )
+                    dst_cursor.executemany(insert_sql, rows)
+                    total_records += len(rows)
+
+            dst_conn.commit()
+            src_conn.close()
+            dst_conn.close()
+
+            return len(tables_to_restore), total_records
+
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    tables_restored, records_restored = await asyncio.to_thread(_extract_tables)
+    result.tables_restored = tables_restored
+    result.records_restored = records_restored
+    logger.info(f"Restored {tables_restored} tables, {records_restored} records from full backup")
+
+
+async def _selective_restore_from_incremental(
+    backup_data: bytes,
+    tables: list[str],
+    target: RestoreTarget,
+    result: RestoreResult,
+) -> None:
+    """Apply only the specified tables from an incremental backup."""
+    changes = json.loads(backup_data.decode('utf-8'))
+
+    if not target.database_path:
+        raise ValueError("database_path required for selective restore")
+
+    if not target.database_path.exists():
+        raise FileNotFoundError(
+            f"Base database required for incremental selective restore: {target.database_path}"
+        )
+
+    tables_set = set(tables)
+
+    def _apply_changes() -> tuple[int, int]:
+        conn = sqlite3.connect(str(target.database_path))
+        cursor = conn.cursor()
+
+        total_records = 0
+        tables_affected = 0
+
+        for table_name, table_changes in changes.get('tables', {}).items():
+            if table_name not in tables_set:
+                continue
+
+            rows = table_changes.get('rows', [])
+            tables_affected += 1
+
+            for row in rows:
+                columns = list(row.keys())
+                placeholders = ','.join(['?' for _ in columns])
+                column_names = ','.join(columns)
+                query = (
+                    f"INSERT OR REPLACE INTO {table_name} "
+                    f"({column_names}) VALUES ({placeholders})"
+                )
+                cursor.execute(query, [row[col] for col in columns])
+                total_records += 1
+
+        conn.commit()
+        conn.close()
+
+        return tables_affected, total_records
+
+    tables_restored, records_restored = await asyncio.to_thread(_apply_changes)
+    result.tables_restored = tables_restored
+    result.records_restored = records_restored
+    logger.info(
+        f"Applied {records_restored} selective incremental changes "
+        f"across {tables_restored} tables"
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

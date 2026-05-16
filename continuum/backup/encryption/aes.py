@@ -23,6 +23,8 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+import stat
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -50,11 +52,16 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _get_key_store_path(self) -> Path:
+        """Return the secure key store directory, creating it with strict permissions."""
+        key_dir = Path(os.environ.get("CONTINUUM_KEY_STORE", str(Path.home() / ".continuum" / "keys")))
+        key_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(key_dir, stat.S_IRWXU)  # 0o700 — owner only
+        return key_dir
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from the secure key store when a key_id is set."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +71,23 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the secure filesystem key store, generating and persisting one if absent."""
+        key_store = self._get_key_store_path()
+        key_file = key_store / f"{key_id}.key"
+
+        if key_file.exists():
+            key = key_file.read_bytes()
+            if len(key) != 32:
+                raise ValueError(f"Key file for '{key_id}' has unexpected length {len(key)} (expected 32 bytes)")
+            logger.debug(f"Loaded encryption key from store: {key_id}")
+            return key
+
+        # Generate a new random key and persist it with owner-read-only permissions
+        key = os.urandom(32)
+        key_file.write_bytes(key)
+        os.chmod(key_file, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+        logger.info(f"Generated and stored new AES-256 key: {key_id}")
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

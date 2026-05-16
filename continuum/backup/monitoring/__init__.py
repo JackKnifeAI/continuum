@@ -22,7 +22,7 @@ Health checks, metrics, and alerting for backup system.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +146,93 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Backup configuration (required to query the metadata store)
 
-    return {}
+    Returns:
+        Dictionary of metrics with keys:
+        - backup_duration_seconds: histogram (count/sum/avg/min/max)
+        - backup_size_bytes: histogram (count/sum/avg/min/max)
+        - backup_success_total: counter
+        - backup_failure_total: counter
+        - restore_duration_seconds: placeholder histogram
+        - retention_deletions_total: placeholder counter
+    """
+    metrics: Dict[str, Any] = {
+        "backup_duration_seconds": {"count": 0, "sum": 0.0, "avg": 0.0, "min": 0.0, "max": 0.0},
+        "backup_size_bytes": {"count": 0, "sum": 0, "avg": 0.0, "min": 0, "max": 0},
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "restore_duration_seconds": {"count": 0, "sum": 0.0, "avg": 0.0, "min": 0.0, "max": 0.0},
+        "retention_deletions_total": 0,
+        "total_backups": 0,
+        "total_storage_bytes": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        if not all_backups:
+            return metrics
+
+        # Duration histogram
+        durations = [
+            (b.completed_at - b.created_at).total_seconds()
+            for b in all_backups
+            if b.completed_at and b.created_at
+        ]
+        if durations:
+            metrics["backup_duration_seconds"] = {
+                "count": len(durations),
+                "sum": sum(durations),
+                "avg": sum(durations) / len(durations),
+                "min": min(durations),
+                "max": max(durations),
+            }
+
+        # Size histogram
+        sizes = [b.compressed_size_bytes for b in all_backups if b.compressed_size_bytes > 0]
+        if sizes:
+            metrics["backup_size_bytes"] = {
+                "count": len(sizes),
+                "sum": sum(sizes),
+                "avg": sum(sizes) / len(sizes),
+                "min": min(sizes),
+                "max": max(sizes),
+            }
+
+        # Success / failure counters
+        metrics["backup_success_total"] = sum(
+            1 for b in all_backups if b.status.value in ("completed", "verified")
+        )
+        metrics["backup_failure_total"] = sum(
+            1 for b in all_backups if b.status.value == "failed"
+        )
+
+        metrics["total_backups"] = len(all_backups)
+        metrics["total_storage_bytes"] = sum(b.compressed_size_bytes for b in all_backups)
+
+        logger.debug(
+            f"Metrics collected: {metrics['total_backups']} backups, "
+            f"{metrics['backup_success_total']} successful, "
+            f"{metrics['backup_failure_total']} failed"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}", exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +257,57 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = getattr(config, "notification_channels", [])
+    if not channels:
+        logger.warning(f"No notification channels configured — alert dropped: {message}")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    payload = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    for channel in channels:
+        try:
+            if channel.startswith(("http://", "https://")):
+                await _send_webhook(channel, payload)
+            elif channel.startswith("slack:"):
+                webhook_url = channel[len("slack:"):]
+                await _send_slack_webhook(webhook_url, alert_type, message)
+            else:
+                logger.warning(
+                    f"Unsupported notification channel '{channel}' — "
+                    "supported formats: http(s)://... or slack:<webhook_url>"
+                )
+        except Exception as e:
+            logger.error(f"Failed to send alert to channel '{channel}': {e}", exc_info=True)
+
+
+async def _send_webhook(url: str, payload: Dict[str, Any]) -> None:
+    """POST a JSON payload to a generic webhook URL."""
+    import aiohttp
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status >= 400:
+                logger.warning(f"Webhook {url} returned HTTP {resp.status}")
+            else:
+                logger.debug(f"Webhook {url} accepted alert (HTTP {resp.status})")
+
+
+async def _send_slack_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a Slack-formatted message to an Incoming Webhook URL."""
+    import aiohttp
+    emoji = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:"}.get(
+        alert_type, ":bell:"
+    )
+    body = {"text": f"{emoji} *Backup {alert_type.upper()}*: {message}"}
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status >= 400:
+                logger.warning(f"Slack webhook returned HTTP {resp.status}")
+            else:
+                logger.debug(f"Slack alert sent (HTTP {resp.status})")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
