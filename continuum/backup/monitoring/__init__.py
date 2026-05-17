@@ -20,9 +20,12 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +149,62 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: BackupConfig) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Backup configuration (used to locate the metadata store)
 
-    return {}
+    Returns:
+        Dictionary of metric names to values/histogram buckets
+    """
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+    except Exception as e:
+        logger.error(f"Failed to load backup metadata for metrics: {e}")
+        return {}
+
+    success_total = sum(
+        1 for b in all_backups if b.status.value in ("completed", "verified")
+    )
+    failure_total = sum(1 for b in all_backups if b.status.value == "failed")
+
+    completed = [b for b in all_backups if b.completed_at and b.created_at]
+    durations: List[float] = [
+        (b.completed_at - b.created_at).total_seconds() for b in completed
+    ]
+
+    sizes: List[int] = [b.original_size_bytes for b in all_backups if b.original_size_bytes > 0]
+    compressed_sizes: List[int] = [
+        b.compressed_size_bytes for b in all_backups if b.compressed_size_bytes > 0
+    ]
+
+    return {
+        # Counters
+        "backup_success_total": success_total,
+        "backup_failure_total": failure_total,
+        "backup_total": len(all_backups),
+        # Histograms (raw values; callers bucket as needed)
+        "backup_duration_seconds": {
+            "count": len(durations),
+            "sum": sum(durations),
+            "avg": sum(durations) / len(durations) if durations else 0.0,
+            "values": durations,
+        },
+        "backup_size_bytes": {
+            "count": len(sizes),
+            "sum": sum(sizes),
+            "avg": sum(sizes) / len(sizes) if sizes else 0.0,
+            "values": sizes,
+        },
+        # Storage
+        "total_storage_used_bytes": sum(compressed_sizes),
+    }
 
 
 async def send_alert(
@@ -188,14 +229,52 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.warning(f"No notification channels configured, dropping alert: {message}")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    results = await asyncio.gather(
+        *[_dispatch_channel(channel, alert_type, message) for channel in channels],
+        return_exceptions=True,
+    )
+    for channel, result in zip(channels, results):
+        if isinstance(result, Exception):
+            logger.error(f"Alert dispatch failed for channel {channel!r}: {result}")
+
+async def _dispatch_channel(channel: str, alert_type: str, message: str) -> None:
+    """Route an alert to a single notification channel."""
+    if channel.startswith(("http://", "https://")):
+        await _send_webhook(channel, alert_type, message)
+    else:
+        logger.warning(f"Unsupported notification channel scheme: {channel!r}")
+
+
+async def _send_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to a webhook URL (Slack-compatible)."""
+    payload = json.dumps({
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "text": f"[{alert_type.upper()}] {message}",  # Slack-compatible field
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    def _post() -> None:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            status = resp.getcode()
+            if status not in (200, 201, 202, 204):
+                raise RuntimeError(f"Webhook returned HTTP {status}")
+
+    await asyncio.to_thread(_post)
+    logger.info(f"Alert sent to webhook: {url}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

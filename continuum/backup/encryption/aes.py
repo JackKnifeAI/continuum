@@ -21,6 +21,7 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
 import logging
 import os
 from typing import Tuple
@@ -51,23 +52,63 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)  # 256-bit ephemeral key
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
+        """Load a 256-bit key from env var or key file.
+
+        Resolution order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (base64-encoded 32 bytes)
+        2. Key file ``$CONTINUUM_KEY_DIR/<key_id>.key`` (raw 32 bytes),
+           defaulting to ``~/.continuum/keys/``
+        3. Insecure SHA-256 derivation from key_id with a loud warning (last resort)
+        """
+        # 1. Environment variable
+        env_var = "CONTINUUM_KEY_" + key_id.upper().replace("-", "_").replace(".", "_")
+        env_val = os.environ.get(env_var)
+        if env_val:
+            try:
+                key = base64.b64decode(env_val)
+                if len(key) == 32:
+                    logger.debug(f"Loaded encryption key from env var {env_var}")
+                    return key
+                logger.warning(f"Key in {env_var} is not 32 bytes; ignoring")
+            except Exception:
+                logger.warning(f"Failed to base64-decode {env_var}; ignoring")
+
+        # 2. Key file
+        key_dir = os.environ.get(
+            "CONTINUUM_KEY_DIR",
+            os.path.expanduser("~/.continuum/keys"),
+        )
+        key_file = os.path.join(key_dir, f"{key_id}.key")
+        if os.path.isfile(key_file):
+            try:
+                with open(key_file, "rb") as fh:
+                    key = fh.read()
+                if len(key) == 32:
+                    logger.debug(f"Loaded encryption key from {key_file}")
+                    return key
+                logger.warning(f"Key file {key_file} is not 32 bytes; ignoring")
+            except OSError as exc:
+                logger.warning(f"Could not read key file {key_file}: {exc}")
+
+        # 3. Insecure fallback — derives key deterministically from key_id
         import hashlib
+        logger.warning(
+            "No secure key material found for key_id=%r. "
+            "Set env var %s (base64 of 32 bytes) or place a 32-byte key at %s. "
+            "Falling back to insecure SHA-256 derivation.",
+            key_id, env_var, key_file,
+        )
         return hashlib.sha256(key_id.encode()).digest()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
