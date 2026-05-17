@@ -21,8 +21,11 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
+import hashlib
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -53,8 +56,6 @@ class AESEncryptionHandler:
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +65,48 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from secure key store.
+
+        Resolution order:
+        1. Env var ``CONTINUUM_ENCRYPTION_KEY_<KEY_ID>`` (base64-encoded 32 bytes)
+        2. Env var ``CONTINUUM_ENCRYPTION_KEY`` (base64-encoded 32 bytes)
+        3. Key file at ``~/.continuum/keys/<key_id>`` (raw 32 bytes)
+        4. PBKDF2 derivation from key_id — insecure fallback, logs a warning.
+
+        Raises:
+            ValueError: If key material is found but malformed.
+        """
+        # 1 & 2: environment variables
+        env_suffix = key_id.upper().replace("-", "_").replace(" ", "_")
+        raw = os.environ.get(f"CONTINUUM_ENCRYPTION_KEY_{env_suffix}") or os.environ.get(
+            "CONTINUUM_ENCRYPTION_KEY"
+        )
+        if raw:
+            try:
+                key = base64.b64decode(raw)
+            except Exception as exc:
+                raise ValueError(f"Cannot base64-decode encryption key from environment: {exc}") from exc
+            if len(key) != 32:
+                raise ValueError(f"Encryption key must be 32 bytes (256 bits), got {len(key)}")
+            return key
+
+        # 3: key file
+        key_file = Path.home() / ".continuum" / "keys" / key_id
+        if key_file.exists():
+            key = key_file.read_bytes()
+            if len(key) != 32:
+                raise ValueError(f"Key file {key_file} must contain exactly 32 bytes, got {len(key)}")
+            logger.debug("Loaded encryption key from %s", key_file)
+            return key
+
+        # 4: insecure PBKDF2 fallback
+        logger.warning(
+            "No secure key material found for key_id '%s'. "
+            "Set CONTINUUM_ENCRYPTION_KEY_%s env var or place a 32-byte key file at %s. "
+            "Falling back to PBKDF2 derivation — NOT suitable for production.",
+            key_id, env_suffix, key_file,
+        )
+        return hashlib.pbkdf2_hmac("sha256", key_id.encode(), b"continuum-key-v1", 260000)
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
