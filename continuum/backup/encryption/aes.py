@@ -21,8 +21,10 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -50,25 +52,61 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _get_key_path(self, key_id: str) -> Path:
+        """Resolve filesystem path for a key file."""
+        key_dir = Path(os.environ.get("CONTINUUM_KEY_DIR", str(Path.home() / ".continuum" / "keys")))
+        return key_dir / f"{key_id}.key"
+
+    def _store_key(self, key_id: str, key: bytes) -> None:
+        """Persist a 256-bit key to the key store with owner-only permissions."""
+        key_path = self._get_key_path(key_id)
+        key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        key_path.write_bytes(key)
+        key_path.chmod(0o600)
+        logger.info(f"Stored encryption key '{key_id}' at {key_path}")
+
+    def _load_key(self, key_id: str) -> bytes:
+        """Load key from secure key store.
+
+        Resolution order:
+        1. Env var CONTINUUM_KEY_<KEY_ID> (base64-encoded 32 bytes)
+        2. Key file in CONTINUUM_KEY_DIR (default: ~/.continuum/keys/)
+        """
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_')}"
+        key_b64 = os.environ.get(env_var)
+        if key_b64:
+            key = base64.b64decode(key_b64)
+            if len(key) != 32:
+                raise ValueError(f"Key from {env_var} must be exactly 32 bytes (256 bits)")
+            return key
+
+        key_path = self._get_key_path(key_id)
+        if key_path.exists():
+            key = key_path.read_bytes()
+            if len(key) != 32:
+                raise ValueError(f"Key file {key_path} must contain exactly 32 bytes")
+            return key
+
+        raise KeyError(
+            f"Encryption key '{key_id}' not found. "
+            f"Set {env_var} (base64) or place a 32-byte key file at {key_path}"
+        )
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
-                self._current_key = self._load_key(self.config.key_id)
+                try:
+                    self._current_key = self._load_key(self.config.key_id)
+                except KeyError:
+                    self._current_key = os.urandom(32)
+                    self._store_key(self.config.key_id, self._current_key)
+                    logger.info(f"Generated and stored new encryption key: {self.config.key_id}")
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
-
-    def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
