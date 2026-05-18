@@ -20,9 +20,14 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import os
+import smtplib
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.mime.text import MIMEText
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +151,70 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration to read live metrics from metadata store.
 
-    return {}
+    Returns:
+        Dictionary of metrics with histogram summaries and counters.
+    """
+
+    def _histogram(values: List[float]) -> Dict[str, float]:
+        if not values:
+            return {"count": 0, "sum": 0.0, "min": 0.0, "max": 0.0, "avg": 0.0}
+        return {
+            "count": len(values),
+            "sum": sum(values),
+            "min": min(values),
+            "max": max(values),
+            "avg": sum(values) / len(values),
+        }
+
+    metrics: Dict[str, Any] = {
+        "backup_duration_seconds": _histogram([]),
+        "backup_size_bytes": _histogram([]),
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "restore_duration_seconds": _histogram([]),
+        "retention_deletions_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+
+        store = MetadataStore(config.metadata_db_path)
+        all_backups = store.list_backups()
+
+        durations: List[float] = []
+        sizes: List[float] = []
+
+        for backup in all_backups:
+            if backup.status.value in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif backup.status.value == "failed":
+                metrics["backup_failure_total"] += 1
+
+            if backup.compressed_size_bytes > 0:
+                sizes.append(float(backup.compressed_size_bytes))
+
+            if backup.completed_at and backup.created_at:
+                durations.append((backup.completed_at - backup.created_at).total_seconds())
+
+        metrics["backup_duration_seconds"] = _histogram(durations)
+        metrics["backup_size_bytes"] = _histogram(sizes)
+
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}")
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +239,123 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    sent = False
+    for channel in config.notification_channels:
+        try:
+            if channel.startswith("http://") or channel.startswith("https://"):
+                _send_webhook(channel, alert_type, message)
+                sent = True
+            elif channel == "slack":
+                webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
+                if webhook_url:
+                    _send_slack(webhook_url, alert_type, message)
+                    sent = True
+                else:
+                    logger.warning("SLACK_WEBHOOK_URL not set; skipping Slack alert")
+            elif channel == "pagerduty":
+                routing_key = os.environ.get("PAGERDUTY_ROUTING_KEY", "")
+                if routing_key:
+                    _send_pagerduty(routing_key, alert_type, message)
+                    sent = True
+                else:
+                    logger.warning("PAGERDUTY_ROUTING_KEY not set; skipping PagerDuty alert")
+            elif channel == "email":
+                _send_email(alert_type, message)
+                sent = True
+            else:
+                logger.warning(f"Unknown notification channel: {channel!r}")
+        except Exception as e:
+            logger.error(f"Failed to send alert via {channel!r}: {e}")
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    if not sent:
+        logger.warning(f"No notification channels delivered alert: {message}")
+
+def _send_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to a custom webhook URL."""
+    payload = json.dumps({"alert_type": alert_type, "message": message}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info(f"Webhook alert sent to {url!r}: HTTP {resp.status}")
+
+
+def _send_slack(webhook_url: str, alert_type: str, message: str) -> None:
+    """Send an alert to a Slack incoming webhook."""
+    emoji = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:"}.get(
+        alert_type, ":bell:"
+    )
+    payload = json.dumps({"text": f"{emoji} *Backup {alert_type.upper()}*: {message}"}).encode()
+    req = urllib.request.Request(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info(f"Slack alert sent: HTTP {resp.status}")
+
+
+def _send_pagerduty(routing_key: str, alert_type: str, message: str) -> None:
+    """Trigger or resolve a PagerDuty incident via Events API v2."""
+    event_action = "resolve" if alert_type == "success" else "trigger"
+    severity = "error" if alert_type == "failure" else "warning"
+    payload = json.dumps(
+        {
+            "routing_key": routing_key,
+            "event_action": event_action,
+            "payload": {
+                "summary": message,
+                "severity": severity,
+                "source": "continuum-backup",
+            },
+        }
+    ).encode()
+    req = urllib.request.Request(
+        "https://events.pagerduty.com/v2/enqueue",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info(f"PagerDuty alert sent: HTTP {resp.status}")
+
+
+def _send_email(alert_type: str, message: str) -> None:
+    """Send an email alert via SMTP using environment-variable configuration.
+
+    Required env vars: SMTP_HOST, SMTP_FROM, SMTP_TO
+    Optional env vars: SMTP_PORT (default 587), SMTP_USER, SMTP_PASSWORD
+    """
+    host = os.environ.get("SMTP_HOST", "")
+    from_addr = os.environ.get("SMTP_FROM", "")
+    to_addr = os.environ.get("SMTP_TO", "")
+    if not (host and from_addr and to_addr):
+        logger.warning("SMTP_HOST / SMTP_FROM / SMTP_TO not set; skipping email alert")
+        return
+
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ.get("SMTP_USER", from_addr)
+    password = os.environ.get("SMTP_PASSWORD", "")
+
+    subject = f"[Continuum Backup] {alert_type.upper()}"
+    msg = MIMEText(message)
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = to_addr
+
+    with smtplib.SMTP(host, port) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        if password:
+            smtp.login(user, password)
+        smtp.sendmail(from_addr, [to_addr], msg.as_string())
+
+    logger.info(f"Email alert sent to {to_addr!r}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

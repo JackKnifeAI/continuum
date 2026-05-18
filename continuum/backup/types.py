@@ -288,6 +288,7 @@ class EncryptionConfig:
     kms_provider: Optional[str] = None  # "aws", "gcp", "azure"
     kms_key_id: Optional[str] = None
     kms_region: Optional[str] = None
+    kms_vault_url: Optional[str] = None  # Azure Key Vault base URL: https://<vault>.vault.azure.net
 
 
 @dataclass
