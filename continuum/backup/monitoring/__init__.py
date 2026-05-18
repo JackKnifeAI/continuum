@@ -20,9 +20,13 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
+from urllib import request as urllib_request
+from urllib.error import URLError
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +150,89 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional["BackupConfig"] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration to pull live data from MetadataStore.
 
-    return {}
+    Returns:
+        Dictionary of metrics with type, value/values, sum, and count fields.
+    """
+    metrics: Dict[str, Any] = {
+        "backup_duration_seconds": {"type": "histogram", "values": [], "sum": 0.0, "count": 0},
+        "backup_size_bytes": {"type": "histogram", "values": [], "sum": 0, "count": 0},
+        "backup_success_total": {"type": "counter", "value": 0},
+        "backup_failure_total": {"type": "counter", "value": 0},
+        "restore_duration_seconds": {"type": "histogram", "values": [], "sum": 0.0, "count": 0},
+        "retention_deletions_total": {"type": "counter", "value": 0},
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        for backup in all_backups:
+            if backup.status.value in ("completed", "verified"):
+                metrics["backup_success_total"]["value"] += 1
+                if backup.completed_at and backup.created_at:
+                    duration = (backup.completed_at - backup.created_at).total_seconds()
+                    metrics["backup_duration_seconds"]["values"].append(duration)
+                    metrics["backup_duration_seconds"]["sum"] += duration
+                    metrics["backup_duration_seconds"]["count"] += 1
+                if backup.compressed_size_bytes:
+                    metrics["backup_size_bytes"]["values"].append(backup.compressed_size_bytes)
+                    metrics["backup_size_bytes"]["sum"] += backup.compressed_size_bytes
+                    metrics["backup_size_bytes"]["count"] += 1
+            elif backup.status.value == "failed":
+                metrics["backup_failure_total"]["value"] += 1
+
+    except Exception as e:
+        logger.error(f"Failed to collect metrics: {e}")
+
+    return metrics
+
+
+async def _send_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to an HTTP/HTTPS webhook (Slack, PagerDuty, custom)."""
+    payload = json.dumps({
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "source": "continuum-backup",
+    }).encode()
+
+    def _post() -> None:
+        req = urllib_request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib_request.urlopen(req, timeout=10) as resp:
+            logger.debug(f"Webhook response {resp.status}: {url}")
+
+    try:
+        await asyncio.to_thread(_post)
+        logger.info(f"Alert dispatched to webhook: {url}")
+    except URLError as e:
+        logger.error(f"Webhook dispatch failed ({url}): {e}")
+        raise
+
+
+async def _dispatch_to_channel(channel: str, alert_type: str, message: str) -> None:
+    """Route an alert to the appropriate transport based on channel format."""
+    if channel.startswith(("http://", "https://")):
+        await _send_webhook(channel, alert_type, message)
+    else:
+        logger.warning(f"Unsupported notification channel format (expected http/https URL): {channel}")
 
 
 async def send_alert(
@@ -174,6 +243,9 @@ async def send_alert(
     """
     Send alert through configured channels.
 
+    Channels are URLs in config.notification_channels:
+    - http(s):// → JSON webhook (compatible with Slack, PagerDuty, and custom endpoints)
+
     Args:
         alert_type: Type of alert (failure, warning, success)
         message: Alert message
@@ -181,21 +253,25 @@ async def send_alert(
     """
     logger.info(f"Sending {alert_type} alert: {message}")
 
-    # Skip if notifications disabled
-    if alert_type == 'success' and not config.notify_on_success:
+    if alert_type == "success" and not config.notify_on_success:
         return
 
-    if alert_type == 'failure' and not config.notify_on_failure:
+    if alert_type == "failure" and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels: List[str] = config.notification_channels
+    if not channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    results = await asyncio.gather(
+        *[_dispatch_to_channel(ch, alert_type, message) for ch in channels],
+        return_exceptions=True,
+    )
+
+    for channel, result in zip(channels, results):
+        if isinstance(result, Exception):
+            logger.error(f"Alert dispatch failed for channel {channel}: {result}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

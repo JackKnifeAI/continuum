@@ -23,11 +23,17 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+import re
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+_KEY_STORE_ENV = "CONTINUUM_KEY_STORE"
+_DEFAULT_KEY_STORE = Path.home() / ".continuum" / "keys"
+_KEY_ID_RE = re.compile(r'^[A-Za-z0-9_\-]{1,128}$')
 
 
 class AESEncryptionHandler:
@@ -50,11 +56,42 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _get_key_store_path(self) -> Path:
+        """Return the key store directory, creating it with owner-only permissions."""
+        store = Path(os.environ.get(_KEY_STORE_ENV, _DEFAULT_KEY_STORE))
+        store.mkdir(parents=True, exist_ok=True)
+        store.chmod(0o700)
+        return store
+
+    def _validate_key_id(self, key_id: str) -> None:
+        """Reject key IDs that could cause path traversal or injection."""
+        if not _KEY_ID_RE.match(key_id):
+            raise ValueError(
+                f"Invalid key_id {key_id!r}: must be 1-128 alphanumeric, dash, or underscore characters"
+            )
+
+    def _load_key(self, key_id: str) -> bytes:
+        """Load a key from the secure file-based key store."""
+        self._validate_key_id(key_id)
+        key_path = self._get_key_store_path() / f"{key_id}.key"
+        if not key_path.exists():
+            raise FileNotFoundError(
+                f"Encryption key {key_id!r} not found in key store. "
+                f"Provision the key before use or unset key_id to generate an ephemeral key."
+            )
+        return key_path.read_bytes()
+
+    def _save_key(self, key_id: str, key: bytes) -> None:
+        """Persist a key in the secure file-based key store (owner read/write only)."""
+        self._validate_key_id(key_id)
+        key_path = self._get_key_store_path() / f"{key_id}.key"
+        key_path.write_bytes(key)
+        key_path.chmod(0o600)
+        logger.info(f"Saved encryption key {key_id!r} to key store")
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate the active encryption key."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -62,13 +99,6 @@ class AESEncryptionHandler:
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
-
-    def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
