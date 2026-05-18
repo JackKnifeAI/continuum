@@ -21,8 +21,10 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -51,10 +53,8 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, persisting to key store when possible."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -63,12 +63,69 @@ class AESEncryptionHandler:
 
         return self._current_key
 
+    def _key_store_path(self) -> Path:
+        """Return the directory used for filesystem key storage."""
+        key_dir = os.environ.get("CONTINUUM_KEY_DIR")
+        if key_dir:
+            return Path(key_dir)
+        return Path.home() / ".continuum" / "keys"
+
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a 256-bit key from env var or filesystem key store.
+
+        Resolution order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (base64-encoded 32 bytes)
+        2. File ``<CONTINUUM_KEY_DIR>/<key_id>.key`` (raw 32 bytes, mode 0o600)
+        """
+        # 1. Environment variable (base64-encoded)
+        env_var = "CONTINUUM_KEY_" + key_id.upper().replace("-", "_").replace(".", "_")
+        env_val = os.environ.get(env_var)
+        if env_val:
+            try:
+                key = base64.b64decode(env_val)
+                if len(key) == 32:
+                    return key
+                logger.warning("Key from %s is not 32 bytes (%d), skipping", env_var, len(key))
+            except Exception:
+                logger.warning("Failed to base64-decode key from %s, skipping", env_var)
+
+        # 2. Filesystem key store
+        key_path = self._key_store_path() / f"{key_id}.key"
+        if key_path.exists():
+            try:
+                file_mode = key_path.stat().st_mode & 0o777
+                if file_mode & 0o077:
+                    logger.warning("Key file %s has loose permissions (%o) - tighten to 0o600", key_path, file_mode)
+                key = key_path.read_bytes()
+                if len(key) == 32:
+                    return key
+                logger.warning("Key file %s is not 32 bytes (%d), skipping", key_path, len(key))
+            except OSError as e:
+                logger.warning("Failed to read key from %s: %s", key_path, e)
+
+        # No secure key found - generate and persist so subsequent calls are consistent
+        logger.warning(
+            "No key found for key_id=%r via %s or %s; generating and storing a new key",
+            key_id, env_var, key_path,
+        )
+        return self._generate_and_store_key(key_id)
+
+    def _generate_and_store_key(self, key_id: str) -> bytes:
+        """Generate a new 256-bit key and persist it to the filesystem key store."""
+        key = os.urandom(32)
+        key_dir = self._key_store_path()
+        try:
+            key_dir.mkdir(parents=True, exist_ok=True)
+            key_dir.chmod(0o700)
+            key_path = key_dir / f"{key_id}.key"
+            # Write with restricted permissions from the start
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(key)
+            logger.info("Stored new encryption key for key_id=%r at %s", key_id, key_path)
+        except OSError as e:
+            logger.error("Could not persist key for key_id=%r to %s: %s", key_id, key_dir, e)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

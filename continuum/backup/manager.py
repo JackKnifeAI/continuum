@@ -23,6 +23,7 @@ Coordinates backup operations, storage, encryption, and recovery.
 import asyncio
 import hashlib
 import logging
+import sqlite3
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -424,9 +425,31 @@ class BackupManager:
         return f"backup-{strategy.value}-{timestamp}-{self.config.tenant_id}"
 
     async def _count_records(self, tables: Optional[List[str]] = None) -> int:
-        """Count total records in backup"""
-        # TODO: Implement actual record counting from database
-        return 0
+        """Count total records across all backed-up tables in the source database."""
+        def _count() -> int:
+            db_path = self.config.db_path
+            if not db_path.exists():
+                return 0
+            total = 0
+            with sqlite3.connect(str(db_path)) as conn:
+                if tables:
+                    target_tables = tables
+                else:
+                    rows = conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                    target_tables = [row[0] for row in rows]
+                for table in target_tables:
+                    try:
+                        count = conn.execute(
+                            f"SELECT COUNT(*) FROM [{table}]"  # noqa: S608
+                        ).fetchone()[0]
+                        total += count
+                    except sqlite3.OperationalError:
+                        logger.warning("Could not count records in table %r", table)
+            return total
+
+        return await asyncio.to_thread(_count)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

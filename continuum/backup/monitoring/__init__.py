@@ -20,11 +20,73 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import smtplib
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.message import EmailMessage
+from threading import Lock
+from typing import Any, Dict, List
 
 from ..types import BackupConfig, BackupHealth
+
+# ---------------------------------------------------------------------------
+# Module-level metrics registry
+# ---------------------------------------------------------------------------
+
+_metrics_lock = Lock()
+_counters: Dict[str, int] = {
+    "backup_success_total": 0,
+    "backup_failure_total": 0,
+    "restore_success_total": 0,
+    "restore_failure_total": 0,
+    "retention_deletions_total": 0,
+}
+_histograms: Dict[str, List[float]] = {
+    "backup_duration_seconds": [],
+    "backup_size_bytes": [],
+    "restore_duration_seconds": [],
+}
+
+
+def record_backup_result(*, success: bool, duration_seconds: float, size_bytes: int) -> None:
+    """Update backup counters and duration/size histograms."""
+    with _metrics_lock:
+        if success:
+            _counters["backup_success_total"] += 1
+        else:
+            _counters["backup_failure_total"] += 1
+        _histograms["backup_duration_seconds"].append(duration_seconds)
+        _histograms["backup_size_bytes"].append(float(size_bytes))
+
+
+def record_restore_result(*, success: bool, duration_seconds: float) -> None:
+    """Update restore counters and duration histogram."""
+    with _metrics_lock:
+        if success:
+            _counters["restore_success_total"] += 1
+        else:
+            _counters["restore_failure_total"] += 1
+        _histograms["restore_duration_seconds"].append(duration_seconds)
+
+
+def record_retention_deletion(count: int = 1) -> None:
+    """Increment the retention deletions counter."""
+    with _metrics_lock:
+        _counters["retention_deletions_total"] += count
+
+
+def _histogram_stats(values: List[float]) -> Dict[str, float]:
+    if not values:
+        return {"count": 0, "sum": 0.0, "min": 0.0, "max": 0.0, "avg": 0.0}
+    return {
+        "count": len(values),
+        "sum": sum(values),
+        "min": min(values),
+        "max": max(values),
+        "avg": sum(values) / len(values),
+    }
 
 logger = logging.getLogger(__name__)
 
@@ -153,17 +215,16 @@ def get_backup_metrics() -> Dict[str, Any]:
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
     Returns:
-        Dictionary of metrics
+        Dictionary of metrics with counters and histogram summaries.
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
-
-    return {}
+    with _metrics_lock:
+        return {
+            **_counters,
+            **{
+                name: _histogram_stats(list(values))
+                for name, values in _histograms.items()
+            },
+        }
 
 
 async def send_alert(
@@ -188,14 +249,96 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.debug("No notification channels configured; skipping alert dispatch")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            await _dispatch_channel(channel, alert_type, message)
+        except Exception as e:
+            logger.error(f"Alert dispatch failed for channel {channel!r}: {e}")
+
+
+async def _dispatch_channel(channel: str, alert_type: str, message: str) -> None:
+    """
+    Route an alert to a single notification channel.
+
+    Channel formats:
+      slack:<webhook_url>
+      webhook:<url>         (POST JSON body)
+      email:<smtp_url>      (smtp://user:pass@host:port/from@x.com/to@x.com)
+    """
+    import asyncio
+
+    if channel.startswith("slack:"):
+        url = channel[len("slack:"):]
+        payload = json.dumps({
+            "text": f"*[{alert_type.upper()}]* {message}",
+        }).encode()
+        await asyncio.to_thread(_http_post, url, payload, "application/json")
+
+    elif channel.startswith("webhook:"):
+        url = channel[len("webhook:"):]
+        payload = json.dumps({
+            "alert_type": alert_type,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat(),
+        }).encode()
+        await asyncio.to_thread(_http_post, url, payload, "application/json")
+
+    elif channel.startswith("email:"):
+        # smtp://user:pass@host:port/from@example.com/to@example.com
+        spec = channel[len("email:"):]
+        await asyncio.to_thread(_send_smtp, spec, alert_type, message)
+
+    else:
+        logger.warning(f"Unknown notification channel scheme: {channel!r}")
+
+
+def _http_post(url: str, body: bytes, content_type: str) -> None:
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": content_type},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        logger.debug(f"Notification POST {url} -> HTTP {resp.status}")
+
+
+def _send_smtp(spec: str, alert_type: str, message: str) -> None:
+    """Send an email alert via SMTP.
+
+    spec format: smtp://user:pass@host:port/from@example.com/to@example.com
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(spec)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 587
+    user = parsed.username or ""
+    password = parsed.password or ""
+
+    path_parts = parsed.path.lstrip("/").split("/")
+    if len(path_parts) < 2:
+        raise ValueError(f"email channel spec must include /from/to path, got: {spec!r}")
+    from_addr, to_addr = path_parts[0], path_parts[1]
+
+    msg = EmailMessage()
+    msg["Subject"] = f"[Continuum Backup {alert_type.upper()}] Alert"
+    msg["From"] = from_addr
+    msg["To"] = to_addr
+    msg.set_content(message)
+
+    with smtplib.SMTP(host, port, timeout=10) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        if user:
+            smtp.login(user, password)
+        smtp.send_message(msg)
+    logger.debug(f"Email alert sent to {to_addr}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
