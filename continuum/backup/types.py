@@ -289,6 +289,9 @@ class EncryptionConfig:
     kms_key_id: Optional[str] = None
     kms_region: Optional[str] = None
 
+    # Local key store (used when use_kms=False)
+    key_store_path: Optional[str] = None  # defaults to ~/.continuum/keystore.json
+
 
 @dataclass
 class BackupSchedule:
