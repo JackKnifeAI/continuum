@@ -20,9 +20,13 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +150,69 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration for metadata access
 
-    return {}
+    Returns:
+        Dictionary of metrics with counters and histogram summaries
+    """
+    metrics: Dict[str, Any] = {
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_duration_seconds_count": 0,
+        "backup_duration_seconds_sum": 0.0,
+        "backup_duration_seconds_avg": 0.0,
+        "backup_size_bytes_count": 0,
+        "backup_size_bytes_sum": 0,
+        "backup_size_bytes_avg": 0.0,
+        "restore_duration_seconds_count": 0,
+        "restore_duration_seconds_sum": 0.0,
+        "retention_deletions_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        durations: List[float] = []
+        sizes: List[int] = []
+
+        for backup in all_backups:
+            if backup.status.value in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif backup.status.value == "failed":
+                metrics["backup_failure_total"] += 1
+
+            if backup.completed_at and backup.created_at:
+                durations.append((backup.completed_at - backup.created_at).total_seconds())
+
+            if backup.compressed_size_bytes > 0:
+                sizes.append(backup.compressed_size_bytes)
+
+        if durations:
+            metrics["backup_duration_seconds_count"] = len(durations)
+            metrics["backup_duration_seconds_sum"] = sum(durations)
+            metrics["backup_duration_seconds_avg"] = sum(durations) / len(durations)
+
+        if sizes:
+            metrics["backup_size_bytes_count"] = len(sizes)
+            metrics["backup_size_bytes_sum"] = sum(sizes)
+            metrics["backup_size_bytes_avg"] = sum(sizes) / len(sizes)
+
+    except Exception as e:
+        logger.error(f"Metrics collection failed: {e}", exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +237,83 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.warning(f"No notification channels configured. Alert dropped: [{alert_type}] {message}")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            await _dispatch_alert(channel, alert_type, message)
+        except Exception as e:
+            logger.error(f"Failed to send alert to '{channel}': {e}")
+
+async def _dispatch_alert(channel: str, alert_type: str, message: str) -> None:
+    """Route an alert to a single notification channel (format: 'type:config')."""
+    if ":" not in channel:
+        logger.warning(f"Unrecognized channel format (expected 'type:config'): {channel}")
+        return
+
+    channel_type, channel_value = channel.split(":", 1)
+    channel_type = channel_type.lower().strip()
+    timestamp = datetime.utcnow().isoformat() + "Z"
+
+    if channel_type == "slack":
+        payload = json.dumps({"text": f"[{alert_type.upper()}] {message}"}).encode()
+        await _post_json(channel_value, payload)
+
+    elif channel_type == "webhook":
+        payload = json.dumps({
+            "alert_type": alert_type,
+            "message": message,
+            "timestamp": timestamp,
+            "source": "continuum-backup",
+        }).encode()
+        await _post_json(channel_value, payload)
+
+    elif channel_type == "pagerduty":
+        severity = "critical" if alert_type == "failure" else "info"
+        payload = json.dumps({
+            "routing_key": channel_value,
+            "event_action": "trigger",
+            "payload": {
+                "summary": message,
+                "severity": severity,
+                "source": "continuum-backup",
+                "timestamp": timestamp,
+            },
+        }).encode()
+        await _post_json("https://events.pagerduty.com/v2/enqueue", payload)
+
+    elif channel_type == "email":
+        logger.warning(
+            f"Email alerting requires SMTP configuration; alert not sent to {channel_value}: {message}"
+        )
+
+    else:
+        logger.warning(f"Unknown channel type '{channel_type}': {message}")
+
+
+async def _post_json(url: str, payload: bytes) -> None:
+    """POST a JSON payload to a URL via a thread pool executor."""
+    def _do_post() -> None:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                logger.debug(f"Alert POST to {url} returned HTTP {resp.status}")
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"HTTP {e.code} from {url}: {e.reason}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"Failed to reach {url}: {e.reason}") from e
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _do_post)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

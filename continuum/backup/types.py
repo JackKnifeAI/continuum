@@ -282,12 +282,16 @@ class EncryptionConfig:
     # Key management
     key_id: Optional[str] = None
     key_rotation_days: int = 90
+    key_store_path: Optional[str] = None  # Path to filesystem key store; defaults to ~/.continuum/keystore
 
     # KMS integration
     use_kms: bool = False
     kms_provider: Optional[str] = None  # "aws", "gcp", "azure"
     kms_key_id: Optional[str] = None
     kms_region: Optional[str] = None
+    # Azure Key Vault: full key URL (https://<vault>.vault.azure.net/keys/<name>[/<version>])
+    # Required when kms_provider="azure"; kms_key_id is used as fallback if this is unset.
+    kms_key_url: Optional[str] = None
 
 
 @dataclass
