@@ -23,6 +23,7 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -53,8 +54,6 @@ class AESEncryptionHandler:
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +63,33 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from secure filesystem key store, generating it if absent.
+
+        Keys are stored in ~/.config/continuum/keys/ with mode 0o600.
+        The directory itself is created with mode 0o700.
+        """
+        key_dir = Path.home() / ".config" / "continuum" / "keys"
+        key_file = key_dir / f"{key_id}.key"
+
+        if key_file.exists():
+            mode = key_file.stat().st_mode & 0o177
+            if mode & 0o077:
+                logger.warning(
+                    "Key file %s has overly permissive permissions (%o) — tightening to 0o600",
+                    key_file,
+                    mode,
+                )
+                key_file.chmod(0o600)
+            return key_file.read_bytes()
+
+        # Generate a new key and store it securely
+        key = os.urandom(32)  # AES-256
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key_dir.chmod(0o700)
+        key_file.write_bytes(key)
+        key_file.chmod(0o600)
+        logger.info("Generated and stored new AES-256 key: %s", key_id)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
