@@ -23,11 +23,15 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+# Default filesystem key store; override with CONTINUUM_KEY_STORE_DIR env var
+_DEFAULT_KEY_STORE_DIR = Path.home() / ".continuum" / "keys"
 
 
 class AESEncryptionHandler:
@@ -53,8 +57,6 @@ class AESEncryptionHandler:
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -63,12 +65,80 @@ class AESEncryptionHandler:
 
         return self._current_key
 
+    def _key_store_dir(self) -> Path:
+        """Return the key store directory, respecting CONTINUUM_KEY_STORE_DIR override"""
+        env_dir = os.environ.get("CONTINUUM_KEY_STORE_DIR")
+        return Path(env_dir) if env_dir else _DEFAULT_KEY_STORE_DIR
+
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a 32-byte AES-256 key from the secure key store.
+
+        Lookup order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (hex-encoded, good for CI/CD).
+        2. Filesystem key store at ``<key_store_dir>/<key_id>.key`` (owner-read-only).
+
+        Raises KeyError if the key cannot be found by either method.
+        """
+        # 1. Environment variable (highest priority — supports secrets injection)
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_').replace('.', '_')}"
+        env_val = os.environ.get(env_var)
+        if env_val:
+            try:
+                key_bytes = bytes.fromhex(env_val)
+                if len(key_bytes) == 32:
+                    logger.debug(f"Loaded encryption key '{key_id}' from env var {env_var}")
+                    return key_bytes
+                logger.warning(f"Key from {env_var} is not 32 bytes ({len(key_bytes)}), ignoring")
+            except ValueError:
+                logger.warning(f"Key from {env_var} is not valid hex, ignoring")
+
+        # 2. Filesystem key store with permission check
+        key_file = self._key_store_dir() / f"{key_id}.key"
+        if key_file.exists():
+            mode = key_file.stat().st_mode & 0o777
+            if mode & 0o077:
+                # Key is readable/writable by group or others — warn but still load
+                logger.warning(
+                    f"Key file {key_file} has insecure permissions {oct(mode)}; "
+                    f"fix with: chmod 600 {key_file}"
+                )
+            key_data = key_file.read_bytes()
+            if len(key_data) == 32:
+                logger.debug(f"Loaded encryption key '{key_id}' from {key_file}")
+                return key_data
+            logger.warning(f"Key file {key_file} is not 32 bytes ({len(key_data)}), ignoring")
+
+        raise KeyError(
+            f"Encryption key '{key_id}' not found. "
+            f"Options: set env var {env_var} (hex-encoded 32 bytes), "
+            f"or create key file at {key_file}. "
+            f"Generate a key with: python -c \"import os; print(os.urandom(32).hex())\""
+        )
+
+    def save_key(self, key_id: str, key: bytes) -> Path:
+        """Persist a 32-byte key to the filesystem key store with owner-only permissions."""
+        if len(key) != 32:
+            raise ValueError(f"Key must be exactly 32 bytes for AES-256, got {len(key)}")
+
+        key_dir = self._key_store_dir()
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key_dir.chmod(0o700)
+
+        key_file = key_dir / f"{key_id}.key"
+        key_file.write_bytes(key)
+        key_file.chmod(0o600)
+
+        logger.info(f"Saved encryption key '{key_id}' to {key_file}")
+        return key_file
+
+    def generate_key(self, key_id: Optional[str] = None) -> tuple[str, Path]:
+        """Generate a new AES-256 key, persist it to the key store, and activate it."""
+        key_id = key_id or self.config.key_id or f"continuum-{os.urandom(4).hex()}"
+        key = os.urandom(32)
+        key_file = self.save_key(key_id, key)
+        self._current_key = key
+        logger.info(f"Generated new encryption key '{key_id}'")
+        return key_id, key_file
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

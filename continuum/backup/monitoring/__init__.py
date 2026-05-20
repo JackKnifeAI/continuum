@@ -20,13 +20,72 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
 import logging
+import os
+import smtplib
+import threading
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.mime.text import MIMEText
+from typing import Any, Dict, List
+
+import httpx
 
 from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe in-memory metrics store.  Updated by record_backup_metrics() /
+# record_restore_metrics() / record_retention_metrics().
+_metrics_lock = threading.Lock()
+_metrics: Dict[str, Any] = {
+    "backup_success_total": 0,
+    "backup_failure_total": 0,
+    "retention_deletions_total": 0,
+    "backup_duration_seconds": [],   # histogram samples
+    "backup_size_bytes": [],         # histogram samples
+    "restore_duration_seconds": [],  # histogram samples
+}
+
+
+def record_backup_metrics(
+    *,
+    success: bool,
+    duration_seconds: float,
+    size_bytes: int,
+) -> None:
+    """Update backup counters and histograms."""
+    with _metrics_lock:
+        if success:
+            _metrics["backup_success_total"] += 1
+        else:
+            _metrics["backup_failure_total"] += 1
+        _metrics["backup_duration_seconds"].append(duration_seconds)
+        _metrics["backup_size_bytes"].append(size_bytes)
+
+
+def record_restore_metrics(*, duration_seconds: float) -> None:
+    """Update restore histogram."""
+    with _metrics_lock:
+        _metrics["restore_duration_seconds"].append(duration_seconds)
+
+
+def record_retention_metrics(*, deletions: int) -> None:
+    """Increment retention deletion counter."""
+    with _metrics_lock:
+        _metrics["retention_deletions_total"] += deletions
+
+
+def _histogram_stats(samples: List[float]) -> Dict[str, Any]:
+    if not samples:
+        return {"count": 0, "sum": 0.0, "min": None, "max": None, "avg": None}
+    return {
+        "count": len(samples),
+        "sum": sum(samples),
+        "min": min(samples),
+        "max": max(samples),
+        "avg": sum(samples) / len(samples),
+    }
 
 
 async def get_backup_health(config: BackupConfig) -> BackupHealth:
@@ -153,17 +212,25 @@ def get_backup_metrics() -> Dict[str, Any]:
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
     Returns:
-        Dictionary of metrics
+        Dictionary with counters and histogram stats for:
+        backup_duration_seconds, backup_size_bytes, backup_success_total,
+        backup_failure_total, restore_duration_seconds, retention_deletions_total.
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
-
-    return {}
+    with _metrics_lock:
+        return {
+            "backup_success_total": _metrics["backup_success_total"],
+            "backup_failure_total": _metrics["backup_failure_total"],
+            "retention_deletions_total": _metrics["retention_deletions_total"],
+            "backup_duration_seconds": _histogram_stats(
+                list(_metrics["backup_duration_seconds"])
+            ),
+            "backup_size_bytes": _histogram_stats(
+                list(_metrics["backup_size_bytes"])
+            ),
+            "restore_duration_seconds": _histogram_stats(
+                list(_metrics["restore_duration_seconds"])
+            ),
+        }
 
 
 async def send_alert(
@@ -188,14 +255,120 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            if channel == "slack" or channel.startswith(("http://", "https://")):
+                url = (
+                    channel
+                    if channel.startswith(("http://", "https://"))
+                    else os.environ.get("BACKUP_SLACK_WEBHOOK_URL", "")
+                )
+                if url:
+                    await _send_slack_alert(url, alert_type, message)
+                else:
+                    logger.warning("Slack channel configured but BACKUP_SLACK_WEBHOOK_URL not set")
+            elif channel == "webhook":
+                url = os.environ.get("BACKUP_WEBHOOK_URL", "")
+                if url:
+                    await _send_webhook_alert(url, alert_type, message)
+                else:
+                    logger.warning("Webhook channel configured but BACKUP_WEBHOOK_URL not set")
+            elif channel == "email":
+                await _send_email_alert(alert_type, message)
+            elif channel == "pagerduty":
+                routing_key = os.environ.get("BACKUP_PAGERDUTY_ROUTING_KEY", "")
+                if routing_key:
+                    await _send_pagerduty_alert(routing_key, alert_type, message)
+                else:
+                    logger.warning("PagerDuty channel configured but BACKUP_PAGERDUTY_ROUTING_KEY not set")
+            else:
+                logger.warning(f"Unknown notification channel: {channel}")
+        except Exception as exc:
+            logger.error(f"Failed to send alert via {channel}: {exc}")
+
+async def _send_slack_alert(webhook_url: str, alert_type: str, message: str) -> None:
+    """POST a Slack-format message to a webhook URL."""
+    emoji = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:"}.get(
+        alert_type, ":information_source:"
+    )
+    payload = {"text": f"{emoji} *Backup {alert_type.upper()}*\n{message}"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(webhook_url, json=payload)
+        resp.raise_for_status()
+    logger.info(f"Slack alert sent ({alert_type})")
+
+
+async def _send_webhook_alert(webhook_url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to a generic webhook URL."""
+    payload = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "source": "continuum-backup",
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(webhook_url, json=payload)
+        resp.raise_for_status()
+    logger.info(f"Webhook alert sent ({alert_type})")
+
+
+async def _send_pagerduty_alert(routing_key: str, alert_type: str, message: str) -> None:
+    """Trigger or resolve a PagerDuty incident via Events API v2."""
+    severity_map = {"failure": "critical", "warning": "warning", "success": "info"}
+    payload = {
+        "routing_key": routing_key,
+        "event_action": "resolve" if alert_type == "success" else "trigger",
+        "payload": {
+            "summary": message,
+            "severity": severity_map.get(alert_type, "info"),
+            "source": "continuum-backup",
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post("https://events.pagerduty.com/v2/enqueue", json=payload)
+        resp.raise_for_status()
+    logger.info(f"PagerDuty alert sent ({alert_type})")
+
+
+async def _send_email_alert(alert_type: str, message: str) -> None:
+    """Send an alert email via SMTP using environment-variable configuration."""
+    host = os.environ.get("BACKUP_SMTP_HOST", "")
+    port = int(os.environ.get("BACKUP_SMTP_PORT", "587"))
+    user = os.environ.get("BACKUP_SMTP_USER", "")
+    password = os.environ.get("BACKUP_SMTP_PASSWORD", "")
+    from_addr = os.environ.get("BACKUP_SMTP_FROM", user)
+    to_addrs_raw = os.environ.get("BACKUP_SMTP_TO", "")
+
+    if not host or not to_addrs_raw:
+        logger.warning("Email channel configured but BACKUP_SMTP_HOST / BACKUP_SMTP_TO not set")
+        return
+
+    to_addrs = [a.strip() for a in to_addrs_raw.split(",") if a.strip()]
+    subject = f"[Continuum Backup] {alert_type.upper()}: Backup Alert"
+
+    msg = MIMEText(message)
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_addrs)
+
+    # Run blocking SMTP call in a thread to avoid blocking the event loop.
+    def _smtp_send() -> None:
+        with smtplib.SMTP(host, port) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            if user and password:
+                smtp.login(user, password)
+            smtp.sendmail(from_addr, to_addrs, msg.as_string())
+
+    await asyncio.get_event_loop().run_in_executor(None, _smtp_send)
+    logger.info(f"Email alert sent ({alert_type}) to {to_addrs}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
