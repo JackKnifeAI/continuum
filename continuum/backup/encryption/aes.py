@@ -21,8 +21,10 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import hashlib
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -50,11 +52,14 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _get_key_store_path(self) -> Path:
+        """Return the secure key store directory (env override or ~/.continuum/keystore)"""
+        env_path = os.environ.get("CONTINUUM_KEY_STORE_PATH")
+        return Path(env_path) if env_path else Path.home() / ".continuum" / "keystore"
+
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +69,38 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a 256-bit AES key from the file-based key store.
+
+        Keys are stored as 64-character hex files under the key store directory.
+        The filename is the SHA-256 hash of key_id to avoid leaking key names.
+        Raises KeyError if the key does not exist.
+        """
+        key_store = self._get_key_store_path()
+        key_file = key_store / (hashlib.sha256(key_id.encode()).hexdigest() + ".key")
+
+        if not key_file.exists():
+            raise KeyError(
+                f"Key '{key_id}' not found in key store at {key_store}. "
+                "Generate a key with _save_key() or set CONTINUUM_KEY_STORE_PATH."
+            )
+
+        mode = key_file.stat().st_mode
+        if mode & 0o077:
+            logger.warning("Key file %s has insecure permissions: %s", key_file, oct(mode))
+
+        raw = key_file.read_text().strip()
+        return bytes.fromhex(raw)
+
+    def _save_key(self, key_id: str, key: bytes) -> None:
+        """Persist a key to the file-based key store with restricted permissions (0o600)."""
+        key_store = self._get_key_store_path()
+        key_store.mkdir(parents=True, exist_ok=True)
+        os.chmod(key_store, 0o700)
+
+        key_file = key_store / (hashlib.sha256(key_id.encode()).hexdigest() + ".key")
+        key_file.write_text(key.hex())
+        os.chmod(key_file, 0o600)
+        logger.info("Saved key '%s' to key store at %s", key_id, key_store)
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
