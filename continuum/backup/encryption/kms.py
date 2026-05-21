@@ -99,8 +99,14 @@ class KMSEncryptionHandler:
 
         if self._kms_client is None:
             credential = DefaultAzureCredential()
-            # TODO: Configure key URL
+            # Azure CryptographyClient requires the full key URL:
+            # https://<vault-name>.vault.azure.net/keys/<key-name>/<key-version>
             key_url = self.config.kms_key_id
+            if not key_url or not key_url.startswith("https://"):
+                raise ValueError(
+                    "Azure KMS requires kms_key_id to be a full key URL: "
+                    "https://<vault-name>.vault.azure.net/keys/<key-name>/<key-version>"
+                )
             self._kms_client = CryptographyClient(key_url, credential)
 
         return self._kms_client

@@ -20,11 +20,14 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
-from ..types import BackupConfig, BackupHealth
+from ..types import BackupConfig, BackupHealth, BackupStatus
 
 logger = logging.getLogger(__name__)
 
@@ -146,24 +149,78 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Backup configuration (required to query real metrics)
 
-    return {}
+    Returns:
+        Dictionary of metrics with counters and histograms
+    """
+    metrics: Dict[str, Any] = {
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_duration_seconds": [],
+        "backup_size_bytes": [],
+        "backup_compressed_size_bytes": [],
+        "restore_duration_seconds": [],
+        "retention_deletions_total": 0,
+        "total_storage_used_bytes": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+
+        store = MetadataStore(config.metadata_db_path)
+        all_backups = store.list_backups()
+
+        for b in all_backups:
+            if b.status == BackupStatus.COMPLETED or b.status == BackupStatus.VERIFIED:
+                metrics["backup_success_total"] += 1
+            elif b.status == BackupStatus.FAILED:
+                metrics["backup_failure_total"] += 1
+
+            if b.completed_at and b.created_at:
+                duration = (b.completed_at - b.created_at).total_seconds()
+                metrics["backup_duration_seconds"].append(duration)
+
+            if b.original_size_bytes:
+                metrics["backup_size_bytes"].append(b.original_size_bytes)
+
+            if b.compressed_size_bytes:
+                metrics["backup_compressed_size_bytes"].append(b.compressed_size_bytes)
+                metrics["total_storage_used_bytes"] += b.compressed_size_bytes
+
+        # Summarise histograms into avg/min/max for easy consumption
+        for key in ("backup_duration_seconds", "backup_size_bytes", "backup_compressed_size_bytes"):
+            values: List[float] = metrics[key]
+            if values:
+                metrics[f"{key}_avg"] = sum(values) / len(values)
+                metrics[f"{key}_min"] = min(values)
+                metrics[f"{key}_max"] = max(values)
+            else:
+                metrics[f"{key}_avg"] = 0.0
+                metrics[f"{key}_min"] = 0.0
+                metrics[f"{key}_max"] = 0.0
+
+        logger.debug(
+            "Collected backup metrics: %d success, %d failure, %.2f GB total",
+            metrics["backup_success_total"],
+            metrics["backup_failure_total"],
+            metrics["total_storage_used_bytes"] / (1024 ** 3),
+        )
+
+    except Exception as e:
+        logger.error("Failed to collect backup metrics: %s", e, exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +245,60 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.warning("No notification channels configured; alert not sent: %s", message)
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    payload = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+    for channel in channels:
+        try:
+            if channel.startswith("slack:"):
+                await _send_slack_alert(channel[len("slack:"):], alert_type, message)
+            elif channel.startswith("http://") or channel.startswith("https://"):
+                await _send_webhook_alert(channel, payload)
+            else:
+                logger.warning("Unknown notification channel format: %s", channel)
+        except Exception as e:
+            logger.error("Failed to send alert to channel %s: %s", channel, e, exc_info=True)
+
+async def _send_slack_alert(webhook_url: str, alert_type: str, message: str) -> None:
+    """POST a formatted message to a Slack incoming webhook URL."""
+    emoji = {"failure": ":rotating_light:", "warning": ":warning:", "success": ":white_check_mark:"}.get(
+        alert_type, ":bell:"
+    )
+    body = json.dumps({"text": f"{emoji} *Continuum Backup {alert_type.upper()}*\n{message}"}).encode()
+    req = urllib.request.Request(
+        webhook_url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        if resp.status != 200:
+            raise RuntimeError(f"Slack webhook returned HTTP {resp.status}")
+    logger.info("Slack alert sent (%s)", alert_type)
+
+
+async def _send_webhook_alert(url: str, payload: Dict[str, Any]) -> None:
+    """POST alert payload as JSON to a generic webhook URL."""
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        if resp.status not in (200, 201, 202, 204):
+            raise RuntimeError(f"Webhook returned HTTP {resp.status}")
+    logger.info("Webhook alert sent to %s (%s)", url, payload.get("alert_type"))
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
