@@ -98,10 +98,18 @@ class KMSEncryptionHandler:
             ) from None
 
         if self._kms_client is None:
+            if not self.config.kms_key_id:
+                raise ValueError(
+                    "kms_key_id must be set to the Azure Key Vault key URL. "
+                    "Expected format: https://<vault-name>.vault.azure.net/keys/<key-name>/<key-version>"
+                )
+            if not self.config.kms_key_id.startswith("https://") or ".vault.azure.net/" not in self.config.kms_key_id:
+                raise ValueError(
+                    f"Invalid Azure Key Vault key URL: {self.config.kms_key_id!r}. "
+                    "Expected format: https://<vault-name>.vault.azure.net/keys/<key-name>/<key-version>"
+                )
             credential = DefaultAzureCredential()
-            # TODO: Configure key URL
-            key_url = self.config.kms_key_id
-            self._kms_client = CryptographyClient(key_url, credential)
+            self._kms_client = CryptographyClient(self.config.kms_key_id, credential)
 
         return self._kms_client
 
