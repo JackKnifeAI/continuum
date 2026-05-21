@@ -5,11 +5,15 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
 
-from ..types import BackupHealth, BackupConfig
+from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
 
@@ -131,24 +135,122 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration for accessing the metadata store.
 
-    return {}
+    Returns:
+        Dictionary of metrics with counters and histogram summaries.
+    """
+    metrics: Dict[str, Any] = {
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_in_progress_total": 0,
+        "backup_duration_seconds_avg": 0.0,
+        "backup_duration_seconds_p95": 0.0,
+        "backup_size_bytes_avg": 0.0,
+        "backup_size_bytes_total": 0,
+        "last_backup_age_seconds": None,
+        "storage_used_bytes_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        if not all_backups:
+            return metrics
+
+        for backup in all_backups:
+            status = backup.status.value
+            if status in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif status == "failed":
+                metrics["backup_failure_total"] += 1
+            elif status == "in_progress":
+                metrics["backup_in_progress_total"] += 1
+
+        # Duration histogram (last 100 completed backups)
+        completed = [b for b in all_backups if b.completed_at and b.created_at]
+        if completed:
+            durations = sorted(
+                (b.completed_at - b.created_at).total_seconds()
+                for b in completed[-100:]
+            )
+            metrics["backup_duration_seconds_avg"] = sum(durations) / len(durations)
+            p95_idx = min(int(len(durations) * 0.95), len(durations) - 1)
+            metrics["backup_duration_seconds_p95"] = durations[p95_idx]
+
+        # Size metrics
+        sizes = [b.compressed_size_bytes for b in all_backups if b.compressed_size_bytes > 0]
+        if sizes:
+            metrics["backup_size_bytes_avg"] = sum(sizes) / len(sizes)
+            metrics["backup_size_bytes_total"] = sum(sizes)
+            metrics["storage_used_bytes_total"] = sum(sizes)
+
+        # Age of most recent successful backup
+        successful = [b for b in all_backups if b.status.value in ("completed", "verified")]
+        if successful:
+            latest = max(successful, key=lambda b: b.created_at)
+            metrics["last_backup_age_seconds"] = (
+                datetime.utcnow() - latest.created_at
+            ).total_seconds()
+
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}", exc_info=True)
+
+    return metrics
+
+
+def _build_slack_payload(alert_type: str, message: str) -> Dict[str, Any]:
+    """Build Slack-formatted incoming-webhook payload."""
+    color_map = {"failure": "danger", "warning": "warning", "success": "good"}
+    return {
+        "attachments": [{
+            "color": color_map.get(alert_type, "#439FE0"),
+            "title": f"Backup {alert_type.title()}",
+            "text": message,
+            "footer": "Continuum Backup",
+            "ts": int(datetime.utcnow().timestamp()),
+        }]
+    }
+
+
+def _build_generic_payload(alert_type: str, message: str) -> Dict[str, Any]:
+    """Build generic JSON webhook payload."""
+    return {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "source": "continuum-backup",
+    }
+
+
+async def _send_webhook(url: str, payload: Dict[str, Any]) -> bool:
+    """POST JSON payload to a webhook URL. Returns True on success."""
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, urllib.request.urlopen, req)
+        return True
+    except urllib.error.URLError as e:
+        logger.error(f"Webhook delivery failed [{url}]: {e}")
+        return False
 
 
 async def send_alert(
@@ -157,27 +259,37 @@ async def send_alert(
     config: BackupConfig,
 ):
     """
-    Send alert through configured channels.
+    Send alert through configured notification channels.
+
+    Supports HTTP/HTTPS webhook URLs in config.notification_channels.
+    Slack incoming-webhook URLs (hooks.slack.com) receive Slack-formatted
+    payloads; all other URLs receive a generic JSON body.
 
     Args:
-        alert_type: Type of alert (failure, warning, success)
-        message: Alert message
-        config: Backup configuration with notification channels
+        alert_type: Type of alert — "failure", "warning", or "success"
+        message: Human-readable alert message
+        config: Backup configuration with notification_channels list
     """
     logger.info(f"Sending {alert_type} alert: {message}")
 
-    # Skip if notifications disabled
-    if alert_type == 'success' and not config.notify_on_success:
+    if alert_type == "success" and not config.notify_on_success:
+        return
+    if alert_type == "failure" and not config.notify_on_failure:
         return
 
-    if alert_type == 'failure' and not config.notify_on_failure:
-        return
+    delivered: List[bool] = []
+    for channel in config.notification_channels:
+        if channel.startswith(("http://", "https://")):
+            if "hooks.slack.com" in channel:
+                payload = _build_slack_payload(alert_type, message)
+            else:
+                payload = _build_generic_payload(alert_type, message)
+            success = await _send_webhook(channel, payload)
+            delivered.append(success)
+            if success:
+                logger.info(f"Alert delivered to webhook: {channel}")
+        else:
+            logger.warning(f"Unsupported notification channel (skipped): {channel!r}")
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
-
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    if not delivered:
+        logger.warning(f"No notification channels configured — alert not delivered: {message}")

@@ -23,11 +23,15 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+# Default key store directory; override with CONTINUUM_KEY_STORE_DIR env var
+_KEY_STORE_DIR = Path(os.environ.get("CONTINUUM_KEY_STORE_DIR", Path.home() / ".continuum" / "keys"))
 
 
 class AESEncryptionHandler:
@@ -51,10 +55,8 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from the secure key store if key_id is set."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +66,56 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
+        """Load a 32-byte AES-256 key from the secure key store.
+
+        Resolution order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (base64-encoded)
+        2. File ``<key_store_dir>/<key_id>.key`` (raw 32 bytes, mode 0600)
+        3. SHA-256 derivation from key_id — development fallback only, logs a warning.
+        """
+        import base64
         import hashlib
+
+        # 1. Environment variable
+        env_var = "CONTINUUM_KEY_" + key_id.upper().replace("-", "_").replace(".", "_")
+        raw_env = os.environ.get(env_var)
+        if raw_env:
+            try:
+                key = base64.b64decode(raw_env)
+                if len(key) == 32:
+                    return key
+                logger.warning("Key from %s decoded to %d bytes (expected 32), skipping", env_var, len(key))
+            except Exception:
+                logger.warning("Failed to base64-decode key from %s, skipping", env_var)
+
+        # 2. Key file
+        key_file = _KEY_STORE_DIR / f"{key_id}.key"
+        if key_file.exists():
+            try:
+                key_data = key_file.read_bytes()
+                if len(key_data) == 32:
+                    return key_data
+                logger.warning("Key file %s contains %d bytes (expected 32), skipping", key_file, len(key_data))
+            except OSError as e:
+                logger.warning("Failed to read key file %s: %s", key_file, e)
+
+        # 3. Derivation fallback — not secure, development only
+        logger.warning(
+            "No secure key found for '%s'. Set %s (base64) or create %s (32 raw bytes). "
+            "Falling back to derived key — not suitable for production.",
+            key_id, env_var, key_file,
+        )
         return hashlib.sha256(key_id.encode()).digest()
+
+    def _store_key(self, key_id: str, key: bytes) -> None:
+        """Persist a key to the file-based key store with owner-only permissions."""
+        if len(key) != 32:
+            raise ValueError(f"Key must be 32 bytes for AES-256, got {len(key)}")
+        _KEY_STORE_DIR.mkdir(parents=True, exist_ok=True)
+        key_file = _KEY_STORE_DIR / f"{key_id}.key"
+        key_file.write_bytes(key)
+        key_file.chmod(0o600)
+        logger.info("Stored key '%s' at %s", key_id, key_file)
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
