@@ -23,11 +23,14 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_KEY_STORE = Path.home() / ".continuum" / "keys"
 
 
 class AESEncryptionHandler:
@@ -50,25 +53,41 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _key_store_path(self) -> Path:
+        """Return key store directory, overridable via CONTINUUM_KEY_STORE env var."""
+        return Path(os.environ.get("CONTINUUM_KEY_STORE", str(_DEFAULT_KEY_STORE)))
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)  # 256-bit ephemeral key
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the filesystem key store."""
+        key_file = self._key_store_path() / f"{key_id}.key"
+        if not key_file.exists():
+            raise KeyError(
+                f"Encryption key '{key_id}' not found in key store at {key_file.parent}. "
+                f"Use store_key() to provision it, or set CONTINUUM_KEY_STORE to the correct path."
+            )
+        return key_file.read_bytes()
+
+    def store_key(self, key_id: str, key: bytes) -> None:
+        """Persist a key in the filesystem key store with restrictive permissions."""
+        if len(key) != 32:
+            raise ValueError(f"AES-256 requires a 32-byte key, got {len(key)} bytes")
+        key_store = self._key_store_path()
+        key_store.mkdir(mode=0o700, parents=True, exist_ok=True)
+        key_file = key_store / f"{key_id}.key"
+        key_file.write_bytes(key)
+        key_file.chmod(0o600)
+        logger.info(f"Key '{key_id}' stored at {key_file}")
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
