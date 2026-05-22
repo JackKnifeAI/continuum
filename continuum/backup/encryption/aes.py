@@ -23,9 +23,45 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
+
+_DEFAULT_KEY_STORE_DIR = Path(
+    os.environ.get("CONTINUUM_KEY_STORE_DIR", Path.home() / ".config" / "continuum" / "keys")
+)
+
+
+class SecureKeyStore:
+    """
+    Filesystem-based secure key store.
+
+    Keys are stored as individual files in a restricted directory
+    (mode 0o700 for the dir, 0o600 per key file). The directory is
+    configurable via the CONTINUUM_KEY_STORE_DIR environment variable.
+    """
+
+    def __init__(self, store_dir: Path = _DEFAULT_KEY_STORE_DIR):
+        self._store_dir = store_dir
+
+    def _ensure_dir(self) -> None:
+        self._store_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(self._store_dir, 0o700)
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Return key bytes for key_id, or None if not found."""
+        key_path = self._store_dir / f"{key_id}.key"
+        if not key_path.exists():
+            return None
+        return key_path.read_bytes()
+
+    def save(self, key_id: str, key: bytes) -> None:
+        """Persist key with owner-only read/write permissions."""
+        self._ensure_dir()
+        key_path = self._store_dir / f"{key_id}.key"
+        key_path.write_bytes(key)
+        os.chmod(key_path, 0o600)
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +82,14 @@ class AESEncryptionHandler:
     - Multiple keys for different backup generations
     """
 
-    def __init__(self, config: EncryptionConfig):
+    def __init__(self, config: EncryptionConfig, key_store: Optional[SecureKeyStore] = None):
         self.config = config
-        self._current_key = None
+        self._key_store = key_store or SecureKeyStore()
+        self._current_key: Optional[bytes] = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from the secure key store when key_id is set."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +99,29 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the secure filesystem key store.
+
+        Raises KeyError if the key has not been previously stored.
+        Use save_key() to persist a new key before first use.
+        """
+        key = self._key_store.load(key_id)
+        if key is None:
+            raise KeyError(
+                f"Key '{key_id}' not found in key store at {self._key_store._store_dir}. "
+                "Generate and save the key before use, or set CONTINUUM_KEY_STORE_DIR."
+            )
+        return key
+
+    def save_key(self, key_id: str, key: Optional[bytes] = None) -> bytes:
+        """Generate (or store a provided) 256-bit key under key_id.
+
+        Returns the stored key bytes.
+        """
+        if key is None:
+            key = os.urandom(32)
+        self._key_store.save(key_id, key)
+        logger.info(f"Stored encryption key '{key_id}' in secure key store")
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
