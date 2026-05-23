@@ -425,8 +425,44 @@ class BackupManager:
 
     async def _count_records(self, tables: Optional[List[str]] = None) -> int:
         """Count total records in backup"""
-        # TODO: Implement actual record counting from database
-        return 0
+        def _count() -> int:
+            import sqlite3
+
+            db_path = self.config.db_path
+            if not db_path.exists():
+                return 0
+
+            total = 0
+            try:
+                conn = sqlite3.connect(str(db_path))
+                try:
+                    cursor = conn.cursor()
+
+                    if tables:
+                        target_tables = tables
+                    else:
+                        cursor.execute(
+                            "SELECT name FROM sqlite_master "
+                            "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        )
+                        target_tables = [row[0] for row in cursor.fetchall()]
+
+                    for table in target_tables:
+                        try:
+                            cursor.execute(f"SELECT COUNT(*) FROM [{table}]")
+                            row = cursor.fetchone()
+                            if row:
+                                total += row[0]
+                        except sqlite3.Error:
+                            logger.warning(f"Could not count records in table {table!r}")
+                finally:
+                    conn.close()
+            except sqlite3.Error as e:
+                logger.warning(f"Could not count records from {db_path}: {e}")
+
+            return total
+
+        return await asyncio.to_thread(_count)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
