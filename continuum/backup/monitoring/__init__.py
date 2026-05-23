@@ -20,9 +20,14 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import smtplib
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.mime.text import MIMEText
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +151,82 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Optional backup configuration for metadata access
 
-    return {}
+    Returns:
+        Dictionary of metrics with counters and histogram summaries
+    """
+    metrics: Dict[str, Any] = {
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_duration_seconds_count": 0,
+        "backup_duration_seconds_sum": 0.0,
+        "backup_duration_seconds_p50": 0.0,
+        "backup_duration_seconds_p95": 0.0,
+        "backup_size_bytes_count": 0,
+        "backup_size_bytes_sum": 0,
+        "backup_size_bytes_p50": 0,
+        "backup_size_bytes_p95": 0,
+        "restore_duration_seconds_count": 0,
+        "restore_duration_seconds_sum": 0.0,
+        "retention_deletions_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        durations: List[float] = []
+        sizes: List[int] = []
+
+        for backup in all_backups:
+            if backup.status.value in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif backup.status.value == "failed":
+                metrics["backup_failure_total"] += 1
+
+            if backup.completed_at and backup.created_at:
+                durations.append(
+                    (backup.completed_at - backup.created_at).total_seconds()
+                )
+
+            if backup.compressed_size_bytes:
+                sizes.append(backup.compressed_size_bytes)
+
+        def _histogram_stats(values: list, prefix: str) -> None:
+            if not values:
+                return
+            sorted_vals = sorted(values)
+            n = len(sorted_vals)
+            metrics[f"{prefix}_count"] = n
+            metrics[f"{prefix}_sum"] = sum(sorted_vals)
+            metrics[f"{prefix}_p50"] = sorted_vals[int(n * 0.50)]
+            metrics[f"{prefix}_p95"] = sorted_vals[min(int(n * 0.95), n - 1)]
+
+        _histogram_stats(durations, "backup_duration_seconds")
+        _histogram_stats(sizes, "backup_size_bytes")
+
+        logger.debug(
+            f"Collected metrics: {metrics['backup_success_total']} successes, "
+            f"{metrics['backup_failure_total']} failures"
+        )
+
+    except Exception as e:
+        logger.error(f"Metrics collection failed: {e}", exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +251,74 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    for channel in config.notification_channels:
+        try:
+            if channel.startswith("http://") or channel.startswith("https://"):
+                _send_webhook(channel, alert_type, message)
+            elif channel.startswith("smtp://"):
+                _send_smtp_alert(channel, alert_type, message)
+            else:
+                logger.warning(f"Unknown notification channel format: {channel!r}")
+        except Exception as e:
+            logger.error(f"Failed to send alert to {channel!r}: {e}", exc_info=True)
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    if not config.notification_channels:
+        logger.warning(f"No notification channels configured — alert dropped: {message}")
+
+def _send_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to a webhook URL (Slack-compatible or generic)."""
+    is_slack = "hooks.slack.com" in url
+
+    if is_slack:
+        payload = {"text": f"[{alert_type.upper()}] {message}"}
+    else:
+        payload = {
+            "alert_type": alert_type,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info(f"Webhook alert sent to {url!r}: HTTP {resp.status}")
+
+
+def _send_smtp_alert(smtp_url: str, alert_type: str, message: str) -> None:
+    """Send an email alert via SMTP URL.
+
+    URL format: smtp://user:password@host:port/recipient@example.com
+    """
+    parsed = urllib.parse.urlparse(smtp_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 25
+    user = urllib.parse.unquote(parsed.username or "")
+    password = urllib.parse.unquote(parsed.password or "")
+    recipient = parsed.path.lstrip("/")
+
+    if not recipient:
+        logger.warning("SMTP channel missing recipient in URL path")
+        return
+
+    subject = f"[Backup {alert_type.upper()}] Alert"
+    msg = MIMEText(message)
+    msg["Subject"] = subject
+    msg["From"] = user or f"backup@{host}"
+    msg["To"] = recipient
+
+    with smtplib.SMTP(host, port, timeout=10) as server:
+        if user and password:
+            server.starttls()
+            server.login(user, password)
+        server.sendmail(msg["From"], [recipient], msg.as_string())
+
+    logger.info(f"Email alert sent to {recipient!r} via {host}:{port}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
