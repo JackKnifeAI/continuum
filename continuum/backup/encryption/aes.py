@@ -23,6 +23,7 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -51,23 +52,50 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from the configured key store."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)  # 256-bit ephemeral key
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
+        """Load a key from the filesystem key store, creating it on first use.
+
+        Keys are stored as raw 32-byte files under key_store_path/<key_id>.key
+        with mode 0o600 (owner read/write only).  When key_store_path is not
+        configured the key is derived deterministically from key_id via SHA-256,
+        which is NOT secure and emits a warning.
+        """
+        if self.config.key_store_path is not None:
+            key_store = Path(self.config.key_store_path)
+            key_file = key_store / f"{key_id}.key"
+
+            if key_file.exists():
+                key_data = key_file.read_bytes()
+                if len(key_data) != 32:
+                    raise ValueError(
+                        f"Key file {key_file} contains {len(key_data)} bytes; expected 32"
+                    )
+                logger.debug(f"Loaded key '{key_id}' from key store")
+                return key_data
+
+            # First use: generate, persist, and return a fresh random key.
+            key_store.mkdir(parents=True, exist_ok=True)
+            key_data = os.urandom(32)
+            key_file.write_bytes(key_data)
+            key_file.chmod(0o600)
+            logger.info(f"Generated and stored new key '{key_id}' in key store")
+            return key_data
+
+        # Fallback: deterministic derivation — insecure, production must set key_store_path.
         import hashlib
+        logger.warning(
+            "key_store_path not configured — deriving key from key_id (NOT secure for production)"
+        )
         return hashlib.sha256(key_id.encode()).digest()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:

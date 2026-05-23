@@ -283,11 +283,18 @@ class EncryptionConfig:
     key_id: Optional[str] = None
     key_rotation_days: int = 90
 
+    # Filesystem key store — directory where per-key-id .key files are stored
+    # with mode 0o600. Leave None to fall back to insecure key derivation.
+    key_store_path: Optional[Path] = None
+
     # KMS integration
     use_kms: bool = False
     kms_provider: Optional[str] = None  # "aws", "gcp", "azure"
     kms_key_id: Optional[str] = None
     kms_region: Optional[str] = None
+    # Azure Key Vault: full vault base URL, e.g. "https://myvault.vault.azure.net"
+    # Full key URL is constructed as {kms_vault_url}/keys/{kms_key_id}
+    kms_vault_url: Optional[str] = None
 
 
 @dataclass
