@@ -23,9 +23,13 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+import stat
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
+
+_KEY_STORE_DIR = Path("continuum_data/keys")
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +54,23 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _get_key_store_path(self) -> Path:
+        """Return the directory where key files are stored"""
+        return _KEY_STORE_DIR
+
+    def _store_key(self, key_id: str, key: bytes) -> None:
+        """Persist key to secure local key store with owner-only permissions"""
+        key_store = self._get_key_store_path()
+        key_store.mkdir(parents=True, exist_ok=True)
+        os.chmod(key_store, stat.S_IRWXU)
+        key_path = key_store / f"{key_id}.key"
+        key_path.write_bytes(key)
+        os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
+        logger.info(f"Stored encryption key '{key_id}' in key store at {key_path}")
+
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +80,14 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from secure local key store"""
+        key_path = self._get_key_store_path() / f"{key_id}.key"
+        if not key_path.exists():
+            raise KeyError(
+                f"Encryption key '{key_id}' not found in key store at {key_path}. "
+                "Generate and store a key first using _store_key()."
+            )
+        return key_path.read_bytes()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

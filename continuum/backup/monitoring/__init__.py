@@ -20,9 +20,11 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +148,67 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Backup configuration (required to read from metadata store)
 
-    return {}
+    Returns:
+        Dictionary of metrics with keys:
+        - backup_duration_seconds: list of durations for completed backups
+        - backup_size_bytes: list of compressed sizes for completed backups
+        - backup_success_total: count of successful backups
+        - backup_failure_total: count of failed backups
+        - last_backup_age_seconds: seconds since last successful backup
+        - total_storage_used_bytes: total compressed bytes across all backups
+    """
+    metrics: Dict[str, Any] = {
+        "backup_duration_seconds": [],
+        "backup_size_bytes": [],
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "last_backup_age_seconds": None,
+        "total_storage_used_bytes": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        for b in all_backups:
+            if b.status.value in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+                metrics["backup_size_bytes"].append(b.compressed_size_bytes)
+                if b.completed_at and b.created_at:
+                    metrics["backup_duration_seconds"].append(
+                        (b.completed_at - b.created_at).total_seconds()
+                    )
+            elif b.status.value == "failed":
+                metrics["backup_failure_total"] += 1
+
+        metrics["total_storage_used_bytes"] = sum(
+            b.compressed_size_bytes for b in all_backups
+        )
+
+        successful = [b for b in all_backups if b.status.value in ("completed", "verified")]
+        if successful:
+            latest = max(successful, key=lambda b: b.created_at)
+            metrics["last_backup_age_seconds"] = (
+                datetime.utcnow() - latest.created_at
+            ).total_seconds()
+
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}", exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +233,71 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels = config.notification_channels
+    if not channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            _dispatch_alert(channel, alert_type, message)
+        except Exception as e:
+            logger.error(f"Failed to send alert to channel {channel!r}: {e}")
+
+def _dispatch_alert(channel: str, alert_type: str, message: str) -> None:
+    """
+    Dispatch an alert to a single notification channel.
+
+    Channel format determines the delivery method:
+    - https://hooks.slack.com/...  → Slack incoming webhook
+    - http(s)://...                → Generic JSON webhook (POST)
+
+    Args:
+        channel: Channel identifier or URL
+        alert_type: "failure", "warning", or "success"
+        message: Human-readable alert message
+    """
+    if channel.startswith("https://hooks.slack.com/") or channel.startswith("http://hooks.slack.com/"):
+        _send_slack_webhook(channel, alert_type, message)
+    elif channel.startswith("http://") or channel.startswith("https://"):
+        _send_generic_webhook(channel, alert_type, message)
+    else:
+        logger.warning(f"Unknown notification channel format: {channel!r}")
+
+
+def _send_slack_webhook(url: str, alert_type: str, message: str) -> None:
+    """Send alert to a Slack incoming webhook URL."""
+    emoji = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:"}.get(
+        alert_type, ":information_source:"
+    )
+    payload = json.dumps({"text": f"{emoji} *Backup {alert_type.upper()}*: {message}"}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info(f"Slack alert sent, status={resp.status}")
+
+
+def _send_generic_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a JSON alert payload to a generic webhook URL."""
+    payload = json.dumps({
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "source": "continuum-backup",
+    }).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info(f"Webhook alert sent to {url!r}, status={resp.status}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
