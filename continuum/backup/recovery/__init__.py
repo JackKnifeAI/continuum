@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -370,12 +371,212 @@ async def selective_restore(
     Returns:
         RestoreResult with status
     """
-    logger.info(f"Selective restore: {len(tables)} tables")
+    logger.info(f"Selective restore: {len(tables)} tables from {backup_id}")
 
-    # TODO: Implement selective restore logic
-    # Extract only specified tables from backup
+    result = RestoreResult(
+        success=False,
+        status=RestoreStatus.PENDING,
+    )
 
-    raise NotImplementedError("Selective restore not yet implemented")
+    try:
+        # Download backup
+        result.status = RestoreStatus.DOWNLOADING
+        from ..storage import get_storage_backend
+        storage = get_storage_backend(config.primary_storage)
+        backup_data = await storage.download(backup_id)
+        result.bytes_restored = len(backup_data)
+        logger.info(f"Downloaded {len(backup_data)} bytes for selective restore")
+
+        # Auto-detect and decompress if needed
+        result.status = RestoreStatus.DECOMPRESSING
+        backup_data = await _maybe_decompress(backup_data)
+
+        if not target.database_path:
+            raise ValueError("database_path required for selective restore")
+
+        result.status = RestoreStatus.RESTORING
+
+        if _is_sqlite(backup_data):
+            await _selective_restore_from_sqlite(backup_data, tables, target, result)
+        else:
+            # Incremental/differential JSON format
+            await _selective_restore_from_json(backup_data, tables, target, result)
+
+        # Verify if requested
+        if target.verify_after_restore:
+            result.status = RestoreStatus.VERIFYING
+            verified = await _verify_restored_data(target)
+            result.verified = verified
+            if not verified:
+                result.verification_errors.append("Restore verification failed")
+
+        result.status = RestoreStatus.COMPLETED
+        result.success = True
+        logger.info(
+            f"Selective restore complete: {result.tables_restored} tables, "
+            f"{result.records_restored} records"
+        )
+
+    except Exception as e:
+        logger.error(f"Selective restore failed: {e}", exc_info=True)
+        result.status = RestoreStatus.FAILED
+        result.error = str(e)
+
+    return result
+
+
+def _is_sqlite(data: bytes) -> bool:
+    """Detect SQLite format by its 16-byte magic header."""
+    return data[:16] == b"SQLite format 3\x00"
+
+
+async def _maybe_decompress(data: bytes) -> bytes:
+    """
+    Decompress backup data when magic bytes indicate a known compression format.
+
+    Supports gzip (\\x1f\\x8b), zstd (\\x28\\xb5\\x2f\\xfd), and LZ4 (\\x04\\x22\\x4d\\x18).
+    Returns data unchanged when no known compression is detected.
+    """
+    from ..compression import get_compression_handler
+    from ..types import CompressionAlgorithm
+
+    if data[:2] == b"\x1f\x8b":
+        handler = get_compression_handler(CompressionAlgorithm.GZIP)
+        return await handler.decompress(data)
+
+    if data[:4] == b"\x28\xb5\x2f\xfd":
+        handler = get_compression_handler(CompressionAlgorithm.ZSTD)
+        return await handler.decompress(data)
+
+    if data[:4] == b"\x04\x22\x4d\x18":
+        handler = get_compression_handler(CompressionAlgorithm.LZ4)
+        return await handler.decompress(data)
+
+    return data
+
+
+async def _selective_restore_from_sqlite(
+    backup_data: bytes,
+    tables: list[str],
+    target: RestoreTarget,
+    result: RestoreResult,
+) -> None:
+    """Copy requested tables from a full SQLite backup into the target database."""
+
+    def _do_restore() -> tuple[int, int]:
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+            tmp_file.write(backup_data)
+
+        try:
+            src_conn = sqlite3.connect(str(tmp_path))
+            src_cursor = src_conn.cursor()
+
+            src_cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            available = {row[0] for row in src_cursor.fetchall()}
+
+            missing = [t for t in tables if t not in available]
+            if missing:
+                result.warnings.append(f"Tables not found in backup: {missing}")
+
+            tables_to_restore = [t for t in tables if t in available]
+
+            target.database_path.parent.mkdir(parents=True, exist_ok=True)
+            dst_conn = sqlite3.connect(str(target.database_path))
+            dst_cursor = dst_conn.cursor()
+
+            total_records = 0
+            restored_tables = 0
+
+            for table in tables_to_restore:
+                src_cursor.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                )
+                schema_row = src_cursor.fetchone()
+                if not schema_row:
+                    continue
+
+                if target.overwrite:
+                    dst_cursor.execute(f"DROP TABLE IF EXISTS {table}")  # noqa: S608
+
+                create_sql = schema_row[0].replace(
+                    "CREATE TABLE", "CREATE TABLE IF NOT EXISTS", 1
+                )
+                dst_cursor.execute(create_sql)
+
+                src_cursor.execute(f"SELECT * FROM {table}")  # noqa: S608
+                rows = src_cursor.fetchall()
+
+                if rows:
+                    placeholders = ",".join(["?" for _ in rows[0]])
+                    insert_stmt = (
+                        f"INSERT OR REPLACE INTO {table} VALUES ({placeholders})"  # noqa: S608
+                        if target.overwrite
+                        else f"INSERT OR IGNORE INTO {table} VALUES ({placeholders})"  # noqa: S608
+                    )
+                    dst_cursor.executemany(insert_stmt, rows)
+                    total_records += len(rows)
+
+                restored_tables += 1
+
+            dst_conn.commit()
+            dst_conn.close()
+            src_conn.close()
+            return restored_tables, total_records
+
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    tables_count, records_count = await asyncio.to_thread(_do_restore)
+    result.tables_restored = tables_count
+    result.records_restored = records_count
+    logger.info(f"Selectively restored {tables_count} tables, {records_count} records from SQLite backup")
+
+
+async def _selective_restore_from_json(
+    backup_data: bytes,
+    tables: list[str],
+    target: RestoreTarget,
+    result: RestoreResult,
+) -> None:
+    """Apply per-table changes from a JSON incremental backup, filtered to requested tables."""
+    changes = json.loads(backup_data.decode("utf-8"))
+    tables_set = set(tables)
+
+    def _apply() -> tuple[int, int]:
+        dst_conn = sqlite3.connect(str(target.database_path))
+        dst_cursor = dst_conn.cursor()
+
+        total_records = 0
+        restored_tables = 0
+
+        for table_name, table_changes in changes.get("tables", {}).items():
+            if table_name not in tables_set:
+                continue
+
+            rows = table_changes.get("rows", [])
+            for row in rows:
+                columns = list(row.keys())
+                placeholders = ",".join(["?" for _ in columns])
+                column_names = ",".join(columns)
+                query = (
+                    f"INSERT OR REPLACE INTO {table_name} "  # noqa: S608
+                    f"({column_names}) VALUES ({placeholders})"
+                )
+                dst_cursor.execute(query, [row[col] for col in columns])
+                total_records += 1
+
+            restored_tables += 1
+
+        dst_conn.commit()
+        dst_conn.close()
+        return restored_tables, total_records
+
+    tables_count, records_count = await asyncio.to_thread(_apply)
+    result.tables_restored = tables_count
+    result.records_restored = records_count
+    logger.info(f"Selectively restored {tables_count} tables, {records_count} records from incremental backup")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

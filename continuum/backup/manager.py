@@ -424,9 +424,37 @@ class BackupManager:
         return f"backup-{strategy.value}-{timestamp}-{self.config.tenant_id}"
 
     async def _count_records(self, tables: Optional[List[str]] = None) -> int:
-        """Count total records in backup"""
-        # TODO: Implement actual record counting from database
-        return 0
+        """Count total records across all (or specified) tables in the source database."""
+        try:
+            import aiosqlite
+
+            async with aiosqlite.connect(self.config.db_path) as db:
+                if tables:
+                    target_tables = tables
+                else:
+                    async with db.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                        target_tables = [row[0] for row in rows]
+
+                total = 0
+                for table in target_tables:
+                    # Quote identifier to handle reserved words and special chars
+                    quoted = f'"{table}"'
+                    try:
+                        async with db.execute(f"SELECT COUNT(*) FROM {quoted}") as cursor:
+                            row = await cursor.fetchone()
+                            if row:
+                                total += row[0]
+                    except Exception:
+                        logger.debug(f"Could not count records in table {table!r}")
+
+                return total
+
+        except Exception as e:
+            logger.warning(f"Record counting failed, defaulting to 0: {e}")
+            return 0
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

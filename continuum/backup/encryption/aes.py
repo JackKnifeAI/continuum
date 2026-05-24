@@ -23,11 +23,43 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+import stat
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+
+class _FileKeyStore:
+    """File-based secure key store with restricted filesystem permissions."""
+
+    _DEFAULT_DIR = Path.home() / ".continuum" / "keys"
+
+    def __init__(self, store_dir: Optional[Path] = None):
+        self._store_dir = store_dir or Path(
+            os.environ.get("CONTINUUM_KEY_STORE_DIR", str(self._DEFAULT_DIR))
+        )
+
+    def _key_path(self, key_id: str) -> Path:
+        safe_id = key_id.replace("/", "_").replace("..", "_")
+        return self._store_dir / f"{safe_id}.key"
+
+    def save(self, key_id: str, key_bytes: bytes) -> None:
+        """Write key file with owner-only permissions (0o600)."""
+        self._store_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(self._store_dir, stat.S_IRWXU)
+        key_path = self._key_path(key_id)
+        key_path.write_bytes(key_bytes)
+        os.chmod(key_path, stat.S_IRUSR | stat.S_IWUSR)
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Return key bytes, or None if the key does not exist."""
+        key_path = self._key_path(key_id)
+        if not key_path.exists():
+            return None
+        return key_path.read_bytes()
 
 
 class AESEncryptionHandler:
@@ -51,10 +83,8 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, persisting it in the secure key store."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +94,22 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the secure file-based key store.
+
+        Generates and stores a new random key if key_id is not yet registered.
+        Keys are persisted as owner-read-only files (0o600) under
+        $CONTINUUM_KEY_STORE_DIR (default ~/.continuum/keys/).
+        """
+        store = _FileKeyStore()
+        key = store.load(key_id)
+        if key is not None:
+            logger.debug(f"Loaded key {key_id!r} from secure key store")
+            return key
+
+        logger.warning(f"Key {key_id!r} not found in store — generating and storing a new key")
+        key = os.urandom(32)
+        store.save(key_id, key)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
