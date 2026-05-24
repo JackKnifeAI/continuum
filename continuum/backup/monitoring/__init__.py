@@ -20,13 +20,62 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
+
+# Module-level metrics registry — accumulated across the process lifetime.
+_metrics: Dict[str, Any] = {
+    "backup_duration_seconds": [],
+    "backup_size_bytes": [],
+    "backup_success_total": 0,
+    "backup_failure_total": 0,
+    "restore_duration_seconds": [],
+    "retention_deletions_total": 0,
+    "metrics_since": datetime.utcnow().isoformat(),
+}
+
+
+def _histogram_stats(values: List[float]) -> Dict[str, float]:
+    if not values:
+        return {"count": 0, "sum": 0.0, "min": 0.0, "max": 0.0, "avg": 0.0}
+    return {
+        "count": len(values),
+        "sum": sum(values),
+        "min": min(values),
+        "max": max(values),
+        "avg": sum(values) / len(values),
+    }
+
+
+def record_backup_completed(duration_seconds: float, size_bytes: int) -> None:
+    """Record metrics for a completed backup."""
+    _metrics["backup_duration_seconds"].append(duration_seconds)
+    _metrics["backup_size_bytes"].append(size_bytes)
+    _metrics["backup_success_total"] += 1
+
+
+def record_backup_failed() -> None:
+    """Record a failed backup."""
+    _metrics["backup_failure_total"] += 1
+
+
+def record_restore_completed(duration_seconds: float) -> None:
+    """Record metrics for a completed restore."""
+    _metrics["restore_duration_seconds"].append(duration_seconds)
+
+
+def record_retention_deletion(count: int = 1) -> None:
+    """Record how many backups were deleted by the retention policy."""
+    _metrics["retention_deletions_total"] += count
 
 
 async def get_backup_health(config: BackupConfig) -> BackupHealth:
@@ -155,15 +204,83 @@ def get_backup_metrics() -> Dict[str, Any]:
     Returns:
         Dictionary of metrics
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    return {
+        "backup_duration_seconds": _histogram_stats(_metrics["backup_duration_seconds"]),
+        "backup_size_bytes": _histogram_stats(_metrics["backup_size_bytes"]),
+        "backup_success_total": _metrics["backup_success_total"],
+        "backup_failure_total": _metrics["backup_failure_total"],
+        "restore_duration_seconds": _histogram_stats(_metrics["restore_duration_seconds"]),
+        "retention_deletions_total": _metrics["retention_deletions_total"],
+        "metrics_since": _metrics["metrics_since"],
+    }
 
-    return {}
+
+async def _post_json(url: str, payload: Dict[str, Any]) -> bool:
+    """POST a JSON payload to a URL; returns True on success."""
+    try:
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        await asyncio.to_thread(urllib.request.urlopen, req, timeout=10)
+        return True
+    except urllib.error.URLError as exc:
+        logger.warning(f"Webhook delivery failed ({url}): {exc}")
+        return False
+
+
+async def _send_slack_alert(webhook_url: str, alert_type: str, message: str) -> None:
+    """Send a formatted alert to a Slack incoming webhook."""
+    color = {"failure": "danger", "warning": "warning", "success": "good"}.get(
+        alert_type, "#cccccc"
+    )
+    payload: Dict[str, Any] = {
+        "attachments": [
+            {
+                "color": color,
+                "title": f"Backup {alert_type.upper()}",
+                "text": message,
+                "footer": "Continuum Backup Monitor",
+                "ts": int(datetime.utcnow().timestamp()),
+            }
+        ]
+    }
+    if await _post_json(webhook_url, payload):
+        logger.info(f"Slack {alert_type} alert delivered")
+
+
+async def _send_pagerduty_alert(routing_key: str, alert_type: str, message: str) -> None:
+    """Send an alert to PagerDuty via the Events API v2.
+
+    Channel format: ``pd:<routing_key>``
+    """
+    payload: Dict[str, Any] = {
+        "routing_key": routing_key,
+        "event_action": "trigger" if alert_type == "failure" else "resolve",
+        "payload": {
+            "summary": message,
+            "severity": "critical" if alert_type == "failure" else "warning",
+            "source": "continuum-backup",
+            "custom_details": {"alert_type": alert_type},
+        },
+    }
+    if await _post_json("https://events.pagerduty.com/v2/enqueue", payload):
+        logger.info(f"PagerDuty {alert_type} alert delivered")
+
+
+async def _send_custom_webhook(url: str, alert_type: str, message: str) -> None:
+    """POST a generic JSON alert payload to an arbitrary webhook URL."""
+    payload: Dict[str, Any] = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "source": "continuum-backup",
+    }
+    if await _post_json(url, payload):
+        logger.info(f"Custom webhook {alert_type} alert delivered to {url}")
 
 
 async def send_alert(
@@ -188,14 +305,21 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    tasks = []
+    for channel in config.notification_channels:
+        if "hooks.slack.com" in channel:
+            tasks.append(_send_slack_alert(channel, alert_type, message))
+        elif channel.startswith("pd:"):
+            tasks.append(_send_pagerduty_alert(channel[3:], alert_type, message))
+        elif channel.startswith(("http://", "https://")):
+            tasks.append(_send_custom_webhook(channel, alert_type, message))
+        else:
+            logger.warning(f"Unsupported notification channel (skipped): {channel!r}")
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    else:
+        logger.debug("No notification channels configured; alert logged only")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

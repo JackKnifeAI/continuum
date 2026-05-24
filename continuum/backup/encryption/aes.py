@@ -23,11 +23,48 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+_ENV_KEY_DIR = "CONTINUUM_KEY_DIR"
+_DEFAULT_KEY_DIR = os.path.expanduser("~/.continuum/keys")
+
+
+class SecureKeyStore:
+    """
+    File-based key store with restricted permissions (0700 dir / 0600 files).
+
+    Keys are stored as raw 32-byte files named <key_id>.key under the key
+    directory.  The directory is created automatically on first write.
+    Override the location via the CONTINUUM_KEY_DIR environment variable or
+    by passing ``key_dir`` explicitly.
+    """
+
+    def __init__(self, key_dir: Optional[str] = None):
+        self.key_dir = key_dir or os.environ.get(_ENV_KEY_DIR, _DEFAULT_KEY_DIR)
+
+    def _key_path(self, key_id: str) -> str:
+        safe_id = key_id.replace(os.sep, "_").replace("..", "_")
+        return os.path.join(self.key_dir, f"{safe_id}.key")
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Return key bytes, or None if not found."""
+        path = self._key_path(key_id)
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    def save(self, key_id: str, key_material: bytes) -> None:
+        """Persist key material with mode 0600; creates key dir (0700) if absent."""
+        os.makedirs(self.key_dir, mode=0o700, exist_ok=True)
+        path = self._key_path(key_id)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(key_material)
 
 
 class AESEncryptionHandler:
@@ -51,12 +88,20 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, persisting it in the secure key store."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
-                self._current_key = self._load_key(self.config.key_id)
+                key_store = SecureKeyStore()
+                key = key_store.load(self.config.key_id)
+                if key is None:
+                    key = os.urandom(32)
+                    key_store.save(self.config.key_id, key)
+                    logger.info(
+                        "Generated and stored new key '%s' in %s",
+                        self.config.key_id,
+                        key_store.key_dir,
+                    )
+                self._current_key = key
             else:
                 self._current_key = os.urandom(32)  # 256 bits
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
@@ -64,11 +109,15 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the secure key store."""
+        key_store = SecureKeyStore()
+        key = key_store.load(key_id)
+        if key is None:
+            raise KeyError(
+                f"Key '{key_id}' not found in key store at {key_store.key_dir}. "
+                f"Override location with {_ENV_KEY_DIR}."
+            )
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
