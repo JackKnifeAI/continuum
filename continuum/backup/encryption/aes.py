@@ -23,6 +23,8 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+import secrets
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -50,25 +52,50 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    @property
+    def _key_store_dir(self) -> Path:
+        """Directory for file-based key store, with restricted permissions"""
+        key_dir = Path.home() / ".continuum" / "keys"
+        key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return key_dir
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get encryption key, loading from the key store or generating and persisting a new one"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
-                logger.warning("Generated ephemeral encryption key - not suitable for production")
-
+                self._current_key = self._generate_and_store_key()
         return self._current_key
 
+    def _generate_and_store_key(self) -> bytes:
+        """Generate a new AES-256 key, persist it to the key store, and record its ID"""
+        key = os.urandom(32)
+        key_id = secrets.token_hex(16)
+        self._save_key(key_id, key)
+        self.config.key_id = key_id
+        logger.warning(
+            "Generated new encryption key '%s' — persist this key ID to decrypt future backups",
+            key_id,
+        )
+        return key
+
+    def _save_key(self, key_id: str, key: bytes) -> None:
+        """Write key bytes to the key store with owner-only read/write permissions"""
+        key_file = self._key_store_dir / f"{key_id}.key"
+        key_file.write_bytes(key)
+        key_file.chmod(0o600)
+        logger.debug("Saved encryption key '%s' to %s", key_id, key_file)
+
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key bytes from the file-based key store"""
+        key_file = self._key_store_dir / f"{key_id}.key"
+        if not key_file.exists():
+            raise KeyError(
+                f"Encryption key '{key_id}' not found in key store at {self._key_store_dir}. "
+                "Ensure the key file is present before attempting decryption."
+            )
+        return key_file.read_bytes()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
