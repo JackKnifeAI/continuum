@@ -21,8 +21,10 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -53,8 +55,6 @@ class AESEncryptionHandler:
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +64,61 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a 256-bit AES key from secure storage.
+
+        Resolution order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (base64-encoded 32 bytes)
+        2. Key file ``<CONTINUUM_KEY_DIR>/<key_id>.key``  (raw, hex, or base64)
+        3. Key file ``~/.continuum/keys/<key_id>.key``
+
+        Raises KeyError if the key cannot be found in any location.
+        """
+        # 1. Environment variable — preferred for containerised deployments
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_').replace('.', '_')}"
+        raw_env = os.environ.get(env_var)
+        if raw_env:
+            try:
+                key = base64.b64decode(raw_env)
+                if len(key) == 32:
+                    logger.debug("Loaded encryption key from environment variable %s", env_var)
+                    return key
+                logger.warning("Key from %s is %d bytes; expected 32 — ignoring", env_var, len(key))
+            except Exception as exc:
+                logger.warning("Failed to decode key from %s: %s", env_var, exc)
+
+        # 2. Key file — supports raw binary (32 bytes), lowercase hex (64 chars), or base64
+        key_dirs: list[Path] = []
+        key_dir_env = os.environ.get("CONTINUUM_KEY_DIR")
+        if key_dir_env:
+            key_dirs.append(Path(key_dir_env))
+        key_dirs.append(Path.home() / ".continuum" / "keys")
+
+        for key_dir in key_dirs:
+            key_file = key_dir / f"{key_id}.key"
+            if key_file.exists():
+                try:
+                    data = key_file.read_bytes()
+                    if len(data) == 32:
+                        logger.debug("Loaded encryption key from %s", key_file)
+                        return data
+                    stripped = data.decode().strip()
+                    if len(stripped) == 64:  # hex-encoded
+                        key = bytes.fromhex(stripped)
+                        logger.debug("Loaded hex-encoded encryption key from %s", key_file)
+                        return key
+                    key = base64.b64decode(stripped)
+                    if len(key) == 32:
+                        logger.debug("Loaded base64-encoded encryption key from %s", key_file)
+                        return key
+                    logger.warning("Key file %s contains unexpected data length — skipping", key_file)
+                except Exception as exc:
+                    logger.warning("Failed to load key from %s: %s", key_file, exc)
+
+        raise KeyError(
+            f"No AES-256 key found for key_id '{key_id}'. "
+            f"Set env var {env_var} (base64-encoded 32 bytes) "
+            f"or place a key file at ~/.continuum/keys/{key_id}.key"
+        )
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
