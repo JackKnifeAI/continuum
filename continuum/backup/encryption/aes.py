@@ -23,11 +23,46 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+
+class FileKeyStore:
+    """
+    Secure filesystem key store.
+
+    Keys are stored as raw bytes under a restricted directory (0700) with
+    per-file permissions of 0600. Key IDs map directly to filenames, with
+    path-traversal characters sanitised.
+    """
+
+    DEFAULT_KEY_DIR = os.path.expanduser("~/.continuum/keys")
+
+    def __init__(self, key_dir: Optional[str] = None):
+        self.key_dir = key_dir or self.DEFAULT_KEY_DIR
+        os.makedirs(self.key_dir, mode=0o700, exist_ok=True)
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Return key bytes for key_id, or None if not found."""
+        path = self._path(key_id)
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as f:
+            return f.read()
+
+    def store(self, key_id: str, key_bytes: bytes) -> None:
+        """Persist key_bytes under key_id with 0600 permissions."""
+        path = self._path(key_id)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(key_bytes)
+
+    def _path(self, key_id: str) -> str:
+        safe = key_id.replace("/", "_").replace("..", "_")
+        return os.path.join(self.key_dir, f"{safe}.key")
 
 
 class AESEncryptionHandler:
@@ -48,13 +83,12 @@ class AESEncryptionHandler:
 
     def __init__(self, config: EncryptionConfig):
         self.config = config
-        self._current_key = None
+        self._current_key: Optional[bytes] = None
+        self._key_store = FileKeyStore()
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from the key store when a key_id is configured."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +98,13 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the filesystem key store, generating and persisting it on first use."""
+        key = self._key_store.load(key_id)
+        if key is None:
+            key = os.urandom(32)  # AES-256
+            self._key_store.store(key_id, key)
+            logger.info("Generated and stored new AES-256 key for key_id=%r", key_id)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
