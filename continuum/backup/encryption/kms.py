@@ -99,8 +99,17 @@ class KMSEncryptionHandler:
 
         if self._kms_client is None:
             credential = DefaultAzureCredential()
-            # TODO: Configure key URL
-            key_url = self.config.kms_key_id
+            # Build key URL from vault URL + key ID, or treat kms_key_id as a full URL
+            if self.config.kms_vault_url and self.config.kms_key_id:
+                vault_url = self.config.kms_vault_url.rstrip('/')
+                key_url = f"{vault_url}/keys/{self.config.kms_key_id}"
+            elif self.config.kms_key_id and self.config.kms_key_id.startswith("https://"):
+                key_url = self.config.kms_key_id
+            else:
+                raise ValueError(
+                    "Azure Key Vault requires either kms_vault_url + kms_key_id "
+                    "or a full HTTPS key URL in kms_key_id"
+                )
             self._kms_client = CryptographyClient(key_url, credential)
 
         return self._kms_client

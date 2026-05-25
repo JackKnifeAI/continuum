@@ -23,6 +23,7 @@ Coordinates backup operations, storage, encryption, and recovery.
 import asyncio
 import hashlib
 import logging
+import sqlite3
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -424,9 +425,40 @@ class BackupManager:
         return f"backup-{strategy.value}-{timestamp}-{self.config.tenant_id}"
 
     async def _count_records(self, tables: Optional[List[str]] = None) -> int:
-        """Count total records in backup"""
-        # TODO: Implement actual record counting from database
-        return 0
+        """Count total records across all target tables in the source database."""
+        if not self.config.db_path.exists():
+            return 0
+
+        def _count() -> int:
+            conn = sqlite3.connect(str(self.config.db_path))
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+                all_tables = {row[0] for row in cursor.fetchall()}
+
+                target_tables = (
+                    all_tables & set(tables) if tables else all_tables
+                )
+
+                total = 0
+                for table in target_tables:
+                    # Use parameterized identifier via sqlite3's quoting to prevent injection.
+                    # sqlite_master already validated these names exist in the schema.
+                    quoted = f'"{table.replace(chr(34), "")}"'
+                    cursor.execute(f"SELECT COUNT(*) FROM {quoted}")  # noqa: S608
+                    row = cursor.fetchone()
+                    if row:
+                        total += row[0]
+                return total
+            except sqlite3.Error as e:
+                logger.warning(f"Could not count records from {self.config.db_path}: {e}")
+                return 0
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_count)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
