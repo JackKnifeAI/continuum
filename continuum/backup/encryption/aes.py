@@ -23,9 +23,13 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
+import re
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
+
+_DEFAULT_KEY_STORE = Path.home() / ".continuum" / "keys"
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +53,12 @@ class AESEncryptionHandler:
     def __init__(self, config: EncryptionConfig):
         self.config = config
         self._current_key = None
+        store_env = os.environ.get("CONTINUUM_KEY_STORE_PATH")
+        self._key_store_dir = Path(store_env) if store_env else _DEFAULT_KEY_STORE
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from secure key store when key_id is set."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +68,36 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from filesystem key store, generating and persisting it on first use.
+
+        Keys are stored as raw 32-byte files under ``_key_store_dir`` with 0600
+        permissions.  The key_id is sanitised to prevent path traversal before
+        being used as a filename.
+        """
+        # Reject any key_id that could escape the store directory.
+        if not re.match(r'^[\w\-]+$', key_id):
+            raise ValueError(
+                f"key_id must contain only word characters and hyphens, got: {key_id!r}"
+            )
+
+        key_file = self._key_store_dir / f"{key_id}.key"
+
+        if key_file.exists():
+            key_data = key_file.read_bytes()
+            if len(key_data) != 32:
+                raise ValueError(
+                    f"Corrupt key in store for key_id {key_id!r}: "
+                    f"expected 32 bytes, got {len(key_data)}"
+                )
+            return key_data
+
+        # Generate a new random key and persist it.
+        self._key_store_dir.mkdir(parents=True, exist_ok=True)
+        key_data = os.urandom(32)  # AES-256
+        key_file.write_bytes(key_data)
+        key_file.chmod(0o600)
+        logger.info("Generated and stored new key for key_id: %s", key_id)
+        return key_data
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """

@@ -20,13 +20,45 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ..types import BackupConfig, BackupHealth
 
 logger = logging.getLogger(__name__)
+
+# Module-level metrics registry — updated by record_metric(); read by get_backup_metrics()
+_metrics: Dict[str, Any] = {
+    "backup_duration_seconds": [],     # histogram samples
+    "backup_size_bytes": [],           # histogram samples
+    "backup_success_total": 0,         # counter
+    "backup_failure_total": 0,         # counter
+    "restore_duration_seconds": [],    # histogram samples
+    "retention_deletions_total": 0,    # counter
+    "last_updated": None,
+}
+
+_METRIC_HISTOGRAMS = {"backup_duration_seconds", "backup_size_bytes", "restore_duration_seconds"}
+_METRIC_COUNTERS = {"backup_success_total", "backup_failure_total", "retention_deletions_total"}
+
+
+def record_metric(name: str, value: float) -> None:
+    """Update a named metric counter or append a histogram sample."""
+    if name in _METRIC_HISTOGRAMS:
+        _metrics[name].append(value)
+        if len(_metrics[name]) > 1000:  # keep a rolling window
+            _metrics[name] = _metrics[name][-1000:]
+    elif name in _METRIC_COUNTERS:
+        _metrics[name] = _metrics.get(name, 0) + value
+    else:
+        logger.warning(f"Unknown metric: {name}")
+        return
+    _metrics["last_updated"] = datetime.utcnow().isoformat()
 
 
 async def get_backup_health(config: BackupConfig) -> BackupHealth:
@@ -153,17 +185,89 @@ def get_backup_metrics() -> Dict[str, Any]:
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
     Returns:
-        Dictionary of metrics
+        Dictionary of metrics with counters and histogram summaries
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
 
-    return {}
+    def _histogram_summary(samples: List[float]) -> Dict[str, Any]:
+        if not samples:
+            return {"count": 0, "sum": 0.0, "min": None, "max": None, "avg": None}
+        return {
+            "count": len(samples),
+            "sum": sum(samples),
+            "min": min(samples),
+            "max": max(samples),
+            "avg": sum(samples) / len(samples),
+        }
+
+    return {
+        "backup_duration_seconds": _histogram_summary(_metrics["backup_duration_seconds"]),
+        "backup_size_bytes": _histogram_summary(_metrics["backup_size_bytes"]),
+        "backup_success_total": _metrics["backup_success_total"],
+        "backup_failure_total": _metrics["backup_failure_total"],
+        "restore_duration_seconds": _histogram_summary(_metrics["restore_duration_seconds"]),
+        "retention_deletions_total": _metrics["retention_deletions_total"],
+        "last_updated": _metrics["last_updated"],
+    }
+
+
+def _dispatch_channel(channel: str, alert_type: str, message: str) -> None:
+    """
+    Deliver an alert to a single channel URL (blocking; run in executor).
+
+    Channel URL schemes:
+      https://hooks.slack.com/...  → Slack Incoming Webhook
+      https://events.pagerduty.com/... → PagerDuty Events v2
+      http:// or https://          → Generic JSON webhook POST
+    """
+    severity_map = {"failure": "critical", "warning": "warning", "success": "info"}
+    severity = severity_map.get(alert_type, "info")
+
+    if "hooks.slack.com" in channel:
+        color = {"failure": "danger", "warning": "warning", "success": "good"}.get(alert_type, "#439FE0")
+        payload: Dict[str, Any] = {
+            "attachments": [{
+                "color": color,
+                "title": f"Backup {alert_type.upper()}",
+                "text": message,
+                "ts": int(datetime.utcnow().timestamp()),
+            }]
+        }
+    elif "pagerduty.com" in channel:
+        payload = {
+            "routing_key": channel.split("/")[-1],  # key embedded at end of URL
+            "event_action": "trigger" if alert_type == "failure" else "resolve",
+            "payload": {
+                "summary": message,
+                "severity": severity,
+                "source": "continuum-backup",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            },
+        }
+        # PagerDuty Events v2 endpoint is fixed
+        channel = "https://events.pagerduty.com/v2/enqueue"
+    else:
+        payload = {
+            "alert_type": alert_type,
+            "severity": severity,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "source": "continuum-backup",
+        }
+
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        channel,
+        data=body,
+        headers={"Content-Type": "application/json", "User-Agent": "continuum-backup/1.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info(f"Alert delivered to {channel!r}: HTTP {resp.status}")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code} from {channel!r}: {exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Network error reaching {channel!r}: {exc.reason}") from exc
 
 
 async def send_alert(
@@ -188,14 +292,20 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels: List[str] = config.notification_channels
+    if not channels:
+        logger.warning(f"No notification channels configured; alert dropped: {message}")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    loop = asyncio.get_event_loop()
+    results = await asyncio.gather(
+        *[loop.run_in_executor(None, _dispatch_channel, channel, alert_type, message)
+          for channel in channels],
+        return_exceptions=True,
+    )
+    for channel, result in zip(channels, results):
+        if isinstance(result, Exception):
+            logger.error(f"Alert delivery failed for channel {channel!r}: {result}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
