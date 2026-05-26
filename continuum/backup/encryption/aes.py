@@ -23,11 +23,59 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_KEY_STORE_DIR = os.path.join(os.path.expanduser("~"), ".continuum", "keystore")
+
+
+class FileKeyStore:
+    """
+    Filesystem-based secure key store.
+
+    Keys are stored as individual binary files with 0o600 permissions inside
+    a 0o700 directory, so only the owning process can read them.
+
+    The store directory is resolved in order:
+    1. Explicit ``store_dir`` constructor argument
+    2. ``CONTINUUM_KEY_STORE_DIR`` environment variable
+    3. ``~/.continuum/keystore`` (default)
+    """
+
+    def __init__(self, store_dir: Optional[str] = None) -> None:
+        self._store_dir = (
+            store_dir
+            or os.environ.get("CONTINUUM_KEY_STORE_DIR")
+            or _DEFAULT_KEY_STORE_DIR
+        )
+        os.makedirs(self._store_dir, mode=0o700, exist_ok=True)
+
+    def _key_path(self, key_id: str) -> str:
+        # Sanitise key_id so it can safely be used as a filename
+        safe_id = "".join(c if c.isalnum() or c in "-_." else "_" for c in key_id)
+        return os.path.join(self._store_dir, f"{safe_id}.key")
+
+    def load(self, key_id: str) -> Optional[bytes]:
+        """Return the key bytes for *key_id*, or ``None`` if not stored."""
+        path = self._key_path(key_id)
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    def save(self, key_id: str, key_bytes: bytes) -> None:
+        """Persist *key_bytes* under *key_id* with restricted permissions (0o600)."""
+        path = self._key_path(key_id)
+        # O_CREAT | O_WRONLY | O_TRUNC with mode 0o600 avoids a window where
+        # an unprivileged reader could access the file between create and chmod.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, key_bytes)
+        finally:
+            os.close(fd)
 
 
 class AESEncryptionHandler:
@@ -51,24 +99,39 @@ class AESEncryptionHandler:
         self._current_key = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate the active encryption key, persisting it to the key store."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
+            key_store = FileKeyStore(getattr(self.config, "key_store_path", None))
             if self.config.key_id:
-                self._current_key = self._load_key(self.config.key_id)
+                stored = key_store.load(self.config.key_id)
+                if stored is not None:
+                    self._current_key = stored
+                    logger.debug(f"Loaded key '{self.config.key_id}' from key store")
+                else:
+                    # First use: generate a fresh key and persist it
+                    self._current_key = os.urandom(32)  # 256 bits
+                    key_store.save(self.config.key_id, self._current_key)
+                    logger.info(f"Generated and persisted new key: {self.config.key_id}")
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a key from the filesystem key store by key_id.
+
+        Raises KeyError if the key has not been previously stored.
+        """
+        key_store = FileKeyStore(getattr(self.config, "key_store_path", None))
+        key = key_store.load(key_id)
+        if key is None:
+            raise KeyError(
+                f"Encryption key '{key_id}' not found in key store "
+                f"({key_store._store_dir}). "
+                "The key may have been rotated or the key store moved."
+            )
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
