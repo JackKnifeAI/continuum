@@ -302,16 +302,75 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions in the exchange
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+
+        # Detect and store compound multi-word concepts
+        combined_text = user_message + " " + ai_response
+        compound_names = self._detect_compound_concepts(combined_text, list(all_concepts))
+        compounds_found = 0
+        for compound in compound_names:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+                for part in compound.split("_"):
+                    if part in self.entity_cache:
+                        self.brain.link_concepts(compound, part, weight=0.7)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """Count sentences containing decision-indicating language."""
+        decision_patterns = [
+            r"\bdecide[ds]?\b",
+            r"\bdecision\b",
+            r"\blet'?s\b",
+            r"\bagreed?\b",
+            r"\bgoing to\b",
+            r"\baction item\b",
+            r"\bnext step\b",
+            r"\bwe (?:should|will|must|need to)\b",
+            r"\bconclusion\b",
+            r"\btherefore\b",
+            r"\bresolved\b",
+        ]
+        combined = user_message + " " + ai_response
+        sentences = re.split(r"[.!?\n]+", combined)
+        return sum(
+            1 for s in sentences
+            if any(re.search(p, s, re.IGNORECASE) for p in decision_patterns)
+        )
+
+    def _detect_compound_concepts(self, text: str, single_concepts: List[str]) -> List[str]:
+        """Find consecutive concept pairs/triplets as compound concepts."""
+        concept_set = set(single_concepts)
+        words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
+        compounds: List[str] = []
+        i = 0
+        while i < len(words) - 1:
+            if words[i] in concept_set and words[i + 1] in concept_set:
+                j = i + 2
+                while j < len(words) and words[j] in concept_set:
+                    j += 1
+                compound = "_".join(words[i:j])
+                if compound not in compounds:
+                    compounds.append(compound)
+                i = j
+            else:
+                i += 1
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

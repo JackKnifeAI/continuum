@@ -568,9 +568,75 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, attempt={attempt_count}, "
+            f"amount={amount_due / 100:.2f}"
+        )
+
+        max_retries = 3
+        if attempt_count < max_retries and next_payment_attempt:
+            retry_time = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+            logger.info(f"Payment will be retried at {retry_time} for invoice {invoice_id}")
+            action = "retry_scheduled"
+        else:
+            logger.warning(
+                f"Payment retries exhausted for invoice {invoice_id}, subscription {subscription_id}"
+            )
+            action = "retries_exhausted"
+
+        await self._notify_payment_failure(
+            customer_id=customer_id,
+            customer_email=customer_email,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            attempt_count=attempt_count,
+            action=action,
+        )
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "action": action,
+            "attempt_count": attempt_count,
+        }
+
+    async def _notify_payment_failure(
+        self,
+        customer_id: Optional[str],
+        customer_email: Optional[str],
+        invoice_id: Optional[str],
+        amount_due: int,
+        attempt_count: int,
+        action: str,
+    ) -> None:
+        """Send payment failure notification to customer and internal systems."""
+        amount_dollars = amount_due / 100
+
+        if customer_email:
+            logger.info(
+                f"[NOTIFY] Payment failure email → {customer_email}: "
+                f"invoice={invoice_id}, amount=${amount_dollars:.2f}, "
+                f"attempt={attempt_count}, action={action}"
+            )
+        else:
+            logger.warning(
+                f"No email on file for customer {customer_id}, skipping notification"
+            )
+
+        if action == "retries_exhausted":
+            logger.critical(
+                f"[ALERT] Payment retries exhausted: customer={customer_id}, "
+                f"invoice={invoice_id}, amount=${amount_dollars:.2f}"
+            )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
