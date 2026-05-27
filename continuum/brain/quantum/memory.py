@@ -302,13 +302,17 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions = (self._extract_decisions(user_message) +
+                     self._extract_decisions(ai_response))
+        compounds = self._extract_compound_concepts(user_message + " " + ai_response)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +368,37 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract sentences containing decision markers from text."""
+        decision_pattern = re.compile(
+            r'\b(decided?|will\s+\w+|going\s+to\s+\w+|let\'s\s+\w+|'
+            r"I'll\s+\w+|we'll\s+\w+|chose?n?|selected?|agreed?|resolved?|"
+            r'opted?\s+(?:for|to))\b',
+            re.IGNORECASE,
+        )
+        decisions = []
+        for sentence in re.split(r'[.!?]+', text):
+            stripped = sentence.strip()
+            if stripped and decision_pattern.search(stripped):
+                decisions.append(stripped)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word compound concepts: hyphenated terms and named-entity runs."""
+        compounds: List[str] = []
+        # Hyphenated terms (e.g. "self-evolving", "error-correction")
+        compounds.extend(re.findall(r'\b[a-zA-Z]+-[a-zA-Z]+(?:-[a-zA-Z]+)*\b', text))
+        # Consecutive title-case words forming named entities
+        compounds.extend(re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text))
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+        return unique
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
