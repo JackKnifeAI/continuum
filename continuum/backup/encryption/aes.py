@@ -21,8 +21,11 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
 import logging
 import os
+import stat
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -50,11 +53,26 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _get_key_store_dir(self) -> Path:
+        """Return the directory used to persist key material on disk."""
+        env_path = os.environ.get("CONTINUUM_KEY_STORE_PATH")
+        if env_path:
+            return Path(env_path)
+        return Path.home() / ".continuum" / "keys"
+
+    def _save_key(self, key_id: str, key: bytes) -> None:
+        """Persist a 32-byte key to the filesystem key store with owner-only permissions."""
+        key_dir = self._get_key_store_dir()
+        key_dir.mkdir(parents=True, exist_ok=True)
+        key_dir.chmod(stat.S_IRWXU)  # 0o700 – owner rwx only
+        key_file = key_dir / f"{key_id}.key"
+        key_file.write_text(key.hex())
+        key_file.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0o600 – owner rw only
+        logger.info(f"Saved encryption key '{key_id}' to {key_file}")
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,11 +82,42 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a 32-byte AES-256 key from env var or filesystem key store.
+
+        Lookup order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (base64-encoded).
+        2. File ``<key_store_dir>/<key_id>.key`` (hex-encoded).
+        """
+        # 1. Environment variable: CONTINUUM_KEY_<NORMALISED_KEY_ID>
+        env_var = (
+            "CONTINUUM_KEY_"
+            + key_id.upper().replace("-", "_").replace(".", "_")
+        )
+        env_val = os.environ.get(env_var)
+        if env_val:
+            try:
+                key = base64.b64decode(env_val)
+                if len(key) == 32:
+                    return key
+                logger.warning(
+                    f"Key from {env_var} is {len(key)} bytes; expected 32 – ignoring"
+                )
+            except Exception:
+                logger.warning(f"Failed to base64-decode key from env var {env_var}")
+
+        # 2. Filesystem key store
+        key_file = self._get_key_store_dir() / f"{key_id}.key"
+        if key_file.exists():
+            try:
+                return bytes.fromhex(key_file.read_text().strip())
+            except Exception as e:
+                logger.warning(f"Failed to read key file {key_file}: {e}")
+
+        raise KeyError(
+            f"Encryption key '{key_id}' not found. "
+            f"Set env var {env_var} (base64-encoded 32 bytes) "
+            f"or create key file {key_file} (hex-encoded 32 bytes)."
+        )
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
