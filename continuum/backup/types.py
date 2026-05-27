@@ -281,6 +281,7 @@ class EncryptionConfig:
 
     # Key management
     key_id: Optional[str] = None
+    key_store_path: Optional[str] = None  # Directory for filesystem key store; defaults to ~/.continuum/keys
     key_rotation_days: int = 90
 
     # KMS integration

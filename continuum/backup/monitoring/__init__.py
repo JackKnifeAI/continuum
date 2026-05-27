@@ -20,9 +20,15 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import os
+import smtplib
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from email.mime.text import MIMEText
+from typing import Any, Dict, List, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +152,103 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
-    Returns metrics suitable for Prometheus, CloudWatch, etc.
+    Returns metrics suitable for Prometheus, CloudWatch, etc.  When *config*
+    is supplied the values are populated from the metadata store; otherwise
+    the metric schema is returned with zero values so callers can register
+    metric descriptors before any backup has run.
+
+    Args:
+        config: Optional backup configuration used to locate the metadata DB.
 
     Returns:
-        Dictionary of metrics
+        Dictionary keyed by metric name.  Each value is a dict with:
+          - ``type``: "counter" or "histogram"
+          - ``help``: human-readable description
+          - ``value``: scalar (counter) or list of observed samples (histogram)
+          - ``sum`` / ``count``: histogram aggregates (histogram only)
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    metrics: Dict[str, Any] = {
+        "backup_duration_seconds": {
+            "type": "histogram",
+            "help": "Duration of backup operations in seconds",
+            "value": [],
+            "sum": 0.0,
+            "count": 0,
+        },
+        "backup_size_bytes": {
+            "type": "histogram",
+            "help": "Compressed size of completed backups in bytes",
+            "value": [],
+            "sum": 0,
+            "count": 0,
+        },
+        "backup_success_total": {
+            "type": "counter",
+            "help": "Total number of successful backups",
+            "value": 0,
+        },
+        "backup_failure_total": {
+            "type": "counter",
+            "help": "Total number of failed backups",
+            "value": 0,
+        },
+        "restore_duration_seconds": {
+            "type": "histogram",
+            "help": "Duration of restore operations in seconds",
+            "value": [],
+            "sum": 0.0,
+            "count": 0,
+        },
+        "retention_deletions_total": {
+            "type": "counter",
+            "help": "Total backups removed by retention policy",
+            "value": 0,
+        },
+    }
 
-    return {}
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+
+        store = MetadataStore(config.metadata_db_path)
+        all_backups = store.list_backups()
+
+        for backup in all_backups:
+            status = backup.status.value
+
+            if status in ("completed", "verified"):
+                metrics["backup_success_total"]["value"] += 1
+            elif status == "failed":
+                metrics["backup_failure_total"]["value"] += 1
+
+            if backup.completed_at and backup.created_at:
+                duration = (backup.completed_at - backup.created_at).total_seconds()
+                hist = metrics["backup_duration_seconds"]
+                hist["value"].append(duration)
+                hist["sum"] += duration
+                hist["count"] += 1
+
+            if backup.compressed_size_bytes:
+                hist = metrics["backup_size_bytes"]
+                hist["value"].append(backup.compressed_size_bytes)
+                hist["sum"] += backup.compressed_size_bytes
+                hist["count"] += 1
+
+        logger.debug(
+            "Collected backup metrics: %d total backups",
+            len(all_backups),
+        )
+
+    except Exception as e:
+        logger.error("Failed to collect backup metrics: %s", e, exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +273,126 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    channels: List[str] = config.notification_channels
+    if not channels:
+        logger.warning("Alert fired but no notification channels configured: %s", message)
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    for channel in channels:
+        try:
+            if channel == "slack" or channel.startswith("https://hooks.slack.com"):
+                await _send_slack_alert(channel, alert_type, message)
+            elif channel == "email":
+                _send_email_alert(alert_type, message)
+            elif channel == "pagerduty":
+                await _send_pagerduty_alert(alert_type, message)
+            elif channel.startswith("http"):
+                await _send_webhook_alert(channel, alert_type, message)
+            else:
+                logger.warning("Unknown notification channel type: %s", channel)
+        except Exception as e:
+            logger.error("Failed to send alert via channel %s: %s", channel, e, exc_info=True)
+
+async def _send_slack_alert(channel: str, alert_type: str, message: str) -> None:
+    """Send alert to a Slack incoming-webhook URL.
+
+    The URL is taken from *channel* if it starts with ``https://``, otherwise
+    falls back to the ``SLACK_WEBHOOK_URL`` environment variable.
+    """
+    url = channel if channel.startswith("https://") else os.environ.get("SLACK_WEBHOOK_URL", "")
+    if not url:
+        logger.warning("Slack webhook URL not configured (set SLACK_WEBHOOK_URL)")
+        return
+
+    emoji = {"failure": ":red_circle:", "warning": ":warning:", "success": ":white_check_mark:"}.get(alert_type, ":bell:")
+    payload = json.dumps({"text": f"{emoji} *Backup {alert_type.upper()}*: {message}"}).encode()
+
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info("Slack alert sent (HTTP %d)", resp.status)
+
+
+def _send_email_alert(alert_type: str, message: str) -> None:
+    """Send alert via SMTP.
+
+    Reads connection details from environment variables:
+      SMTP_HOST (default: localhost), SMTP_PORT (default: 587),
+      SMTP_USER, SMTP_PASSWORD, ALERT_EMAIL_FROM, ALERT_EMAIL_TO
+    """
+    smtp_host = os.environ.get("SMTP_HOST", "localhost")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_password = os.environ.get("SMTP_PASSWORD", "")
+    email_from = os.environ.get("ALERT_EMAIL_FROM", smtp_user)
+    email_to = os.environ.get("ALERT_EMAIL_TO", "")
+
+    if not email_to:
+        logger.warning("Email alert not sent: ALERT_EMAIL_TO not set")
+        return
+
+    msg = MIMEText(message)
+    msg["Subject"] = f"[Backup {alert_type.upper()}] Continuum Backup Alert"
+    msg["From"] = email_from
+    msg["To"] = email_to
+
+    with smtplib.SMTP(smtp_host, smtp_port) as smtp:
+        smtp.ehlo()
+        if smtp_port != 25:
+            smtp.starttls()
+        if smtp_user and smtp_password:
+            smtp.login(smtp_user, smtp_password)
+        smtp.sendmail(email_from, [email_to], msg.as_string())
+
+    logger.info("Email alert sent to %s", email_to)
+
+
+async def _send_pagerduty_alert(alert_type: str, message: str) -> None:
+    """Send alert to PagerDuty Events API v2.
+
+    Requires the ``PAGERDUTY_ROUTING_KEY`` environment variable (integration key).
+    """
+    routing_key = os.environ.get("PAGERDUTY_ROUTING_KEY", "")
+    if not routing_key:
+        logger.warning("PagerDuty routing key not configured (set PAGERDUTY_ROUTING_KEY)")
+        return
+
+    # Map alert_type to PagerDuty event action
+    action = "trigger" if alert_type == "failure" else "acknowledge" if alert_type == "warning" else "resolve"
+    severity = {"failure": "critical", "warning": "warning", "success": "info"}.get(alert_type, "info")
+
+    payload = json.dumps({
+        "routing_key": routing_key,
+        "event_action": action,
+        "payload": {
+            "summary": message,
+            "source": "continuum-backup",
+            "severity": severity,
+        },
+    }).encode()
+
+    url = "https://events.pagerduty.com/v2/enqueue"
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info("PagerDuty alert sent (HTTP %d)", resp.status)
+    except urllib.error.HTTPError as exc:
+        logger.error("PagerDuty rejected alert (HTTP %d): %s", exc.code, exc.read())
+        raise
+
+
+async def _send_webhook_alert(url: str, alert_type: str, message: str) -> None:
+    """POST alert JSON to an arbitrary HTTP webhook URL."""
+    payload = json.dumps({
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "source": "continuum-backup",
+    }).encode()
+
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        logger.info("Webhook alert sent to %s (HTTP %d)", url, resp.status)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

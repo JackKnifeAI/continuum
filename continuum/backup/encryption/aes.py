@@ -23,7 +23,9 @@ Industry-standard encryption at rest for backups.
 import asyncio
 import logging
 import os
-from typing import Tuple
+import stat
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
@@ -50,25 +52,69 @@ class AESEncryptionHandler:
         self.config = config
         self._current_key = None
 
+    def _key_store_dir(self) -> Path:
+        """Return the filesystem key store directory, creating it if needed."""
+        base = self.config.key_store_path or os.path.expanduser("~/.continuum/keys")
+        path = Path(base)
+        path.mkdir(parents=True, exist_ok=True)
+        # Restrict directory to owner only
+        path.chmod(0o700)
+        return path
+
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Get or generate encryption key, loading from the secure key store when key_id is set."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)  # 256-bit ephemeral key
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
 
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load a 256-bit AES key from the secure key store.
+
+        Resolution order:
+        1. Environment variable ``CONTINUUM_KEY_<KEY_ID>`` (hex-encoded 32 bytes)
+        2. File ``<key_store_dir>/<key_id>.key`` (raw 32 bytes, mode 0600)
+        3. Generate a new random key, persist it to the store, and warn.
+        """
+        # 1. Environment variable (useful for containers / CI)
+        env_var = "CONTINUUM_KEY_" + key_id.upper().replace("-", "_").replace(".", "_")
+        env_val: Optional[str] = os.environ.get(env_var)
+        if env_val:
+            try:
+                key = bytes.fromhex(env_val)
+                if len(key) != 32:
+                    raise ValueError(f"Key in {env_var} must be 32 bytes (64 hex chars), got {len(key)}")
+                logger.info("Loaded encryption key from environment variable %s", env_var)
+                return key
+            except ValueError as exc:
+                raise ValueError(f"Invalid key in environment variable {env_var}: {exc}") from exc
+
+        # 2. Filesystem key store
+        key_file = self._key_store_dir() / f"{key_id}.key"
+        if key_file.exists():
+            key = key_file.read_bytes()
+            if len(key) != 32:
+                raise ValueError(
+                    f"Key file {key_file} has unexpected length {len(key)}; expected 32 bytes"
+                )
+            logger.info("Loaded encryption key from %s", key_file)
+            return key
+
+        # 3. Generate and persist a new key
+        key = os.urandom(32)
+        key_file.write_bytes(key)
+        key_file.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600 - owner read/write only
+        logger.warning(
+            "Generated new encryption key for '%s' and saved to %s. "
+            "Back up this file; losing it means losing access to encrypted backups.",
+            key_id,
+            key_file,
+        )
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
