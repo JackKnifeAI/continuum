@@ -20,9 +20,11 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import json
 import logging
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +148,101 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
-def get_backup_metrics() -> Dict[str, Any]:
+def get_backup_metrics(config: Optional[BackupConfig] = None) -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
 
-    Returns:
-        Dictionary of metrics
-    """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
+    Args:
+        config: Backup configuration (required to query metadata store)
 
-    return {}
+    Returns:
+        Dictionary of metrics with counters, sums, and averages
+    """
+    metrics: Dict[str, Any] = {
+        # Counters
+        "backup_success_total": 0,
+        "backup_failure_total": 0,
+        "backup_in_progress_total": 0,
+        # backup_duration_seconds histogram components
+        "backup_duration_seconds_sum": 0.0,
+        "backup_duration_seconds_count": 0,
+        "backup_duration_seconds_avg": 0.0,
+        # backup_size_bytes histogram components
+        "backup_size_bytes_sum": 0,
+        "backup_size_bytes_count": 0,
+        "backup_size_bytes_avg": 0.0,
+        # Gauges
+        "total_storage_bytes": 0,
+        "last_backup_age_seconds": -1.0,  # -1 means no backup found
+        # restore_duration_seconds tracked separately (not stored in BackupMetadata)
+        "restore_duration_seconds_sum": 0.0,
+        "restore_duration_seconds_count": 0,
+        # retention_deletions_total requires external tracking; not in BackupMetadata
+        "retention_deletions_total": 0,
+    }
+
+    if config is None:
+        return metrics
+
+    try:
+        from ..metadata import MetadataStore
+        metadata_store = MetadataStore(config.metadata_db_path)
+        all_backups = metadata_store.list_backups()
+
+        if not all_backups:
+            return metrics
+
+        now = datetime.utcnow()
+
+        for backup in all_backups:
+            status = backup.status.value
+            if status in ("completed", "verified"):
+                metrics["backup_success_total"] += 1
+            elif status == "failed":
+                metrics["backup_failure_total"] += 1
+            elif status == "in_progress":
+                metrics["backup_in_progress_total"] += 1
+
+            if backup.completed_at and backup.created_at:
+                duration = (backup.completed_at - backup.created_at).total_seconds()
+                metrics["backup_duration_seconds_sum"] += duration
+                metrics["backup_duration_seconds_count"] += 1
+
+            size = backup.compressed_size_bytes or backup.original_size_bytes
+            metrics["backup_size_bytes_sum"] += size
+            metrics["backup_size_bytes_count"] += 1
+            metrics["total_storage_bytes"] += size
+
+        if metrics["backup_duration_seconds_count"] > 0:
+            metrics["backup_duration_seconds_avg"] = (
+                metrics["backup_duration_seconds_sum"]
+                / metrics["backup_duration_seconds_count"]
+            )
+
+        if metrics["backup_size_bytes_count"] > 0:
+            metrics["backup_size_bytes_avg"] = (
+                metrics["backup_size_bytes_sum"] / metrics["backup_size_bytes_count"]
+            )
+
+        successful = [
+            b for b in all_backups if b.status.value in ("completed", "verified")
+        ]
+        if successful:
+            latest = max(successful, key=lambda b: b.created_at)
+            metrics["last_backup_age_seconds"] = (now - latest.created_at).total_seconds()
+
+        logger.debug(
+            f"Collected backup metrics: {metrics['backup_success_total']} success, "
+            f"{metrics['backup_failure_total']} failure, "
+            f"{metrics['total_storage_bytes'] / (1024 ** 3):.2f} GB total"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to collect backup metrics: {e}", exc_info=True)
+
+    return metrics
 
 
 async def send_alert(
@@ -188,14 +267,36 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    if not config.notification_channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    payload = json.dumps({
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }).encode("utf-8")
+
+    for channel in config.notification_channels:
+        if channel.startswith(("http://", "https://")):
+            _send_webhook(channel, payload)
+        else:
+            logger.warning(f"Unsupported notification channel (expected URL): {channel}")
+
+def _send_webhook(url: str, payload: bytes) -> None:
+    """POST a JSON payload to a webhook URL (Slack, PagerDuty, custom)."""
+    try:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logger.info(f"Alert sent to {url}: HTTP {resp.status}")
+    except Exception as e:
+        logger.error(f"Failed to send alert to {url}: {e}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

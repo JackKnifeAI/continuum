@@ -21,13 +21,74 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
+import json
 import logging
 import os
-from typing import Tuple
+import stat
+from pathlib import Path
+from typing import Optional, Tuple
 
 from ..types import EncryptionConfig
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_KEYSTORE_PATH = Path(os.environ.get(
+    "CONTINUUM_KEYSTORE_PATH",
+    Path.home() / ".continuum" / "keystore.json"
+))
+
+
+class SecureKeyStore:
+    """
+    File-based secure key store for AES encryption keys.
+
+    Keys are stored as base64-encoded bytes in a JSON file with
+    permissions restricted to the owner (0600). The store path
+    defaults to ~/.continuum/keystore.json but can be overridden
+    via the CONTINUUM_KEYSTORE_PATH environment variable.
+    """
+
+    def __init__(self, path: Path = _DEFAULT_KEYSTORE_PATH):
+        self._path = path
+
+    def _ensure_store(self) -> dict:
+        """Load the store, creating it securely if absent."""
+        if not self._path.exists():
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._write_store({})
+        # Enforce restrictive permissions on every access
+        self._path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        with self._path.open("r") as fh:
+            return json.load(fh)
+
+    def _write_store(self, data: dict) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Write with O_CREAT|O_WRONLY and mode 0600 from the start
+        fd = os.open(str(self._path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh)
+
+    def get(self, key_id: str) -> Optional[bytes]:
+        """Return the stored key for *key_id*, or None if not found."""
+        store = self._ensure_store()
+        encoded = store.get(key_id)
+        if encoded is None:
+            return None
+        return base64.b64decode(encoded)
+
+    def put(self, key_id: str, key: bytes) -> None:
+        """Persist *key* under *key_id*."""
+        store = self._ensure_store()
+        store[key_id] = base64.b64encode(key).decode()
+        self._write_store(store)
+
+    def generate(self, key_id: str) -> bytes:
+        """Generate a fresh 256-bit key, persist it, and return it."""
+        key = os.urandom(32)
+        self.put(key_id, key)
+        logger.info("Generated and stored new AES-256 key for key_id=%r", key_id)
+        return key
 
 
 class AESEncryptionHandler:
@@ -46,29 +107,28 @@ class AESEncryptionHandler:
     - Multiple keys for different backup generations
     """
 
-    def __init__(self, config: EncryptionConfig):
+    def __init__(self, config: EncryptionConfig, key_store: Optional[SecureKeyStore] = None):
         self.config = config
-        self._current_key = None
+        self._key_store = key_store or SecureKeyStore()
+        self._current_key: Optional[bytes] = None
 
     def _get_key(self) -> bytes:
-        """Get or generate encryption key"""
+        """Return the active encryption key, loading or generating it as needed."""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
-                self._current_key = os.urandom(32)  # 256 bits
+                self._current_key = os.urandom(32)  # 256-bit ephemeral key
                 logger.warning("Generated ephemeral encryption key - not suitable for production")
-
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
-        return hashlib.sha256(key_id.encode()).digest()
+        """Load key from the secure key store, generating one if absent."""
+        key = self._key_store.get(key_id)
+        if key is None:
+            logger.info("No stored key found for key_id=%r; generating a new one", key_id)
+            key = self._key_store.generate(key_id)
+        return key
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
         """
