@@ -57,6 +57,15 @@ class KMSEncryptionHandler:
         if self.provider not in ['aws', 'gcp', 'azure']:
             raise ValueError(f"Unsupported KMS provider: {self.provider}")
 
+        if self.provider == 'azure':
+            if not config.kms_key_id:
+                raise ValueError("kms_key_id required for Azure KMS (must be full Key Vault key URL)")
+            if not config.kms_key_id.startswith("https://"):
+                raise ValueError(
+                    "kms_key_id for Azure must be a full Key Vault key URL, e.g. "
+                    "https://<vault>.vault.azure.net/keys/<key-name>/<key-version>"
+                )
+
         self._kms_client = None
 
     def _get_aws_kms_client(self):
@@ -99,9 +108,9 @@ class KMSEncryptionHandler:
 
         if self._kms_client is None:
             credential = DefaultAzureCredential()
-            # TODO: Configure key URL
-            key_url = self.config.kms_key_id
-            self._kms_client = CryptographyClient(key_url, credential)
+            # kms_key_id must be the full Key Vault key URL:
+            # https://<vault-name>.vault.azure.net/keys/<key-name>/<key-version>
+            self._kms_client = CryptographyClient(self.config.kms_key_id, credential)
 
         return self._kms_client
 
