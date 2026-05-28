@@ -300,18 +300,70 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts
+        combined_text = user_message + " " + ai_response
+        decisions = self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+        decisions_detected = len(decisions)
+
+        compound_list = self._detect_compound_concepts(combined_text)
+        compounds_found = len(compound_list)
+
+        # Store compound concepts as first-class entities
+        for compound in compound_list:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """Detect decision/intention statements using imperative and resolution patterns."""
+        patterns = [
+            r"(?:i|we|let'?s|you)\s+(?:will|shall|should|must|need to|have to|going to|decided? to|plan to)\s+\w+[^.!?]*[.!?]",
+            r"(?:the\s+)?(?:decision|plan|approach|strategy|solution)\s+(?:is|was|will be)[^.!?]*[.!?]",
+            r"(?:decided|agreed|resolved|concluded)\s+(?:to|that)[^.!?]*[.!?]",
+            r"(?:action\s+item|todo|task):[^.!?\n]+",
+        ]
+        decisions = []
+        for pattern in patterns:
+            decisions.extend(m.strip() for m in re.findall(pattern, text, re.IGNORECASE))
+        return decisions[:10]
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts: hyphenated terms, CamelCase, and capitalized bigrams."""
+        compounds: List[str] = []
+
+        # Hyphenated compounds: quantum-protected, self-evolving
+        compounds.extend(re.findall(r'\b[a-zA-Z]+-[a-zA-Z]+(?:-[a-zA-Z]+)?\b', text))
+
+        # CamelCase identifiers: QuantumBrain, ConsciousMemory
+        compounds.extend(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text))
+
+        # Consecutive capitalized words: "Quantum Memory", "Neural Network"
+        compounds.extend(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', text))
+
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+        return unique[:15]
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
