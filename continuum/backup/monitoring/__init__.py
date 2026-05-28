@@ -20,9 +20,13 @@ Backup Monitoring and Alerting
 Health checks, metrics, and alerting for backup system.
 """
 
+import asyncio
+import json
 import logging
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from ..types import BackupConfig, BackupHealth
 
@@ -146,24 +150,71 @@ async def get_backup_health(config: BackupConfig) -> BackupHealth:
         return health
 
 
+# Module-level in-memory metrics registry, updated by backup/restore/retention operations.
+_metrics: Dict[str, Any] = {
+    "backup_duration_seconds": [],
+    "backup_size_bytes": [],
+    "backup_success_total": 0,
+    "backup_failure_total": 0,
+    "restore_duration_seconds": [],
+    "retention_deletions_total": 0,
+    "last_updated": None,
+}
+
+
+def record_backup_metric(duration_seconds: float, size_bytes: int, success: bool) -> None:
+    """Record a completed backup operation into the metrics registry."""
+    _metrics["backup_duration_seconds"].append(duration_seconds)
+    _metrics["backup_size_bytes"].append(size_bytes)
+    if success:
+        _metrics["backup_success_total"] += 1
+    else:
+        _metrics["backup_failure_total"] += 1
+    _metrics["last_updated"] = datetime.utcnow().isoformat()
+
+
+def record_restore_metric(duration_seconds: float) -> None:
+    """Record a completed restore operation into the metrics registry."""
+    _metrics["restore_duration_seconds"].append(duration_seconds)
+    _metrics["last_updated"] = datetime.utcnow().isoformat()
+
+
+def record_retention_deletion(count: int = 1) -> None:
+    """Record backups deleted by the retention policy."""
+    _metrics["retention_deletions_total"] += count
+    _metrics["last_updated"] = datetime.utcnow().isoformat()
+
+
+def _histogram_summary(samples: List[float]) -> Dict[str, float]:
+    return {
+        "count": len(samples),
+        "sum": sum(samples),
+        "avg": sum(samples) / len(samples) if samples else 0.0,
+        "min": min(samples) if samples else 0.0,
+        "max": max(samples) if samples else 0.0,
+    }
+
+
 def get_backup_metrics() -> Dict[str, Any]:
     """
     Get backup system metrics for monitoring.
 
     Returns metrics suitable for Prometheus, CloudWatch, etc.
+    Call record_backup_metric / record_restore_metric / record_retention_deletion
+    from backup operations to populate live data.
 
     Returns:
         Dictionary of metrics
     """
-    # TODO: Implement metrics collection
-    # - backup_duration_seconds (histogram)
-    # - backup_size_bytes (histogram)
-    # - backup_success_total (counter)
-    # - backup_failure_total (counter)
-    # - restore_duration_seconds (histogram)
-    # - retention_deletions_total (counter)
-
-    return {}
+    return {
+        "backup_duration_seconds": _histogram_summary(_metrics["backup_duration_seconds"]),
+        "backup_size_bytes": _histogram_summary(_metrics["backup_size_bytes"]),
+        "backup_success_total": _metrics["backup_success_total"],
+        "backup_failure_total": _metrics["backup_failure_total"],
+        "restore_duration_seconds": _histogram_summary(_metrics["restore_duration_seconds"]),
+        "retention_deletions_total": _metrics["retention_deletions_total"],
+        "last_updated": _metrics["last_updated"],
+    }
 
 
 async def send_alert(
@@ -188,14 +239,75 @@ async def send_alert(
     if alert_type == 'failure' and not config.notify_on_failure:
         return
 
-    # TODO: Implement notification channels
-    # - Email (SMTP)
-    # - Slack webhook
-    # - PagerDuty
-    # - SMS (Twilio)
-    # - Custom webhook
+    if not config.notification_channels:
+        logger.debug("No notification channels configured")
+        return
 
-    logger.warning(f"Alert notification not yet implemented: {message}")
+    payload: Dict[str, Any] = {
+        "alert_type": alert_type,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "tenant_id": config.tenant_id,
+    }
+
+    for channel in config.notification_channels:
+        try:
+            await _dispatch_channel(channel, payload)
+        except Exception as e:
+            logger.error(f"Failed to send alert to channel {channel!r}: {e}")
+
+
+def _post_webhook(url: str, body: Dict[str, Any]) -> None:
+    """POST a JSON payload to a webhook URL (blocking — run via asyncio.to_thread)."""
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            logger.info(f"Webhook notification sent to {url!r} (HTTP {resp.status})")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Webhook returned HTTP {e.code}: {e.reason}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Webhook connection failed: {e.reason}") from e
+
+
+async def _dispatch_channel(channel: str, payload: Dict[str, Any]) -> None:
+    """Dispatch an alert payload to a single notification channel."""
+    if channel.startswith("http://") or channel.startswith("https://"):
+        # Slack incoming webhooks use a {"text": "..."} body; generic webhooks get the full payload.
+        if "hooks.slack.com" in channel:
+            body: Dict[str, Any] = {
+                "text": f"*{payload['alert_type'].upper()}*: {payload['message']}",
+                "attachments": [{"text": f"Tenant: {payload['tenant_id']}", "ts": payload["timestamp"]}],
+            }
+        else:
+            body = payload
+        await asyncio.to_thread(_post_webhook, channel, body)
+    elif channel == "slack":
+        logger.warning(
+            "Slack channel configured by name; add the Slack webhook URL to notification_channels instead"
+        )
+    elif channel == "email":
+        logger.warning(
+            "Email notifications require SMTP configuration (not yet in BackupConfig); "
+            "configure an SMTP relay and extend BackupConfig with smtp_* fields"
+        )
+    elif channel == "pagerduty":
+        logger.warning(
+            "PagerDuty notifications require an Events API v2 routing key; "
+            "extend BackupConfig with a pagerduty_routing_key field to enable"
+        )
+    elif channel in ("sms", "twilio"):
+        logger.warning(
+            "SMS notifications require Twilio credentials; "
+            "extend BackupConfig with twilio_* fields to enable"
+        )
+    else:
+        logger.warning(f"Unknown notification channel: {channel!r}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

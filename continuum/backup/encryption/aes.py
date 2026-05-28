@@ -21,8 +21,11 @@ Industry-standard encryption at rest for backups.
 """
 
 import asyncio
+import base64
+import hashlib
 import logging
 import os
+from pathlib import Path
 from typing import Tuple
 
 from ..types import EncryptionConfig
@@ -53,8 +56,6 @@ class AESEncryptionHandler:
     def _get_key(self) -> bytes:
         """Get or generate encryption key"""
         if self._current_key is None:
-            # TODO: Load from secure key store
-            # For now, generate or use configured key
             if self.config.key_id:
                 self._current_key = self._load_key(self.config.key_id)
             else:
@@ -64,10 +65,46 @@ class AESEncryptionHandler:
         return self._current_key
 
     def _load_key(self, key_id: str) -> bytes:
-        """Load key from key store"""
-        # TODO: Implement secure key storage
-        # For now, derive from key_id (NOT SECURE)
-        import hashlib
+        """Load key from secure key store.
+
+        Resolution order:
+        1. Environment variable CONTINUUM_KEY_<KEY_ID> (base64 or hex, must decode to 32 bytes)
+        2. Key file at ~/.continuum/keys/<key_id>.key (raw 32-byte binary)
+        3. Insecure SHA-256 derivation fallback (warns; use KMSEncryptionHandler in production)
+        """
+        env_var = f"CONTINUUM_KEY_{key_id.upper().replace('-', '_')}"
+        key_value = os.environ.get(env_var)
+        if key_value:
+            key_bytes: bytes = b""
+            try:
+                key_bytes = base64.b64decode(key_value)
+            except Exception:
+                try:
+                    key_bytes = bytes.fromhex(key_value)
+                except Exception:
+                    logger.warning("Cannot decode key from %s: must be base64 or hex", env_var)
+            if len(key_bytes) == 32:
+                logger.debug("Loaded encryption key '%s' from %s", key_id, env_var)
+                return key_bytes
+            if key_bytes:
+                logger.warning("Key in %s must be exactly 32 bytes, got %d", env_var, len(key_bytes))
+
+        key_file = Path.home() / ".continuum" / "keys" / f"{key_id}.key"
+        if key_file.exists():
+            file_bytes = key_file.read_bytes()
+            if len(file_bytes) == 32:
+                logger.debug("Loaded encryption key '%s' from %s", key_id, key_file)
+                return file_bytes
+            logger.warning("Key file %s must be exactly 32 bytes, got %d", key_file, len(file_bytes))
+
+        # Insecure fallback — use KMSEncryptionHandler for production workloads
+        logger.warning(
+            "Falling back to insecure SHA-256 key derivation for '%s'. "
+            "Set %s env var or place a 32-byte key in %s",
+            key_id,
+            env_var,
+            key_file,
+        )
         return hashlib.sha256(key_id.encode()).digest()
 
     async def encrypt(self, data: bytes) -> Tuple[bytes, str]:
