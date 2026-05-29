@@ -304,11 +304,14 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        decisions_detected = self._extract_decisions(user_message + " " + ai_response)
+        compounds = self._detect_compound_concepts(user_message + " " + ai_response)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +367,47 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> int:
+        """Count decision statements using sentence-level pattern matching."""
+        sentences = re.split(r'[.!?\n]+', text)
+        decision_patterns = [
+            r'\b(?:will|shall|going\s+to|plan\s+to|decided?\s+to|chose?n?\b)',
+            r"\b(?:let'?s|we'?ll|i'?ll|you'?ll)\b",
+            r'\b(?:should|must|need\s+to|have\s+to|ought\s+to)\b',
+        ]
+        count = 0
+        for sentence in sentences:
+            sentence_lower = sentence.lower().strip()
+            if sentence_lower and any(re.search(p, sentence_lower) for p in decision_patterns):
+                count += 1
+        return count
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts as adjacent content-word bigrams."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        seen: set = set()
+        for i in range(len(tokens) - 1):
+            w1, w2 = tokens[i], tokens[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
