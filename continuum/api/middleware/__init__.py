@@ -44,6 +44,9 @@ init_api_keys_db = _old_middleware.init_api_keys_db
 get_api_keys_db_path = _old_middleware.get_api_keys_db_path
 REQUIRE_API_KEY = _old_middleware.REQUIRE_API_KEY
 AuthenticationMiddleware = _old_middleware.AuthenticationMiddleware  # Fix for Agent ebab5553
+is_legacy_hash = _old_middleware.is_legacy_hash
+migrate_legacy_key = _old_middleware.migrate_legacy_key
+count_legacy_keys = _old_middleware.count_legacy_keys
 
 from .analytics_middleware import AnalyticsMiddleware
 
@@ -64,6 +67,9 @@ try:
         "init_api_keys_db",
         "get_api_keys_db_path",
         "REQUIRE_API_KEY",
+        "is_legacy_hash",
+        "migrate_legacy_key",
+        "count_legacy_keys",
     ]
 except ImportError:
     # Prometheus client not installed, metrics disabled
@@ -81,6 +87,9 @@ except ImportError:
         "init_api_keys_db",
         "get_api_keys_db_path",
         "REQUIRE_API_KEY",
+        "is_legacy_hash",
+        "migrate_legacy_key",
+        "count_legacy_keys",
     ]
 
 # ═══════════════════════════════════════════════════════════════════════════════

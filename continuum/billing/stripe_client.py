@@ -567,10 +567,85 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """Handle invoice.payment_failed event with notifications and retry tracking."""
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount={amount_due / 100:.2f} {currency.upper()}, "
+            f"attempt={attempt_count}"
+        )
+
+        if customer_email:
+            await self._send_payment_failure_notification(
+                email=customer_email,
+                invoice_id=invoice_id,
+                amount_due=amount_due,
+                currency=currency,
+                attempt_count=attempt_count,
+                next_payment_attempt=next_payment_attempt,
+            )
+
+        # Stripe retries up to 4 times by default; flag subscription after exhaustion
+        max_retries = 4
+        if attempt_count >= max_retries and subscription_id and not self.mock_mode:
+            logger.warning(
+                f"Payment failed {attempt_count} times for subscription {subscription_id}. "
+                "Updating metadata to flag retry exhaustion."
+            )
+            try:
+                stripe.Subscription.modify(
+                    subscription_id,
+                    metadata={"payment_failure_count": str(attempt_count)}
+                )
+            except Exception as e:
+                logger.error(f"Failed to update subscription metadata after retry exhaustion: {e}")
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "notification_sent": bool(customer_email),
+        }
+
+    async def _send_payment_failure_notification(
+        self,
+        email: str,
+        invoice_id: Optional[str],
+        amount_due: int,
+        currency: str,
+        attempt_count: int,
+        next_payment_attempt: Optional[int],
+    ) -> None:
+        """
+        Send payment failure notification to the customer.
+
+        Logs notification details. To send real emails, integrate an email
+        provider here (e.g. SendGrid, AWS SES, Postmark).
+        """
+        amount_display = f"{amount_due / 100:.2f} {currency.upper()}"
+
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            retry_info = f"next retry at {retry_dt.strftime('%Y-%m-%d %H:%M UTC')}"
+        else:
+            retry_info = "no further retries scheduled"
+
+        logger.info(
+            f"[PAYMENT FAILURE NOTIFICATION] to={email} invoice={invoice_id} "
+            f"amount={amount_display} attempt={attempt_count} {retry_info}"
+        )
+        # Email provider integration point:
+        #   sg = sendgrid.SendGridAPIClient(api_key=os.getenv('SENDGRID_API_KEY'))
+        #   sg.send(Mail(from_email='billing@example.com', to_emails=email, ...))
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

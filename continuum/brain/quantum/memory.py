@@ -304,11 +304,12 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + ' ' + ai_response
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=self._detect_decisions(combined_text),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=self._detect_compounds(combined_text),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +365,61 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Count decision-indicating phrases in text.
+
+        Returns:
+            Number of decisions detected
+        """
+        patterns = [
+            r'\bdecided\s+to\b',
+            r'\bwill\s+use\b',
+            r'\bgoing\s+with\b',
+            r'\bchose\b',
+            r'\bchosen\b',
+            r"\bwe'll\b",
+            r"\bi'll\s+go\b",
+            r"\blet's\s+use\b",
+            r'\bwe\s+agreed\b',
+            r'\bmoving\s+forward\s+with\b',
+        ]
+        combined = re.compile('|'.join(patterns), re.IGNORECASE)
+        return len(combined.findall(text))
+
+    def _detect_compounds(self, text: str) -> int:
+        """
+        Count unique bigram and trigram compound concepts in text.
+
+        Only keeps n-grams where all tokens are meaningful (not stop words,
+        length >= 3).
+
+        Returns:
+            Number of unique compound concepts found
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        meaningful = [t for t in tokens if t not in stop_words]
+
+        compounds: set = set()
+        for i in range(len(meaningful) - 1):
+            compounds.add(meaningful[i] + '_' + meaningful[i + 1])
+        for i in range(len(meaningful) - 2):
+            compounds.add(meaningful[i] + '_' + meaningful[i + 1] + '_' + meaningful[i + 2])
+
+        return len(compounds)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

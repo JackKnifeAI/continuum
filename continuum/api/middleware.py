@@ -96,7 +96,7 @@ def verify_key(key: str, stored_hash: str) -> bool:
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash in format salt_hex:hash_hex (PBKDF2) or bare hex (legacy SHA-256)
 
     Returns:
         True if key matches, False otherwise
@@ -112,10 +112,54 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy SHA-256 hashes (no ':' separator).
+        # validate_api_key() transparently upgrades matching legacy hashes to PBKDF2,
+        # so this branch becomes unreachable once all keys have been used at least once.
+        # Call count_legacy_keys() to check remaining legacy hashes.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
+
+
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is an old bare SHA-256 hex (no salt separator)."""
+    return ':' not in stored_hash
+
+
+def migrate_legacy_key(key: str, old_hash: str, conn: sqlite3.Connection) -> None:
+    """
+    Upgrade a legacy SHA-256 hash to PBKDF2 in-place.
+
+    Called by validate_api_key() on successful legacy verification so that
+    keys are transparently upgraded on next login without admin intervention.
+
+    Args:
+        key: Plain text API key (needed to re-hash with PBKDF2)
+        old_hash: The legacy SHA-256 hash currently stored in the DB
+        conn: Open sqlite3 connection (caller manages commit/close)
+    """
+    new_hash = hash_key(key)
+    conn.execute(
+        "UPDATE api_keys SET key_hash = ? WHERE key_hash = ?",
+        (new_hash, old_hash),
+    )
+
+
+def count_legacy_keys() -> int:
+    """
+    Return the number of API keys still stored as legacy SHA-256 hashes.
+
+    When this returns 0, the legacy fallback in verify_key() is safe to remove.
+    """
+    init_api_keys_db()
+    db_path = get_api_keys_db_path()
+    conn = sqlite3.connect(db_path)
+    try:
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM api_keys WHERE key_hash NOT LIKE '%:%'")
+        (count,) = c.fetchone()
+        return count
+    finally:
+        conn.close()
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -143,6 +187,9 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
+            # Transparently upgrade legacy SHA-256 hashes to PBKDF2 on successful login
+            if is_legacy_hash(stored_hash):
+                migrate_legacy_key(key, stored_hash, conn)
             # Update last_used timestamp
             c.execute(
                 "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
