@@ -568,9 +568,72 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice["id"]
+        customer_id = invoice.get("customer")
+        subscription_id = invoice.get("subscription")
+        attempt_count = invoice.get("attempt_count", 1)
+        amount_due = invoice.get("amount_due", 0)
+        currency = invoice.get("currency", "usd").upper()
+        hosted_invoice_url = invoice.get("hosted_invoice_url")
+        next_payment_attempt = invoice.get("next_payment_attempt")
+
+        next_payment_dt: Optional[str] = None
+        if next_payment_attempt:
+            next_payment_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+
+        if attempt_count >= 4:
+            next_action = "cancel"
+        elif attempt_count >= 3:
+            next_action = "suspend"
+        else:
+            next_action = "retry"
+
+        logger.error(
+            "Payment failed",
+            extra={
+                "invoice_id": invoice_id,
+                "customer_id": customer_id,
+                "subscription_id": subscription_id,
+                "attempt_count": attempt_count,
+                "amount_due_cents": amount_due,
+                "currency": currency,
+                "next_action": next_action,
+                "next_payment_attempt": next_payment_dt,
+                "hosted_invoice_url": hosted_invoice_url,
+            },
+        )
+
+        if next_action == "suspend":
+            logger.warning(
+                "Subscription marked for suspension after %d failed payment attempts: %s",
+                attempt_count,
+                subscription_id,
+            )
+        elif next_action == "cancel":
+            logger.error(
+                "Account will be canceled after %d failed payment attempts: %s",
+                attempt_count,
+                subscription_id,
+            )
+
+        notification_payload = {
+            "to_customer_id": customer_id,
+            "subject": f"Payment failed for your CONTINUUM subscription (attempt {attempt_count})",
+            "amount": f"{amount_due / 100:.2f} {currency}",
+            "invoice_url": hosted_invoice_url,
+            "next_retry": next_payment_dt,
+            "action_required": next_action in ("suspend", "cancel"),
+        }
+        logger.info("NOTIFICATION_PENDING email_service_unavailable payload=%s", notification_payload)
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "next_action": next_action,
+            "notification_sent": False,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

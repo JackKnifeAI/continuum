@@ -112,8 +112,8 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Legacy fallback: plain SHA-256 keys have no ':' separator. Remove once all
+        # keys in the DB have been re-issued or re-hashed with PBKDF2 (hash_key()).
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
 
@@ -220,8 +220,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # =============================================================================
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
-
-from typing import Optional
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware

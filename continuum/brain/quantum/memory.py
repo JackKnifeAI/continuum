@@ -304,11 +304,34 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        # Decision extraction
+        user_decisions = self._extract_decisions(user_message)
+        ai_decisions = self._extract_decisions(ai_response)
+        decisions_detected = len(set(user_decisions + ai_decisions))
+
+        # Compound concept detection
+        user_compounds = self._extract_compound_concepts(user_message)
+        ai_compounds = self._extract_compound_concepts(ai_response)
+        all_compounds = set(user_compounds + ai_compounds)
+        compounds_found = 0
+        for compound in all_compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                # Link constituent words to compound
+                parts = compound.split()
+                for part in parts:
+                    if part.lower() in self.entity_cache:
+                        self.brain.link_concepts(part, compound, weight=0.6)
+                compounds_found += 1
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +387,69 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text using regex patterns.
+
+        Detects commitments, choices, and action plans expressed in natural language.
+        """
+        patterns = [
+            r"(?:I will|we will|I'll|we'll)\s+\w[\w\s]{2,40}",
+            r"(?:decided to|decision to|going to|plan to)\s+\w[\w\s]{2,40}",
+            r"(?:let's|let us)\s+[a-zA-Z]\w[\w\s]{2,40}",
+            r"(?:agreed to|chose to|opted to)\s+\w[\w\s]{2,40}",
+            r"(?:the solution is|the answer is|use \w+ instead)\b[\w\s]{0,40}",
+        ]
+        decisions = []
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                cleaned = match.strip()
+                if cleaned:
+                    decisions.append(cleaned)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract compound concepts — meaningful multi-word phrases.
+
+        Finds sequences of 2-3 consecutive non-stop-words (each 3+ chars).
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        # Tokenize into words of 3+ alphabetic characters
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds = []
+        seen: set = set()
+        n = len(tokens)
+
+        for i in range(n - 1):
+            for length in (2, 3):
+                if i + length > n:
+                    break
+                chunk = tokens[i:i + length]
+                # At least one word must not be a stop word
+                if all(w in stop_words for w in chunk):
+                    continue
+                phrase = " ".join(chunk)
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
