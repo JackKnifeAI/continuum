@@ -304,11 +304,12 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + " " + ai_response
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=self._detect_decisions(combined_text),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=self._detect_compound_concepts(combined_text),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +330,35 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _detect_decisions(self, text: str) -> int:
+        """Detect decision statements in text using regex pattern matching."""
+        patterns = [
+            r"\b(?:i|we|they)\s+will\s+\w+",
+            r"\bdecided\s+(?:to|that)\b",
+            r"\blet(?:'s|\s+us)\s+\w+",
+            r"\b(?:i'm|we're|they're)\s+going\s+to\b",
+            r"\bagreed\s+(?:to|that)\b",
+            r"\bconcluded\s+that\b",
+            r"\bresolved\s+to\b",
+            r"\bwill\s+(?:implement|build|create|use|deploy|fix|add|remove|refactor)\b",
+        ]
+        found: set = set()
+        lower = text.lower()
+        for pattern in patterns:
+            for match in re.finditer(pattern, lower):
+                found.add(match.group())
+        return len(found)
+
+    def _detect_compound_concepts(self, text: str) -> int:
+        """Detect multi-word compound concepts: proper noun phrases and hyphenated terms."""
+        proper = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", text)
+        hyphenated = re.findall(r"\b[a-z]+-[a-z]+(?:-[a-z]+)*\b", text.lower())
+        compounds: set = set()
+        for p in proper:
+            compounds.add(p.lower())
+        compounds.update(hyphenated)
+        return len(compounds)
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

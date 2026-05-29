@@ -568,9 +568,49 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        subscription_id = invoice.get('subscription')
+
+        amount = f"{amount_due / 100:.2f} {currency.upper()}"
+        is_final_failure = (next_payment_attempt is None)
+
+        logger.error(
+            f"Payment failed for invoice: {invoice_id}, customer: {customer_id}, "
+            f"amount: {amount}, attempt: {attempt_count}, is_final_failure: {is_final_failure}"
+        )
+
+        notification_payload: Dict[str, Any] = {
+            "type": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "amount": amount,
+            "attempt_count": attempt_count,
+            "is_final_failure": is_final_failure,
+        }
+        if subscription_id:
+            notification_payload["subscription_id"] = subscription_id
+
+        if is_final_failure:
+            logger.critical(
+                f"Subscription at risk for customer: {customer_id}, invoice: {invoice_id}"
+            )
+            notification_payload["action_required"] = "subscription_at_risk"
+        else:
+            dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            notification_payload["next_retry_at"] = dt.isoformat()
+            logger.warning(
+                f"Payment will be retried at {dt.isoformat()}, attempt: {attempt_count}, "
+                f"invoice: {invoice_id}"
+            )
+
+        return {"status": "handled", "invoice_id": invoice_id, "notification": notification_payload}
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
