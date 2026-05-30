@@ -90,6 +90,11 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
+def _is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is an old plain SHA-256 hex digest (no salt prefix)."""
+    return ':' not in stored_hash
+
+
 def verify_key(key: str, stored_hash: str) -> bool:
     """
     Verify API key against stored PBKDF2 hash.
@@ -112,8 +117,8 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Legacy fallback for old plain SHA-256 hashes (no salt prefix).
+        # validate_api_key() auto-upgrades these to PBKDF2 on successful auth.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
 
@@ -143,11 +148,18 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+            if _is_legacy_hash(stored_hash):
+                # Auto-upgrade legacy SHA-256 hash to PBKDF2 on successful auth.
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, datetime.now().isoformat(), stored_hash)
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (datetime.now().isoformat(), stored_hash)
+                )
             conn.commit()
             conn.close()
             return tenant_id

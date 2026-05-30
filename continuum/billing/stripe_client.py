@@ -568,9 +568,123 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        customer_email = invoice.get('customer_email')
+        next_retry_ts = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} | "
+            f"customer={customer_id} | "
+            f"amount={amount_due / 100:.2f} {currency.upper()} | "
+            f"attempt={attempt_count}"
+        )
+
+        notification_sent = await self._send_payment_failure_email(
+            customer_email=customer_email,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            currency=currency,
+            attempt_count=attempt_count,
+            hosted_invoice_url=invoice.get('hosted_invoice_url'),
+        )
+
+        # Stripe Smart Retries handle automatic rescheduling; log the next attempt.
+        if next_retry_ts:
+            next_retry_dt = datetime.fromtimestamp(next_retry_ts, tz=timezone.utc)
+            logger.info(
+                f"Stripe will retry payment for invoice {invoice_id} at {next_retry_dt.isoformat()}"
+            )
+        else:
+            logger.warning(
+                f"No further automatic retries scheduled for invoice {invoice_id}. "
+                f"Subscription may move to past_due or unpaid."
+            )
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "notification_sent": notification_sent,
+        }
+
+    async def _send_payment_failure_email(
+        self,
+        customer_email: Optional[str],
+        invoice_id: str,
+        amount_due: int,
+        currency: str,
+        attempt_count: int,
+        hosted_invoice_url: Optional[str] = None,
+    ) -> bool:
+        """
+        Send payment failure notification via SMTP.
+
+        Reads SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM from env.
+        Returns True if email was sent, False if skipped or failed.
+        """
+        if not customer_email:
+            logger.warning(
+                f"No customer email on invoice {invoice_id}; skipping payment failure notification."
+            )
+            return False
+
+        smtp_host = os.getenv('SMTP_HOST')
+        smtp_user = os.getenv('SMTP_USER')
+        smtp_password = os.getenv('SMTP_PASSWORD')
+
+        if not smtp_host or not smtp_user:
+            logger.warning(
+                f"SMTP not configured (set SMTP_HOST, SMTP_USER, SMTP_PASSWORD). "
+                f"Skipping payment failure notification for invoice {invoice_id}."
+            )
+            return False
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        from_email = os.getenv('SMTP_FROM', smtp_user)
+        amount_str = f"{amount_due / 100:.2f} {currency.upper()}"
+
+        body_lines = [
+            f"We were unable to process your payment of {amount_str} (invoice {invoice_id}).",
+            f"This was attempt {attempt_count} to charge your payment method.",
+            "",
+            "To avoid service interruption, please update your payment method:",
+        ]
+        if hosted_invoice_url:
+            body_lines.append(f"  {hosted_invoice_url}")
+        body_lines += [
+            "",
+            "If you have questions, contact us at jackknifeai@proton.me",
+            "",
+            "— The CONTINUUM Team",
+        ]
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Action required: Payment failed for your CONTINUUM subscription"
+        msg["From"] = from_email
+        msg["To"] = customer_email
+        msg.attach(MIMEText("\n".join(body_lines), "plain"))
+
+        try:
+            with smtplib.SMTP(smtp_host, smtp_port) as smtp:
+                smtp.ehlo()
+                smtp.starttls()
+                smtp.login(smtp_user, smtp_password)
+                smtp.sendmail(from_email, customer_email, msg.as_string())
+            logger.info(
+                f"Sent payment failure notification to {customer_email} for invoice {invoice_id}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send payment failure email to {customer_email}: {e}")
+            return False
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

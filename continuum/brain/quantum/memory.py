@@ -300,15 +300,38 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+        new_compounds = self._detect_compounds(combined_text)
+
+        # Store compound concepts and strengthen their links
+        compounds_found = 0
+        for compound in new_compounds:
+            parts = compound.split()
+            if all(p in self.entity_cache for p in parts):
+                self.brain.link_concepts(parts[0], parts[1], weight=0.7)
+                compounds_found += 1
+            else:
+                if compound not in self.entity_cache:
+                    addr = self.brain.store_concept(compound, activation=0.8)
+                    self.entity_cache[compound] = addr
+                    self.name_cache[addr] = compound
+                    self._store_entity_metadata(
+                        addr, compound, "compound",
+                        f"Compound: {parts[0]} + {parts[1]}"
+                    )
+                    compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +387,50 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """Count distinct decision statements in a message exchange."""
+        decision_patterns = [
+            r"\bI(?:'ll| will| am going to| plan to| decided? to| choos(?:e|ing|es?) to)\b",
+            r"\bwe(?:'ll| will| are going to| plan to| decided? to| should)\b",
+            r"\blet'?s\b",
+            r"\b(?:decided|choosing|going with|will use|will implement|will add|will create|will build)\b",
+            r"\bmy (?:decision|choice|plan|approach)\b",
+        ]
+        combined = f"{user_message} {ai_response}"
+        decisions: set = set()
+        for pattern in decision_patterns:
+            for match in re.finditer(pattern, combined, re.IGNORECASE):
+                start = max(0, match.start() - 40)
+                end = min(len(combined), match.end() + 40)
+                decisions.add(combined[start:end].strip().lower())
+        return len(decisions)
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """Detect compound concepts — adjacent meaningful word pairs."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
