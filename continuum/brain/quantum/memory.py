@@ -300,15 +300,24 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions from both messages
+        decisions = self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+        decisions_detected = len(decisions)
+
+        # Detect compound concepts from extracted concept words
+        all_concept_words = user_concepts + ai_concepts
+        compounds = self._extract_compounds(all_concept_words)
+        compounds_found = len(compounds)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +373,50 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text using regex patterns.
+
+        Matches patterns like 'decided to X', 'chose X', 'will use X', etc.
+        Returns a list of matched decision strings (empty list if none found).
+        """
+        patterns = [
+            r'\bdecided\s+to\s+\w+(?:\s+\w+){0,4}',
+            r'\bchose\s+\w+(?:\s+\w+){0,3}',
+            r'\bwill\s+use\s+\w+(?:\s+\w+){0,3}',
+            r'\bgoing\s+with\s+\w+(?:\s+\w+){0,3}',
+            r'\bselected\s+\w+(?:\s+\w+){0,3}',
+            r'\bopted\s+for\s+\w+(?:\s+\w+){0,3}',
+            r'\bthe\s+decision\s+(?:is|was)\s+\w+(?:\s+\w+){0,3}',
+            r'\bwe\s+(?:should|will|must)\s+\w+(?:\s+\w+){0,3}',
+        ]
+        decisions = []
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            decisions.extend(matches)
+        return decisions
+
+    def _extract_compounds(self, words: List[str]) -> List[str]:
+        """
+        Detect compound concepts as bigrams from a list of content words.
+
+        Args:
+            words: List of already-filtered content words (stop words removed)
+
+        Returns:
+            Deduplicated list of "word1 word2" compound strings
+        """
+        seen = set()
+        compounds = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if len(w1) >= 4 and len(w2) >= 4:
+                bigram = f"{w1} {w2}"
+                if bigram not in seen:
+                    seen.add(bigram)
+                    compounds.append(bigram)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

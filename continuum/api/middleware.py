@@ -90,6 +90,20 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
+def _upgrade_legacy_hash(old_hash: str, new_hash: str) -> None:
+    """Replace a legacy SHA-256 key hash with a PBKDF2 hash in the database."""
+    db_path = get_api_keys_db_path()
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE api_keys SET key_hash = ? WHERE key_hash = ?",
+            (new_hash, old_hash),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def verify_key(key: str, stored_hash: str) -> bool:
     """
     Verify API key against stored PBKDF2 hash.
@@ -112,10 +126,12 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Legacy SHA-256 hash — upgrade to PBKDF2 on successful verify
         old_hash = hashlib.sha256(key.encode()).hexdigest()
-        return hmac.compare_digest(old_hash, stored_hash)
+        if hmac.compare_digest(old_hash, stored_hash):
+            _upgrade_legacy_hash(stored_hash, hash_key(key))
+            return True
+        return False
 
 
 def validate_api_key(key: str) -> Optional[str]:
