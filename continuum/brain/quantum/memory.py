@@ -306,9 +306,9 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=self._extract_decisions(user_message, ai_response),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=self._detect_compounds(user_message, ai_response),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +364,57 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Detect decision markers in both messages and return the count of unique
+        markers found (case-insensitive).
+        """
+        patterns = [
+            r'\bdecided\b',
+            r'\bagreed\b',
+            r'\bconcluded\b',
+            r'\bdetermined\b',
+            r'\bresolved\b',
+            r'\bcommitted\b',
+            r'\bwill\s+\w+',
+            r'\bshall\s+\w+',
+            r'\bplan\s+to\b',
+            r'\bgoing\s+to\b',
+            r'\bintend\s+to\b',
+            r"\blet's\b",
+        ]
+        combined = user_message + ' ' + ai_response
+        found = set()
+        for pattern in patterns:
+            if re.search(pattern, combined, re.IGNORECASE):
+                found.add(pattern)
+        return len(found)
+
+    def _detect_compounds(self, user_message: str, ai_response: str) -> int:
+        """
+        Find unique bigrams (pairs of adjacent non-stop-words) from both
+        messages and return the count.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        combined = user_message + ' ' + ai_response
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', combined.lower())
+        content_tokens = [t for t in tokens if t not in stop_words]
+        bigrams = set()
+        for i in range(len(content_tokens) - 1):
+            bigrams.add((content_tokens[i], content_tokens[i + 1]))
+        return len(bigrams)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
