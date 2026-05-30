@@ -112,10 +112,67 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Legacy SHA-256 fallback — auto-migrates to PBKDF2 on next use
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
+
+
+def is_legacy_hash(stored_hash: str) -> bool:
+    """
+    Detect whether a stored hash uses the old plain SHA-256 format.
+
+    New PBKDF2-HMAC-SHA256 hashes contain a ':' separator between the salt
+    and the digest.  Legacy SHA-256 hashes are bare hex strings with no ':'.
+
+    Args:
+        stored_hash: Hash value as stored in the database
+
+    Returns:
+        True if the hash is a legacy SHA-256 hash, False if it is PBKDF2
+    """
+    return ':' not in stored_hash
+
+
+def migrate_to_pbkdf2(
+    conn: sqlite3.Connection,
+    key: str,
+    stored_hash: str,
+    tenant_id: str,
+) -> None:
+    """
+    Re-hash a legacy SHA-256 key as PBKDF2-HMAC-SHA256 and update the database.
+
+    This is called automatically by validate_api_key() the first time a key
+    that is still stored as a plain SHA-256 hash is used after deployment.
+    The old row (keyed on the legacy hash) is replaced with a new row that
+    carries the PBKDF2 hash so that subsequent authentications use the
+    stronger algorithm.
+
+    Args:
+        conn: Open SQLite connection (caller owns commit/rollback lifecycle)
+        key: Plain-text API key that was just successfully authenticated
+        stored_hash: The legacy SHA-256 hash currently in the database
+        tenant_id: Tenant associated with this key (preserved in the new row)
+    """
+    new_hash = hash_key(key)
+    c = conn.cursor()
+    # Fetch the remaining columns so they can be preserved on the new row
+    c.execute(
+        "SELECT created_at, name FROM api_keys WHERE key_hash = ?",
+        (stored_hash,),
+    )
+    row = c.fetchone()
+    created_at = row[0] if row else datetime.now().isoformat()
+    name = row[1] if row else None
+
+    # Replace the legacy row atomically: delete old, insert new
+    c.execute("DELETE FROM api_keys WHERE key_hash = ?", (stored_hash,))
+    c.execute(
+        "INSERT INTO api_keys (key_hash, tenant_id, created_at, last_used, name) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (new_hash, tenant_id, created_at, datetime.now().isoformat(), name),
+    )
+    conn.commit()
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -123,6 +180,10 @@ def validate_api_key(key: str) -> Optional[str]:
     Validate an API key and return the associated tenant ID.
 
     SECURITY: Uses constant-time comparison and PBKDF2 verification.
+
+    If a matching key is found but its stored hash is in the legacy SHA-256
+    format, the hash is automatically upgraded to PBKDF2-HMAC-SHA256 in the
+    database before returning, so each key self-migrates on first use.
 
     Args:
         key: API key to validate
@@ -143,12 +204,16 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
-            conn.commit()
+            if is_legacy_hash(stored_hash):
+                # Auto-migrate from SHA-256 to PBKDF2 on first successful auth
+                migrate_to_pbkdf2(conn, key, stored_hash, tenant_id)
+            else:
+                # Update last_used timestamp for already-migrated keys
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (datetime.now().isoformat(), stored_hash),
+                )
+                conn.commit()
             conn.close()
             return tenant_id
 

@@ -568,9 +568,97 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        subscription_id = invoice.get('subscription')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        last_payment_error = invoice.get('last_payment_error') or {}
+        failure_code = last_payment_error.get('code', 'unknown')
+        failure_message = last_payment_error.get('message', 'Payment failed')
+
+        amount_formatted = f"{amount_due / 100:.2f} {currency.upper()}"
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, "
+            f"subscription={subscription_id}, "
+            f"attempt={attempt_count}, "
+            f"amount={amount_formatted}, "
+            f"failure_code={failure_code}, "
+            f"failure_message={failure_message}"
+        )
+
+        UNRECOVERABLE_CODES = {
+            'card_declined',
+            'expired_card',
+            'incorrect_cvc',
+            'incorrect_number',
+            'invalid_account',
+            'card_not_supported',
+            'currency_not_supported',
+            'do_not_honor',
+            'do_not_try_again',
+            'fraudulent',
+            'lost_card',
+            'merchant_blacklist',
+            'stolen_card',
+        }
+
+        is_unrecoverable = failure_code in UNRECOVERABLE_CODES
+        has_retry_scheduled = next_payment_attempt is not None
+
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            retry_info = retry_dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+        else:
+            retry_info = None
+
+        if is_unrecoverable:
+            logger.warning(
+                f"Unrecoverable payment failure for invoice {invoice_id}: "
+                f"code={failure_code}. Manual intervention required for customer {customer_id}."
+            )
+        elif has_retry_scheduled:
+            logger.info(
+                f"Payment for invoice {invoice_id} will be retried at {retry_info} "
+                f"(attempt {attempt_count} of max)"
+            )
+        else:
+            logger.warning(
+                f"Payment for invoice {invoice_id} failed with no further retries scheduled. "
+                f"Subscription {subscription_id} may become past_due."
+            )
+
+        notification_context = {
+            "event": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "subscription_id": subscription_id,
+            "amount": amount_formatted,
+            "attempt_count": attempt_count,
+            "failure_code": failure_code,
+            "failure_message": failure_message,
+            "next_retry_at": retry_info,
+            "is_unrecoverable": is_unrecoverable,
+        }
+
+        logger.info(f"Payment failure notification context: {notification_context}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "failure_code": failure_code,
+            "attempt_count": attempt_count,
+            "retry_scheduled": has_retry_scheduled,
+            "next_retry_at": retry_info,
+            "is_unrecoverable": is_unrecoverable,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

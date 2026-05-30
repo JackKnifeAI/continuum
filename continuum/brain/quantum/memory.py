@@ -304,11 +304,15 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + ' ' + ai_response
+        decisions_detected = len(self._extract_decisions(combined_text))
+        compounds_found = len(self._extract_compounds(combined_text))
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +368,154 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    @staticmethod
+    def _extract_decisions(text: str) -> List[str]:
+        """Extract decision statements from text using pattern matching."""
+        decisions = []
+
+        patterns = [
+            # "I/we decided/will/am going to/chose/selected/picked/going with..."
+            r'\b(?:I|we)\s+(?:decided|will|am going to|chose|selected|picked|going with)\s+(.+?)(?:\.|,|;|$)',
+
+            # "Let's go with / use / do / try..."
+            r"\blet'?s\s+(?:go with|use|do|try)\s+(.+?)(?:\.|,|;|$)",
+
+            # "The decision is / was..."
+            r'\bthe\s+decision\s+(?:is|was)\s+(?:to\s+)?(.+?)(?:\.|,|;|$)',
+
+            # "We'll use / implement / switch to..."
+            r"\bwe'?ll\s+(?:use|implement|switch to|adopt|go with|start using)\s+(.+?)(?:\.|,|;|$)",
+
+            # "I'm going with..."
+            r"\bI'?m\s+going\s+(?:with|to\s+use)\s+(.+?)(?:\.|,|;|$)",
+
+            # "We are going with / using..."
+            r'\bwe\s+are\s+(?:going\s+with|using|implementing|switching\s+to)\s+(.+?)(?:\.|,|;|$)',
+
+            # "decided to..."
+            r'\b(?:I|we|it\s+was)\s+decided\s+to\s+(.+?)(?:\.|,|;|$)',
+
+            # Imperative in AI responses: "Use X", "Do Y", "Implement X"
+            r'^(?:Use|Do|Implement|Try|Go with|Switch to|Adopt)\s+(.+?)(?:\.|,|;|$)',
+
+            # "going to use/implement/do..."
+            r'\b(?:I\'?m|we\'?re|I\s+am|we\s+are)\s+going\s+to\s+(?:use|implement|do|try|adopt|switch\s+to)\s+(.+?)(?:\.|,|;|$)',
+
+            # "chosen to / opted to..."
+            r'\b(?:I|we)\s+(?:have\s+)?(?:chosen|opted)\s+to\s+(.+?)(?:\.|,|;|$)',
+
+            # "will be using / implementing..."
+            r'\b(?:I|we)\s+will\s+be\s+(?:using|implementing|doing|trying|adopting)\s+(.+?)(?:\.|,|;|$)',
+        ]
+
+        seen = set()
+
+        for pattern in patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE)
+            for match in matches:
+                if match.groups():
+                    decision = match.group(1).strip()
+                    # Clean up trailing punctuation and whitespace
+                    decision = re.sub(r'[.,;:!?]+$', '', decision).strip()
+                    # Filter out very short or very long decisions
+                    if 2 < len(decision) < 200:
+                        # Normalize for deduplication
+                        normalized = decision.lower()
+                        if normalized not in seen:
+                            seen.add(normalized)
+                            decisions.append(decision)
+
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """
+        Extract meaningful multi-word compound concepts from text.
+
+        Finds:
+        - Adjacent capitalized word pairs (bigrams) likely to be named concepts
+        - CamelCase identifiers split into normalized compound names
+        - Hyphenated terms
+        Filters stopword-only combinations and short noise.
+
+        Returns a deduplicated list of lowercased, normalized compound strings.
+        """
+        STOP_WORDS = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+            'use', 'used', 'using', 'new', 'one', 'two', 'get', 'got', 'let',
+            'see', 'now', 'then', 'well', 'even', 'want', 'like', 'make',
+            'way', 'say', 'said', 'know', 'think', 'look', 'come', 'take',
+        }
+
+        compounds: List[str] = []
+        seen: set = set()
+
+        def _add(phrase: str) -> None:
+            norm = phrase.strip().lower()
+            # Require at least two non-trivial tokens totaling >= 5 chars
+            if norm and norm not in seen and len(norm) >= 5:
+                seen.add(norm)
+                compounds.append(norm)
+
+        # ── 1. Adjacent capitalized word bigrams ─────────────────────────────────
+        # Match pairs like "Machine Learning", "Neural Network", "Quantum Memory"
+        cap_bigrams = re.findall(
+            r'\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b',
+            text
+        )
+        for w1, w2 in cap_bigrams:
+            l1, l2 = w1.lower(), w2.lower()
+            if l1 not in STOP_WORDS and l2 not in STOP_WORDS:
+                _add(f"{l1} {l2}")
+
+        # ── 2. Lowercase bigrams that form known technical compound patterns ──────
+        # Accept a bigram when neither token is a stop word and both are >= 3 chars
+        # We scan all adjacent word pairs from the lowercased text.
+        words_lc = re.findall(r'\b([a-z]{3,})\b', text.lower())
+        for i in range(len(words_lc) - 1):
+            w1, w2 = words_lc[i], words_lc[i + 1]
+            if w1 not in STOP_WORDS and w2 not in STOP_WORDS:
+                # Only keep if at least one token is domain-ish (length >= 5)
+                # to avoid run-of-the-mill adjacent common words
+                if len(w1) >= 5 or len(w2) >= 5:
+                    _add(f"{w1} {w2}")
+
+        # ── 3. CamelCase identifiers → split into compound name ─────────────────
+        # Matches: QuantumBrain, ConsciousMemory, WorkingMemory, AutoHook
+        camel_tokens = re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text)
+        for token in camel_tokens:
+            # Split on uppercase boundaries: "QuantumBrain" → ["Quantum", "Brain"]
+            parts = re.findall(r'[A-Z][a-z]+', token)
+            parts_lc = [p.lower() for p in parts]
+            # Keep if neither all parts are stop words, result is meaningful
+            non_stop = [p for p in parts_lc if p not in STOP_WORDS]
+            if len(non_stop) >= 2:
+                _add(' '.join(parts_lc))
+            elif len(non_stop) == 1 and len(parts_lc) >= 2:
+                # Still a recognisable compound name (e.g. "TheBrain")
+                _add(' '.join(parts_lc))
+
+        # ── 4. Hyphenated terms ──────────────────────────────────────────────────
+        # Matches: decision-making, self-evolving, state-of-the-art
+        hyphenated = re.findall(r'\b([a-zA-Z]{2,}(?:-[a-zA-Z]{2,})+)\b', text)
+        for term in hyphenated:
+            norm = term.lower()
+            parts = norm.split('-')
+            non_stop = [p for p in parts if p not in STOP_WORDS]
+            # Require at least two meaningful segments, or one long one
+            if len(non_stop) >= 2 or (len(non_stop) == 1 and len(non_stop[0]) >= 5):
+                _add(norm)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
