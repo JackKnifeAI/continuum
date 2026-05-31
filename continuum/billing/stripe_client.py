@@ -568,9 +568,126 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice["id"]
+        customer_id: Optional[str] = invoice.get("customer")
+        customer_email: Optional[str] = invoice.get("customer_email")
+        subscription_id: Optional[str] = invoice.get("subscription")
+        attempt_count: int = invoice.get("attempt_count", 1)
+        next_payment_attempt: Optional[int] = invoice.get("next_payment_attempt")
+        amount_due: Optional[int] = invoice.get("amount_due")
+        currency: Optional[str] = invoice.get("currency")
+
+        logger.error(
+            f"Payment failed for invoice: {invoice_id} "
+            f"(customer={customer_id}, attempt={attempt_count})"
+        )
+
+        await self._send_payment_failure_notification(
+            invoice_id=invoice_id,
+            customer_email=customer_email,
+            attempt_count=attempt_count,
+            next_payment_attempt=next_payment_attempt,
+            amount_due=amount_due,
+            currency=currency,
+        )
+
+        action = "notified"
+        if attempt_count >= 3 and subscription_id and not self.mock_mode:
+            await self._escalate_payment_failure(subscription_id, attempt_count)
+            action = "escalated"
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "action": action,
+        }
+
+    async def _send_payment_failure_notification(
+        self,
+        invoice_id: str,
+        customer_email: Optional[str],
+        attempt_count: int,
+        next_payment_attempt: Optional[int],
+        amount_due: Optional[int],
+        currency: Optional[str],
+    ) -> None:
+        """Send payment failure email notification."""
+        subject = f"Payment failed (attempt {attempt_count}) – invoice {invoice_id}"
+        amount_str = (
+            f"{amount_due / 100:.2f} {(currency or '').upper()}"
+            if amount_due is not None
+            else "unknown amount"
+        )
+        next_attempt_str = (
+            datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            if next_payment_attempt
+            else "no further automatic retry scheduled"
+        )
+        body = (
+            f"Payment failed for invoice {invoice_id}.\n"
+            f"Amount due: {amount_str}\n"
+            f"Attempt: {attempt_count}\n"
+            f"Next retry: {next_attempt_str}\n"
+        )
+
+        recipient = customer_email or os.environ.get("BILLING_ALERT_EMAIL")
+        if not recipient:
+            logger.warning(
+                f"No recipient for payment failure notification (invoice={invoice_id})"
+            )
+            return
+
+        logger.warning(
+            f"Sending payment failure notification to {recipient} for invoice {invoice_id}"
+        )
+        await self._send_email(to=recipient, subject=subject, body=body)
+
+    async def _send_email(self, to: str, subject: str, body: str) -> None:
+        """Send email via SES if configured, otherwise log."""
+        ses_region = os.environ.get("AWS_SES_REGION")
+        from_email = os.environ.get("SES_FROM_EMAIL")
+        if ses_region and from_email:
+            try:
+                import boto3
+                client = boto3.client("ses", region_name=ses_region)
+                client.send_email(
+                    Source=from_email,
+                    Destination={"ToAddresses": [to]},
+                    Message={
+                        "Subject": {"Data": subject},
+                        "Body": {"Text": {"Data": body}},
+                    },
+                )
+                logger.info(f"Email sent via SES to {to}: {subject}")
+            except Exception as exc:
+                logger.error(f"Failed to send email via SES to {to}: {exc}")
+        else:
+            logger.warning(
+                f"No email provider configured (AWS_SES_REGION/SES_FROM_EMAIL not set); "
+                f"would have sent to {to}: {subject}"
+            )
+
+    async def _escalate_payment_failure(
+        self, subscription_id: str, attempt_count: int
+    ) -> None:
+        """Escalate payment failure by pausing the subscription."""
+        logger.error(
+            f"Escalating payment failure for subscription {subscription_id} "
+            f"after {attempt_count} failed attempts"
+        )
+        await self.update_subscription(
+            subscription_id,
+            pause_collection={"behavior": "void"},
+            metadata={
+                "payment_failure_escalated": "true",
+                "payment_failure_attempt_count": str(attempt_count),
+                "payment_failure_escalated_at": datetime.now(tz=timezone.utc).isoformat(),
+            },
+        )
+        logger.warning(
+            f"Subscription {subscription_id} paused due to repeated payment failures"
+        )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
