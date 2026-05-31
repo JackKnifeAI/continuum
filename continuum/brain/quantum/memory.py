@@ -304,11 +304,25 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        # Decision extraction
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._extract_decisions(combined_text)
+
+        # Compound concept detection
+        compound_concepts = self._extract_compound_concepts(combined_text)
+        for compound in compound_concepts:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.2)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+        compounds_found = len(compound_concepts)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +343,35 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_decisions(self, text: str) -> int:
+        """Count decision-indicating patterns in text."""
+        patterns = [
+            r'\b(?:I|we|you)\s+will\b',
+            r'\b(?:decided|deciding)\s+to\b',
+            r'\b(?:going|planning|intending)\s+to\b',
+            r'\b(?:choose|chose|chosen)\s+to\b',
+            r'\blet\s+us\b|\blet\'s\b',
+            r'\b(?:agreed?|commit(?:ting)?)\s+to\b',
+        ]
+        total = 0
+        for pattern in patterns:
+            total += len(re.findall(pattern, text, re.IGNORECASE))
+        return total
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Find compound concepts: capitalized multi-word sequences and hyphenated compounds."""
+        capitalized = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', text)
+        hyphenated = re.findall(r'\b[a-zA-Z]+-[a-zA-Z]+(?:-[a-zA-Z]+)*\b', text)
+        combined = capitalized + hyphenated
+        seen_lower: set = set()
+        unique: List[str] = []
+        for item in combined:
+            key = item.lower()
+            if key not in seen_lower:
+                seen_lower.add(key)
+                unique.append(item)
+        return unique
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
