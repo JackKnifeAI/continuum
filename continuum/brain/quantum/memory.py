@@ -304,11 +304,15 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compounds(combined_text, list(all_concepts))
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +368,58 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count distinct decision phrases found in text."""
+        patterns = [
+            r'\bdecided\s+to\b',
+            r'\bI\s+will\b',
+            r'\bwe\s+chose\b',
+            r'\bgoing\s+to\b',
+            r'\bplan\s+to\b',
+            r'\bagreed\s+to\b',
+            r'\bresolved\s+to\b',
+            r'\bthe\s+decision\b',
+            r'\bwe\s+decided\b',
+            r"\blet's\b",
+            r'\bshall\s+we\b',
+            r'\bwill\s+be\b',
+            r"\bI'll\b",
+            r"\bwe'll\b",
+        ]
+        matched = set()
+        for pattern in patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                matched.add(pattern)
+        return len(matched)
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> int:
+        """Detect multi-word compound concepts where all tokens are known concepts."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        filtered = [w for w in words if w not in stop_words]
+        concept_set = {c.lower() for c in concepts}
+        compounds = set()
+        for i in range(len(filtered) - 1):
+            bigram = (filtered[i], filtered[i + 1])
+            if all(tok in concept_set for tok in bigram):
+                compounds.add(bigram)
+        for i in range(len(filtered) - 2):
+            trigram = (filtered[i], filtered[i + 1], filtered[i + 2])
+            if all(tok in concept_set for tok in trigram):
+                compounds.add(trigram)
+        return len(compounds)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
