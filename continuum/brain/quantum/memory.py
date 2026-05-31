@@ -306,9 +306,9 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(self._extract_decisions(user_message + ' ' + ai_response)),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(self._extract_compound_concepts(user_message + ' ' + ai_response)),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +364,68 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision statements in text using regex patterns.
+
+        Looks for common decision-indicating phrases and returns cleaned
+        matched strings.
+        """
+        pattern = re.compile(
+            r'(?:decided to|we will|chose to|let\'s|going to|agreed to|'
+            r'plan to|resolved to|determined to|won\'t|will not)'
+            r'[^.!?\n]{0,80}',
+            re.IGNORECASE,
+        )
+        matches = pattern.findall(text)
+        return [m.strip() for m in matches if m.strip()]
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect multi-word concept phrases using two strategies.
+
+        Strategy A: Named entities — sequences of 2+ consecutive Title Case words.
+        Strategy B: Significant bigrams — consecutive pairs of non-stop-words.
+
+        Both results are combined and deduplicated.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        compounds: List[str] = []
+
+        # Strategy A: sequences of 2+ consecutive Title Case words
+        title_pattern = re.compile(r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)')
+        compounds.extend(title_pattern.findall(text))
+
+        # Strategy B: significant bigrams — consecutive non-stop-word pairs
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text)
+        for i in range(len(tokens) - 1):
+            w1, w2 = tokens[i].lower(), tokens[i + 1].lower()
+            if w1 not in stop_words and w2 not in stop_words:
+                compounds.append(f"{tokens[i]} {tokens[i + 1]}")
+
+        # Deduplicate while preserving order
+        seen: set = set()
+        unique: List[str] = []
+        for phrase in compounds:
+            key = phrase.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(phrase)
+
+        return unique
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

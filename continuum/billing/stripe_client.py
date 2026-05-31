@@ -568,9 +568,98 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} | customer={customer_id} "
+            f"amount={amount_due} attempt={attempt_count}"
+        )
+
+        action = self._resolve_payment_failure_action(attempt_count)
+
+        self._emit_payment_failure_notification(
+            invoice_id=invoice_id,
+            customer_id=customer_id,
+            subscription_id=subscription_id,
+            amount_due=amount_due,
+            attempt_count=attempt_count,
+            next_payment_attempt=next_payment_attempt,
+            action=action,
+        )
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+            "action": action,
+        }
+
+    def _resolve_payment_failure_action(self, attempt_count: int) -> str:
+        """Return the escalation action based on how many payment attempts have failed."""
+        if attempt_count == 1:
+            return "notify_customer"
+        elif attempt_count == 2:
+            return "notify_customer_urgent"
+        elif attempt_count >= 3:
+            return "flag_at_risk"
+        return "notify_customer"
+
+    def _emit_payment_failure_notification(
+        self,
+        invoice_id: str,
+        customer_id: str,
+        subscription_id: Optional[str],
+        amount_due: int,
+        attempt_count: int,
+        next_payment_attempt: Optional[int],
+        action: str,
+    ) -> None:
+        """
+        Emit a structured payment failure notification event.
+
+        Logs a machine-readable record that an external email/alerting service can
+        consume from the log stream (e.g. via a log-based metric or log forwarder).
+        Replace the logger call here with a direct email SDK call when one is available.
+        """
+        next_attempt_dt = (
+            datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+            if next_payment_attempt
+            else None
+        )
+        notification_payload: Dict[str, Any] = {
+            "event": "payment_failure_notification",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "amount_due_cents": amount_due,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt_dt,
+            "action": action,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        if action == "flag_at_risk":
+            logger.critical(
+                "PAYMENT_FAILURE_NOTIFICATION subscription_at_risk=true %s",
+                notification_payload,
+            )
+        elif action == "notify_customer_urgent":
+            logger.error(
+                "PAYMENT_FAILURE_NOTIFICATION urgency=high %s",
+                notification_payload,
+            )
+        else:
+            logger.warning(
+                "PAYMENT_FAILURE_NOTIFICATION urgency=normal %s",
+                notification_payload,
+            )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
