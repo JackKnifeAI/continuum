@@ -20,12 +20,16 @@ API middleware for authentication, rate limiting, and other cross-cutting concer
 
 import hashlib
 import hmac
+import os
 import sqlite3
+import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # =============================================================================
 # CONFIGURATION
@@ -79,7 +83,6 @@ def hash_key(key: str) -> str:
     Returns:
         Hash in format: salt_hex:hash_hex
     """
-    import os
     salt = os.urandom(32)  # 256-bit random salt
     key_hash = hashlib.pbkdf2_hmac(
         'sha256',
@@ -113,9 +116,24 @@ def verify_key(key: str, stored_hash: str) -> bool:
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
         # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Opportunistic upgrade happens in validate_api_key(); remove once all keys are PBKDF2.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
+
+
+def _is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is legacy SHA-256 format (no salt separator)."""
+    return ':' not in stored_hash
+
+
+def _upgrade_key_hash(conn: sqlite3.Connection, key: str, old_hash: str) -> None:
+    """Opportunistically upgrade a legacy SHA-256 hash to PBKDF2 format."""
+    new_hash = hash_key(key)
+    conn.execute(
+        "UPDATE api_keys SET key_hash = ? WHERE key_hash = ?",
+        (new_hash, old_hash)
+    )
+    conn.commit()
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -143,6 +161,8 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
+            if _is_legacy_hash(stored_hash):
+                _upgrade_key_hash(conn, key, stored_hash)
             # Update last_used timestamp
             c.execute(
                 "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
@@ -221,12 +241,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
 
-from typing import Optional
-
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-
-
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """
     Middleware to extract tenant_id from X-API-Key header and set in request.state.
@@ -256,10 +270,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # RATE LIMITING
 # =============================================================================
-
-import time
-from collections import defaultdict
-
 
 class RateLimiter:
     """

@@ -568,9 +568,29 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        tenant_id = invoice.get('metadata', {}).get('tenant_id', 'unknown')
+
+        logger.error(
+            f"Payment failed: invoice={invoice_id} customer={customer_id} "
+            f"tenant={tenant_id} amount={amount_due} attempt={attempt_count}"
+        )
+
+        # Emit structured result so callers can trigger notifications or access suspension
+        return {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "tenant_id": tenant_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_payment_attempt,
+            "action_required": attempt_count >= 3,  # Flag after 3 failed attempts
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

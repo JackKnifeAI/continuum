@@ -304,11 +304,14 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        decisions_detected = self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+        compounds_found = self._detect_compound_concepts(user_message) + self._detect_compound_concepts(ai_response)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +367,30 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision markers in text (chose, decided, will, agreed, confirmed, etc.)."""
+        decision_patterns = [
+            r'\b(decided|decision|chose|choosing|agreed|confirmed|resolved|concluded)\b',
+            r'\b(will|going to|plan to|intend to|commit to)\b',
+            r'\b(must|should|need to|have to)\b',
+        ]
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text.lower()))
+        return count
+
+    def _detect_compound_concepts(self, text: str) -> int:
+        """Count multi-word compound concepts (CamelCase, hyphenated, or quoted phrases)."""
+        patterns = [
+            r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b',  # CamelCase: QuantumBrain
+            r'\b[a-z]+-[a-z]+(?:-[a-z]+)*\b',      # hyphenated: self-evolving
+            r'"([^"]{4,40})"',                        # quoted phrases
+        ]
+        count = 0
+        for pattern in patterns:
+            count += len(re.findall(pattern, text))
+        return count
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
