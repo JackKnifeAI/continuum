@@ -306,9 +306,9 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=self._detect_decisions(user_message, ai_response),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=self._detect_compound_concepts(user_message + " " + ai_response),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +329,27 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """Count decision/commitment statements in a message exchange."""
+        decision_patterns = [
+            r"\b(i will|i'll|we will|we'll)\b",
+            r"\b(decided to|decision to)\b",
+            r"\b(going to|plan to|planning to)\b",
+            r"\b(let's|let us)\b",
+            r"\b(i should|we should|i must|we must)\b",
+            r"\b(i need to|we need to)\b",
+            r"\b(choose|chose|choosing|selected|selecting)\b",
+        ]
+        combined = (user_message + " " + ai_response).lower()
+        return sum(len(re.findall(pattern, combined)) for pattern in decision_patterns)
+
+    def _detect_compound_concepts(self, text: str) -> int:
+        """Count compound multi-word concepts: hyphenated, CamelCase, and consecutive caps."""
+        hyphenated = re.findall(r"\b[a-zA-Z]+-[a-zA-Z]+\b", text)
+        camel_case = re.findall(r"\b[A-Z][a-z]+[A-Z][a-zA-Z]*\b", text)
+        consecutive_caps = re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b", text)
+        return len(hyphenated) + len(camel_case) + len(consecutive_caps)
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

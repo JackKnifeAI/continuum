@@ -112,10 +112,27 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy SHA-256 hashes; lazily migrated to PBKDF2 by validate_api_key.
+        # Safe to remove once all legacy-format keys have rotated out of the database.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
+
+
+def _is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash uses legacy SHA-256 format (no salt separator)."""
+    return ':' not in stored_hash
+
+
+def _migrate_key_to_pbkdf2(key: str, old_hash: str, conn: sqlite3.Connection) -> str:
+    """Migrate a legacy SHA-256 hash to PBKDF2 in-place. Returns the new hash."""
+    new_hash = hash_key(key)
+    c = conn.cursor()
+    c.execute(
+        "UPDATE api_keys SET key_hash = ? WHERE key_hash = ?",
+        (new_hash, old_hash)
+    )
+    conn.commit()
+    return new_hash
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -143,6 +160,9 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
+            # Lazily migrate legacy SHA-256 hashes to PBKDF2
+            if _is_legacy_hash(stored_hash):
+                stored_hash = _migrate_key_to_pbkdf2(key, stored_hash, conn)
             # Update last_used timestamp
             c.execute(
                 "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
