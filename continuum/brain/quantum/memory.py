@@ -300,15 +300,50 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts from the full exchange
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compound_concepts(combined_text)
+
+        # Store decisions as typed entities linked to the exchange concepts
+        decisions_detected = 0
+        for decision_phrase in decisions:
+            key = f"decision:{decision_phrase[:40]}"
+            if key.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=0.8)
+                self.entity_cache[key.lower()] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision_phrase)
+                # Link decision to concepts mentioned in the exchange
+                for concept in list(all_concepts)[:5]:
+                    if concept.lower() in self.entity_cache:
+                        self.brain.link_concepts(key, concept, weight=0.6)
+                decisions_detected += 1
+
+        # Store compound concepts as typed entities
+        compounds_found = 0
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.9)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                # Link compound to its component words
+                parts = re.findall(r'[a-zA-Z]{3,}', compound.lower())
+                for part in parts:
+                    if part in self.entity_cache:
+                        self.brain.link_concepts(compound, part, weight=0.7)
+                compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +399,61 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision and commitment statements in text.
+
+        Matches action commitments ("decided to X"), plans ("the plan is X"),
+        collaborative directives ("let's X"), and obligation statements ("we must X").
+        """
+        decision_patterns = [
+            r'\b(?:decided?|going)\s+to\s+([a-z][^.,!?\n]{5,50})',
+            r'\b(?:the\s+)?(?:plan|decision|approach)\s+is\s+(?:to\s+)?([^.,!?\n]{5,60})',
+            r'\blet[\'s]*\s+([a-z][^.,!?\n]{4,40})',
+            r'\bwe\s+(?:should|must|need\s+to)\s+([a-z][^.,!?\n]{4,40})',
+            r'\bchose?\s+(?:to\s+)?([a-z][^.,!?\n]{4,40})',
+        ]
+        decisions = []
+        for pattern in decision_patterns:
+            for match in re.findall(pattern, text.lower()):
+                phrase = match.strip()
+                if len(phrase) > 4:
+                    decisions.append(phrase)
+        return decisions[:10]
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect multi-word compound concepts in text.
+
+        Finds CamelCase terms (QuantumBrain), hyphenated compounds
+        (error-correction), and consecutive capitalized words (Quantum Brain).
+        """
+        compounds: List[str] = []
+
+        # CamelCase terms (e.g. QuantumBrain, ConsciousMemory)
+        compounds.extend(re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text))
+
+        # Hyphenated compounds (e.g. spreading-activation, error-correction)
+        compounds.extend(re.findall(
+            r'\b[a-zA-Z]{3,}-[a-zA-Z]{3,}(?:-[a-zA-Z]{3,})?\b', text
+        ))
+
+        # Consecutive capitalized words — two or three (e.g. "Golden Spiral")
+        compounds.extend(re.findall(
+            r'\b(?:[A-Z][a-z]{2,}\s+){1,2}[A-Z][a-z]{2,}\b', text
+        ))
+
+        # Deduplicate preserving first occurrence
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+
+        return unique[:15]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
