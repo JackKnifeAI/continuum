@@ -50,7 +50,7 @@ redis = [
 ]
 embeddings = [
     "sentence-transformers>=2.2.0",
-    "torch>=2.0.0",
+    "torch>=2.8.0",
     "numpy>=1.24.0",
 ]
 federation = [
