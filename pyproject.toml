@@ -45,7 +45,7 @@ postgres = [
     "asyncpg>=0.29.0",
 ]
 redis = [
-    "redis>=5.0.0",
+    "redis>=7.0.1",
     "hiredis>=2.2.0",
 ]
 embeddings = [

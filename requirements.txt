@@ -24,7 +24,7 @@ prometheus-client>=0.19.0
 stripe>=7.0.0
 
 # Caching and storage
-redis>=5.0.0
+redis>=7.0.1
 upstash-redis>=0.15.0
 
 # WebSocket support
