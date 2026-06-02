@@ -302,16 +302,67 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions and compound concepts
+        all_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(all_text)
+        compounds = self._extract_compound_concepts(all_text)
+
+        # Store compound concepts as linked concept pairs
+        for compound in compounds:
+            parts = compound.split()
+            if all(p in self.entity_cache for p in parts):
+                self.brain.link_concepts(parts[0], parts[1], weight=0.7)
+                links_created += 1
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Detect decision statements using intent-signaling patterns."""
+        patterns = [
+            r"(?:i|we)\s+(?:decided|chose|agreed|resolved)\s+(?:to\s+)?(.{5,80}?)(?:[.,!?]|$)",
+            r"(?:let'?s|going with)\s+(.{5,60}?)(?:[.,!?]|$)",
+            r"(?:the\s+)?decision\s+(?:is|was)\s+(?:to\s+)?(.{5,60}?)(?:[.,!?]|$)",
+            r"(?:i|we)\s+will\s+(?:use|implement|adopt|switch to|go with)\s+(.{5,60}?)(?:[.,!?]|$)",
+        ]
+        decisions: List[str] = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                fragment = match.group(1).strip()
+                if fragment:
+                    decisions.append(fragment)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word concepts as adjacent non-stop-word bigrams."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'when', 'where', 'how', 'all',
+            'not', 'no', 'so', 'than', 'too', 'very', 'just', 'also', 'its',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                bigram = f"{w1} {w2}"
+                if bigram not in seen:
+                    seen.add(bigram)
+                    compounds.append(bigram)
+        return compounds[:15]
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

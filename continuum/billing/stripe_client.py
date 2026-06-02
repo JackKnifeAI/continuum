@@ -568,9 +568,57 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, subscription={subscription_id}, "
+            f"amount={amount_due / 100:.2f}, attempt={attempt_count}"
+        )
+
+        action = self._determine_dunning_action(attempt_count, next_payment_attempt)
+
+        logger.warning(
+            f"Dunning action for customer {customer_id} (attempt {attempt_count}): {action}"
+        )
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+            "action": action,
+            "next_retry": next_payment_attempt,
+        }
+
+    def _determine_dunning_action(
+        self,
+        attempt_count: int,
+        next_payment_attempt: Optional[int]
+    ) -> str:
+        """Determine dunning action based on failure attempt count."""
+        if attempt_count == 1:
+            # First failure: Stripe will retry automatically; send a soft reminder
+            return "notify_payment_failed"
+        elif attempt_count == 2:
+            # Second failure: escalate notification
+            return "notify_payment_failed_urgent"
+        elif attempt_count == 3:
+            if next_payment_attempt:
+                # One more retry scheduled
+                return "notify_final_retry"
+            else:
+                # No further retries; subscription will go past_due
+                return "notify_subscription_at_risk"
+        else:
+            # Stripe has exhausted retries; subscription should be treated as delinquent
+            return "suspend_access"
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
