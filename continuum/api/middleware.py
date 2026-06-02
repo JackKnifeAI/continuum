@@ -23,7 +23,7 @@ import hmac
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from fastapi import Header, HTTPException
 
@@ -90,32 +90,47 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
-def verify_key(key: str, stored_hash: str) -> bool:
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is a plain SHA-256 hex string (no salt prefix)."""
+    return ':' not in stored_hash
+
+
+def verify_key(key: str, stored_hash: str) -> Tuple[bool, bool]:
     """
-    Verify API key against stored PBKDF2 hash.
+    Verify API key against a stored hash.
+
+    Supports both PBKDF2-HMAC-SHA256 (current, format ``salt_hex:hash_hex``)
+    and plain SHA-256 (legacy, no colon separator).
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash — either ``salt_hex:hash_hex`` (PBKDF2) or
+            a plain 64-char hex string (legacy SHA-256)
 
     Returns:
-        True if key matches, False otherwise
+        ``(matched, is_legacy)`` where *matched* is True when the key is valid
+        and *is_legacy* signals that the caller should upgrade the stored hash
+        to PBKDF2.  Once all rows in the database carry the new format this
+        branch (and the legacy ``except`` block below) can be removed.
     """
-    try:
-        salt_hex, hash_hex = stored_hash.split(':')
-        salt = bytes.fromhex(salt_hex)
-        key_hash = hashlib.pbkdf2_hmac(
-            'sha256',
-            key.encode('utf-8'),
-            salt,
-            100000
-        )
-        return hmac.compare_digest(key_hash.hex(), hash_hex)
-    except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
-        old_hash = hashlib.sha256(key.encode()).hexdigest()
-        return hmac.compare_digest(old_hash, stored_hash)
+    if not is_legacy_hash(stored_hash):
+        try:
+            salt_hex, hash_hex = stored_hash.split(':', 1)
+            salt = bytes.fromhex(salt_hex)
+            key_hash = hashlib.pbkdf2_hmac(
+                'sha256',
+                key.encode('utf-8'),
+                salt,
+                100000,
+            )
+            return hmac.compare_digest(key_hash.hex(), hash_hex), False
+        except (ValueError, AttributeError):
+            return False, False
+
+    # Legacy SHA-256 path — remove once all hashes have been migrated inline.
+    old_hash = hashlib.sha256(key.encode()).hexdigest()
+    matched = hmac.compare_digest(old_hash, stored_hash)
+    return matched, matched  # second True flags caller to upgrade
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -142,12 +157,23 @@ def validate_api_key(key: str) -> Optional[str]:
     rows = c.fetchall()
 
     for stored_hash, tenant_id in rows:
-        if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+        matched, upgrade = verify_key(key, stored_hash)
+        if matched:
+            now = datetime.now().isoformat()
+            if upgrade:
+                # Inline migration: replace legacy SHA-256 hash with PBKDF2.
+                # Once no legacy rows remain this branch becomes unreachable
+                # and the legacy path in verify_key can be removed.
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash),
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash),
+                )
             conn.commit()
             conn.close()
             return tenant_id
@@ -220,8 +246,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # =============================================================================
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
-
-from typing import Optional
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware

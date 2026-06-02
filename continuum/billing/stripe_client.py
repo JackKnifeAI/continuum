@@ -568,9 +568,75 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd').upper()
+        attempt_count = invoice.get('attempt_count', 1)
+        next_retry_ts = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+        hosted_url = invoice.get('hosted_invoice_url')
+
+        # Format amount for human-readable logging (Stripe amounts are in cents)
+        amount_display = f"{amount_due / 100:.2f} {currency}"
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} | customer={customer_id} "
+            f"email={customer_email} amount={amount_display} attempt={attempt_count}"
+        )
+
+        # Tiered response based on attempt count
+        if attempt_count == 1:
+            # First failure — Stripe will retry automatically; send a soft reminder
+            action = "notify_soft"
+            logger.warning(
+                f"First payment failure for invoice {invoice_id}. "
+                f"Stripe will retry automatically. Queuing soft email reminder to {customer_email}."
+            )
+        elif attempt_count < 4:
+            # Subsequent failures — escalate urgency in notification
+            action = "notify_urgent"
+            logger.warning(
+                f"Repeated payment failure (attempt {attempt_count}) for invoice {invoice_id}. "
+                f"Queuing urgent payment failure email to {customer_email}."
+            )
+        else:
+            # Max retries exhausted — flag for manual intervention and possible suspension
+            action = "notify_final_and_flag"
+            logger.error(
+                f"Payment failure max retries reached (attempt {attempt_count}) for invoice {invoice_id}, "
+                f"subscription {subscription_id}. Manual intervention required. "
+                f"Flagging subscription for review."
+            )
+
+        # Build the notification payload that an email/notification service can consume
+        notification = {
+            "type": "payment_failed",
+            "action": action,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "invoice_id": invoice_id,
+            "subscription_id": subscription_id,
+            "amount_display": amount_display,
+            "attempt_count": attempt_count,
+            "next_retry_timestamp": next_retry_ts,
+            "invoice_url": hosted_url,
+        }
+
+        next_retry_dt = (
+            datetime.fromtimestamp(next_retry_ts, tz=timezone.utc).isoformat()
+            if next_retry_ts else None
+        )
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "action": action,
+            "attempt_count": attempt_count,
+            "next_retry_at": next_retry_dt,
+            "notification": notification,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

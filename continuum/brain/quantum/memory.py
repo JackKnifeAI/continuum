@@ -300,18 +300,80 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts
+        decisions = self._extract_decisions(user_message, ai_response)
+
+        combined_text = user_message + " " + ai_response
+        compounds = self._detect_compound_concepts(combined_text, list(all_concepts))
+        for compound in compounds:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound",
+                                            f"Compound concept: {compound}")
+                for part in compound.split():
+                    if part in self.entity_cache:
+                        self.brain.link_concepts(compound, part, weight=0.8)
+                links_created += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    # Decision patterns: subject + decision verb + optional target
+    _DECISION_PATTERNS = [
+        r'(?:i|we)\s+(?:decided?|chose|opted?|agreed?|resolved?)\s+to\s+\w+',
+        r'(?:the\s+)?(?:decision|choice)\s+(?:is|was)\s+to\s+\w+',
+        r'(?:i|we)\s+(?:will|shall|am going to|are going to)\s+\w+',
+        r"(?:let's|let us)\s+(?:use|go with|adopt|implement)\s+\w+",
+        r'(?:i|we)\s+(?:recommend|prefer|suggest)\s+\w+',
+    ]
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Detect decision statements in a conversation exchange.
+
+        Scans for patterns where a choice or commitment is expressed and returns
+        the count of distinct decision phrases found.
+        """
+        combined = (user_message + " " + ai_response).lower()
+        decisions: set[str] = set()
+        for pattern in self._DECISION_PATTERNS:
+            for match in re.finditer(pattern, combined):
+                decisions.add(match.group(0))
+        return len(decisions)
+
+    def _detect_compound_concepts(self, text: str, single_concepts: List[str]) -> List[str]:
+        """
+        Find compound multi-word concepts by locating adjacent concept-word pairs.
+
+        Returns a deduplicated list of bigrams where both words are themselves
+        concepts (e.g., 'quantum brain', 'conscious memory').
+        """
+        concept_set = set(single_concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds: List[str] = []
+        seen: set[str] = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
