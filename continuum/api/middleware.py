@@ -90,13 +90,18 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is a legacy bare SHA-256 (no salt prefix)."""
+    return ':' not in stored_hash
+
+
 def verify_key(key: str, stored_hash: str) -> bool:
     """
     Verify API key against stored PBKDF2 hash.
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash in format salt_hex:hash_hex, or legacy bare SHA-256
 
     Returns:
         True if key matches, False otherwise
@@ -112,8 +117,8 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy bare SHA-256 hashes. validate_api_key automatically
+        # rehashes matching keys to PBKDF2, so this path becomes dead code over time.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
 
@@ -143,11 +148,19 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+            now = datetime.now().isoformat()
+            if is_legacy_hash(stored_hash):
+                # Auto-migrate: replace bare SHA-256 hash with PBKDF2 on first use.
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash),
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash),
+                )
             conn.commit()
             conn.close()
             return tenant_id

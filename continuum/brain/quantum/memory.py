@@ -304,11 +304,23 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined_text)
+
+        compound_list = self._detect_compound_concepts(combined_text)
+        for compound in compound_list:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compound_list),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +341,68 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision statements in text using pattern matching."""
+        decision_patterns = [
+            r'\bdecided?\s+(?:to|that|on)\b',
+            r'\b(?:chose|choose|choosing)\s+(?:to|the|a)\b',
+            r'\bwill\s+(?:use|implement|build|create|add|remove|change|fix|update)\b',
+            r'\bgoing\s+to\s+\w+\b',
+            r"\blet's\s+\w+\b",
+            r'\bwe\s+(?:should|need|want|plan)\s+to\b',
+            r'\bthe\s+decision\s+(?:is|was|will)\b',
+            r'\bopted?\s+(?:to|for)\b',
+        ]
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text, re.IGNORECASE))
+        return count
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts via named entities, hyphenation, and repeated bigrams."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        compounds: List[str] = []
+
+        # Multi-word capitalized sequences (named entities / proper nouns)
+        named = re.findall(r'\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+\b', text)
+        compounds.extend([n.lower() for n in named])
+
+        # Hyphenated compounds (e.g. "error-correction", "self-evolving")
+        hyphenated = re.findall(r'\b[a-zA-Z]{3,}-[a-zA-Z]{3,}(?:-[a-zA-Z]{3,})?\b', text)
+        compounds.extend([h.lower() for h in hyphenated])
+
+        # Repeated adjacent content-word bigrams within the text
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        bigram_counts: Dict[str, int] = {}
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                key = f"{w1} {w2}"
+                bigram_counts[key] = bigram_counts.get(key, 0) + 1
+        compounds.extend([bg for bg, cnt in bigram_counts.items() if cnt >= 2])
+
+        # Deduplicate while preserving order
+        seen: set = set()
+        unique: List[str] = []
+        for compound in compounds:
+            if compound not in seen:
+                seen.add(compound)
+                unique.append(compound)
+
+        return unique
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
