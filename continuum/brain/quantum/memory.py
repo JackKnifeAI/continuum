@@ -300,15 +300,34 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions across both messages
+        all_decisions = (
+            self._extract_decisions(user_message)
+            + self._extract_decisions(ai_response)
+        )
+        decisions_detected = len(set(all_decisions))
+
+        # Detect and store compound concepts
+        all_compounds = self._extract_compound_concepts(
+            user_message + " " + ai_response
+        )
+        for compound in all_compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(all_compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +383,68 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Looks for linguistic markers of decisions: explicit commitments,
+        plans, choices, and resolutions.
+        """
+        patterns = [
+            r"(?:i|we)\s+(?:decided|choose|chose|plan)\s+(?:to\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+will\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:let'?s|going\s+to)\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:the\s+)?decision\s+(?:is|was)\s+(?:to\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+should\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+(?:agree|agreed)\s+(?:to\s+)?([a-z]+(?:\s+[a-z]+){0,3})",
+        ]
+        decisions = []
+        text_lower = text.lower()
+        for pattern in patterns:
+            for match in re.findall(pattern, text_lower):
+                stripped = match.strip()
+                if stripped:
+                    decisions.append(stripped)
+
+        seen: set = set()
+        unique = []
+        for d in decisions:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        return unique
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract compound (multi-word) concepts from text.
+
+        Identifies adjacent meaningful word pairs (bigrams) where neither
+        word is a stop word — e.g. "quantum memory", "neural network".
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
