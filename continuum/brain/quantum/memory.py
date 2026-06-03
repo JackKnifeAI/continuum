@@ -300,15 +300,30 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions made during this exchange
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+
+        # Detect and store compound concepts (multi-word phrases)
+        combined_text = f"{user_message} {ai_response}"
+        compounds = self._detect_compounds(combined_text)
+        compounds_found = 0
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,40 +345,80 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    # Words that carry no semantic meaning for concept extraction
+    _STOP_WORDS: frozenset = frozenset({
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    })
+
+    # Regex patterns that signal a decision or commitment
+    _DECISION_PATTERNS: List[Any] = [
+        re.compile(r'\b(?:will|shall)\s+\w+'),
+        re.compile(r'\bdecided?\s+to\b'),
+        re.compile(r'\bgoing\s+to\b'),
+        re.compile(r'\blet\'s\b'),
+        re.compile(r'\bwe\s+(?:will|should|must)\b'),
+        re.compile(r'\b(?:chose|choose|chosen)\b'),
+        re.compile(r'\bagreed?\s+(?:to|on|that)\b'),
+        re.compile(r'\bconclusion\b'),
+        re.compile(r'\buse\s+\w+\s+(?:for|as|to)\b'),
+    ]
+
     def _extract_concepts(self, text: str) -> List[str]:
-        """
-        Extract concepts from text.
-
-        Simple extraction - can be enhanced with NLP.
-        """
-        # Clean and tokenize
+        """Extract single-word concepts from text."""
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
-
-        # Deduplicate while preserving order
-        seen = set()
+        seen: set = set()
         unique = []
         for c in concepts:
             if c not in seen:
                 seen.add(c)
                 unique.append(c)
 
-        return unique[:20]  # Limit to top 20 concepts
+        return unique[:20]
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Count decision signals in a message exchange.
+
+        Matches commitments, choices, and conclusions using phrase patterns.
+        """
+        combined = f"{user_message} {ai_response}".lower()
+        return sum(len(p.findall(combined)) for p in self._DECISION_PATTERNS)
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Extract compound concepts (2–3 word noun phrases) from text.
+
+        Adjacent non-stop-word tokens form compound concepts that carry
+        richer semantics than single words (e.g. "quantum memory", "neural network").
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        meaningful = [w for w in words if w not in self._STOP_WORDS]
+
+        compounds: List[str] = []
+        seen: set = set()
+        for i in range(len(meaningful) - 1):
+            bigram = f"{meaningful[i]} {meaningful[i + 1]}"
+            if bigram not in seen:
+                seen.add(bigram)
+                compounds.append(bigram)
+            if i + 2 < len(meaningful):
+                trigram = f"{meaningful[i]} {meaningful[i + 1]} {meaningful[i + 2]}"
+                if trigram not in seen:
+                    seen.add(trigram)
+                    compounds.append(trigram)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
