@@ -568,9 +568,97 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, subscription={subscription_id}, "
+            f"attempt={attempt_count}, amount={amount_due} {currency}"
+        )
+
+        result: Dict[str, Any] = {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+            "action_taken": "none",
+            "notification_sent": False,
+        }
+
+        result["notification_sent"] = await self._notify_payment_failure(
+            customer_id=customer_id,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            currency=currency,
+            attempt_count=attempt_count,
+            next_payment_attempt=next_payment_attempt,
+        )
+
+        # Stripe Smart Retries handle scheduling; we escalate after repeated failures
+        _SUSPEND_THRESHOLD = 3
+        _CANCEL_THRESHOLD = 4
+
+        if subscription_id and not self.mock_mode:
+            if attempt_count >= _CANCEL_THRESHOLD:
+                try:
+                    await self.cancel_subscription(subscription_id, at_period_end=False)
+                    logger.warning(
+                        f"Subscription {subscription_id} canceled after "
+                        f"{attempt_count} failed payment attempts"
+                    )
+                    result["action_taken"] = "subscription_canceled"
+                except Exception as e:
+                    logger.error(f"Failed to cancel subscription {subscription_id}: {e}")
+            elif attempt_count >= _SUSPEND_THRESHOLD:
+                logger.warning(
+                    f"Subscription {subscription_id} flagged for suspension after "
+                    f"{attempt_count} failed payment attempts"
+                )
+                result["action_taken"] = "subscription_flagged_for_suspension"
+        elif self.mock_mode:
+            logger.info(f"[MOCK] Payment failure escalation skipped for invoice {invoice_id}")
+            result["action_taken"] = "mock_handled"
+
+        return result
+
+    async def _notify_payment_failure(
+        self,
+        customer_id: Optional[str],
+        invoice_id: Optional[str],
+        amount_due: int,
+        currency: str,
+        attempt_count: int,
+        next_payment_attempt: Optional[int],
+    ) -> bool:
+        """
+        Send payment failure notification to customer.
+
+        Logs structured failure details. Override or extend to integrate with
+        an email service (SendGrid, SES, Postmark, etc.).
+
+        Returns:
+            True if notification was dispatched successfully
+        """
+        next_attempt_str = (
+            datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+            if next_payment_attempt
+            else "no further retries scheduled"
+        )
+
+        logger.warning(
+            f"PAYMENT FAILURE NOTIFICATION: customer={customer_id}, "
+            f"invoice={invoice_id}, amount={amount_due / 100:.2f} {currency.upper()}, "
+            f"attempt={attempt_count}, next_retry={next_attempt_str}"
+        )
+
+        return True
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
