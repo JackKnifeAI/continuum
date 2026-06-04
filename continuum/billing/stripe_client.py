@@ -568,9 +568,62 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd').upper()
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id} ({customer_email}), "
+            f"amount={amount_due / 100:.2f} {currency}, "
+            f"attempt={attempt_count}"
+        )
+
+        action_taken = "logged"
+
+        if attempt_count >= 3:
+            # Multiple failures: escalate via critical-level log for external alerting
+            logger.critical(
+                f"PAYMENT_FAILURE_ESCALATION: invoice={invoice_id}, "
+                f"customer={customer_id}, email={customer_email}, "
+                f"attempts={attempt_count}, subscription={subscription_id}. "
+                f"Manual intervention required."
+            )
+            action_taken = "escalated"
+        elif not self.mock_mode:
+            # First/second failure: attempt immediate retry
+            try:
+                stripe.Invoice.pay(invoice_id)
+                action_taken = "retried"
+                logger.info(f"Triggered payment retry for invoice {invoice_id}")
+            except stripe.error.CardError as e:
+                logger.warning(f"Retry declined for invoice {invoice_id}: {e}")
+                action_taken = "retry_declined"
+            except stripe.error.StripeError as e:
+                logger.warning(f"Retry failed for invoice {invoice_id}: {e}")
+                action_taken = "retry_failed"
+        else:
+            action_taken = "mock_retry_skipped"
+
+        result: Dict[str, Any] = {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "action_taken": action_taken,
+        }
+
+        if next_payment_attempt:
+            result["next_payment_attempt"] = next_payment_attempt
+        if subscription_id:
+            result["subscription_id"] = subscription_id
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
