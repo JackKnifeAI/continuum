@@ -568,9 +568,68 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+        customer_email = invoice.get('customer_email')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} "
+            f"(customer: {customer_id}, attempt: {attempt_count}, "
+            f"amount: ${amount_due / 100:.2f})"
+        )
+
+        # After 3 failed attempts with no scheduled retry, treat as unrecoverable
+        max_retries = 3
+        action_required = "retry" if (attempt_count < max_retries and next_payment_attempt) else "suspend"
+
+        if action_required == "suspend":
+            logger.warning(
+                f"Max payment attempts reached for subscription {subscription_id}. "
+                "Subscription will be marked past_due; access should be restricted."
+            )
+
+        result: Dict[str, Any] = {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+            "amount_due": amount_due,
+            "action_required": action_required,
+            # Notification payloads for an external notification service to dispatch
+            "notifications_pending": [],
+        }
+
+        if customer_email:
+            if action_required == "retry" and next_payment_attempt:
+                retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+                result["notifications_pending"].append({
+                    "type": "payment_failed_retry",
+                    "recipient": customer_email,
+                    "data": {
+                        "invoice_id": invoice_id,
+                        "amount_due": amount_due,
+                        "next_retry": retry_dt.isoformat(),
+                        "attempt_count": attempt_count,
+                    },
+                })
+            else:
+                result["notifications_pending"].append({
+                    "type": "payment_failed_final",
+                    "recipient": customer_email,
+                    "data": {
+                        "invoice_id": invoice_id,
+                        "amount_due": amount_due,
+                        "attempt_count": attempt_count,
+                        "hosted_invoice_url": invoice.get("hosted_invoice_url"),
+                    },
+                })
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

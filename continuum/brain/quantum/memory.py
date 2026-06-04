@@ -302,13 +302,34 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions across the full exchange
+        combined = user_message + " " + ai_response
+        decisions_detected = self._extract_decisions(combined)
+
+        # Detect and register compound concepts (bigrams), linking to their parts
+        compound_concepts = self._detect_compound_concepts(combined)
+        compounds_found = 0
+        for compound in compound_concepts:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+            parts = compound.split()
+            if len(parts) == 2:
+                w1, w2 = parts
+                if w1 in self.entity_cache and w2 in self.entity_cache:
+                    self.brain.link_concepts(compound, w1, weight=0.7)
+                    self.brain.link_concepts(compound, w2, weight=0.7)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +350,58 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_decisions(self, text: str) -> int:
+        """Count decision-indicating phrases in text."""
+        patterns = [
+            r'\bdecided?\s+to\b',
+            r'\bgoing\s+to\s+\w+',
+            r'\bplan(?:ning)?\s+to\b',
+            r'\bchose\s+to\b',
+            r'\bopted?\s+to\b',
+            r'\bagreed?\s+to\b',
+            r'\bwill\s+\w+',
+            r'\bshould\s+\w+',
+            r'\bmust\s+\w+',
+        ]
+        return sum(len(re.findall(p, text, re.IGNORECASE)) for p in patterns)
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect compound concepts (adjacent content-word bigrams) from text.
+
+        Only pairs of consecutive non-stop-words qualify; a stop word between
+        two words breaks the chain.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        prev: str | None = None
+        for word in words:
+            if word not in stop_words:
+                if prev is not None:
+                    compounds.append(f"{prev} {word}")
+                prev = word
+            else:
+                prev = None  # stop word breaks the compound chain
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        return unique
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

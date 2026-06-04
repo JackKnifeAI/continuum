@@ -90,19 +90,30 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is in the legacy bare-SHA-256 format (no salt separator)."""
+    return ':' not in stored_hash
+
+
 def verify_key(key: str, stored_hash: str) -> bool:
     """
     Verify API key against stored PBKDF2 hash.
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash in format salt_hex:hash_hex (or legacy bare SHA-256)
 
     Returns:
         True if key matches, False otherwise
     """
+    if is_legacy_hash(stored_hash):
+        # Legacy SHA-256 path — only reached until validate_api_key upgrades the row.
+        # Remove once no rows without ':' remain in api_keys.
+        old_hash = hashlib.sha256(key.encode()).hexdigest()
+        return hmac.compare_digest(old_hash, stored_hash)
+
     try:
-        salt_hex, hash_hex = stored_hash.split(':')
+        salt_hex, hash_hex = stored_hash.split(':', 1)
         salt = bytes.fromhex(salt_hex)
         key_hash = hashlib.pbkdf2_hmac(
             'sha256',
@@ -112,10 +123,7 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
-        old_hash = hashlib.sha256(key.encode()).hexdigest()
-        return hmac.compare_digest(old_hash, stored_hash)
+        return False
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -143,11 +151,21 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+            now = datetime.now().isoformat()
+            if is_legacy_hash(stored_hash):
+                # Upgrade the stored hash from bare SHA-256 to PBKDF2 in-place.
+                # Once all rows are upgraded this branch becomes unreachable and
+                # the legacy path in verify_key can be removed.
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash)
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash)
+                )
             conn.commit()
             conn.close()
             return tenant_id
