@@ -568,9 +568,130 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+        subscription_id = invoice.get('subscription')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        amount_display = f"${amount_due / 100:.2f}" if amount_due else "unknown amount"
+
+        if next_payment_attempt:
+            next_attempt_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.warning(
+                f"Payment failed for invoice {invoice_id} "
+                f"(customer: {customer_id}, email: {customer_email}, "
+                f"amount: {amount_display}, attempt: {attempt_count}). "
+                f"Stripe will retry at {next_attempt_dt.isoformat()}"
+            )
+            self._notify_payment_failed(
+                customer_id=customer_id,
+                customer_email=customer_email,
+                invoice_id=invoice_id,
+                amount_display=amount_display,
+                attempt_count=attempt_count,
+                next_retry_iso=next_attempt_dt.isoformat(),
+                retries_exhausted=False,
+            )
+            return {
+                "status": "ok",
+                "invoice_id": invoice_id,
+                "action": "retry_scheduled",
+                "attempt_count": attempt_count,
+                "next_payment_attempt": next_attempt_dt.isoformat(),
+            }
+        else:
+            # Stripe will not retry further — subscription will move to past_due/unpaid
+            logger.error(
+                f"Payment failed and retries exhausted for invoice {invoice_id} "
+                f"(customer: {customer_id}, email: {customer_email}, "
+                f"amount: {amount_display}, attempts: {attempt_count}). "
+                f"Subscription {subscription_id} requires manual intervention."
+            )
+            self._notify_payment_failed(
+                customer_id=customer_id,
+                customer_email=customer_email,
+                invoice_id=invoice_id,
+                amount_display=amount_display,
+                attempt_count=attempt_count,
+                next_retry_iso=None,
+                retries_exhausted=True,
+            )
+            return {
+                "status": "ok",
+                "invoice_id": invoice_id,
+                "action": "retries_exhausted",
+                "attempt_count": attempt_count,
+                "subscription_id": subscription_id,
+                "requires_intervention": True,
+            }
+
+    def _notify_payment_failed(
+        self,
+        customer_id: str,
+        customer_email: Optional[str],
+        invoice_id: str,
+        amount_display: str,
+        attempt_count: int,
+        next_retry_iso: Optional[str],
+        retries_exhausted: bool,
+    ) -> None:
+        """
+        Emit a structured notification for a payment failure.
+
+        In production, wire this to an email/SMS provider (e.g. SendGrid, SES)
+        via the PAYMENT_FAILURE_WEBHOOK_URL environment variable or a subclass
+        override.  The default implementation logs a structured record so that
+        log-aggregation pipelines (Datadog, CloudWatch, etc.) can trigger alerts.
+        """
+        notification_webhook = os.getenv("PAYMENT_FAILURE_WEBHOOK_URL")
+
+        if retries_exhausted:
+            subject = f"Action required: payment failed after {attempt_count} attempts"
+            body = (
+                f"Invoice {invoice_id} for {amount_display} could not be collected "
+                f"after {attempt_count} attempt(s). The subscription has been suspended. "
+                f"Please update your payment method to restore service."
+            )
+        else:
+            subject = f"Payment attempt {attempt_count} failed — will retry at {next_retry_iso}"
+            body = (
+                f"Invoice {invoice_id} for {amount_display} failed on attempt {attempt_count}. "
+                f"Stripe will automatically retry on {next_retry_iso}. "
+                f"To avoid service interruption, please update your payment method."
+            )
+
+        log_payload: Dict[str, Any] = {
+            "event": "payment_failed_notification",
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "invoice_id": invoice_id,
+            "amount": amount_display,
+            "attempt_count": attempt_count,
+            "retries_exhausted": retries_exhausted,
+            "next_retry": next_retry_iso,
+            "subject": subject,
+            "body": body,
+        }
+        logger.info("PAYMENT_FAILURE_NOTIFICATION %s", log_payload)
+
+        if notification_webhook:
+            try:
+                import json as _json
+                import urllib.request
+                req = urllib.request.Request(
+                    notification_webhook,
+                    data=_json.dumps(log_payload).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+                logger.info(f"Payment failure notification dispatched to webhook for {customer_email}")
+            except Exception as exc:
+                logger.error(f"Failed to dispatch payment failure notification: {exc}")
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

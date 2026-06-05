@@ -300,15 +300,38 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions in the exchange
+        decisions_detected = (
+            self._detect_decisions(user_message) +
+            self._detect_decisions(ai_response)
+        )
+
+        # Extract and store compound (multi-word) concepts
+        compound_concepts = self._extract_compound_concepts(
+            user_message + " " + ai_response
+        )
+        compounds_found = len(compound_concepts)
+        for compound in compound_concepts:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+            # Link compound to its constituent words
+            for part in compound.split():
+                if part.lower() in self.entity_cache:
+                    self.brain.link_concepts(compound, part, weight=0.7)
+                    links_created += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +387,72 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Count decision statements in text.
+
+        Matches phrases indicating choices, plans, or commitments.
+        """
+        decision_patterns = [
+            r"\b(?:i|we)\s+(?:will|shall|must|need to|have to|am going to|are going to)\b",
+            r"\b(?:decided|deciding|choosing|chose|agreed|planning|plan to)\b",
+            r"\blet(?:'s| us)\b",
+            r"\bthe\s+(?:decision|plan|approach|solution)\s+is\b",
+            r"\bgoing to\b",
+            r"\bwill\s+(?:use|implement|build|create|make|add|fix|change|update)\b",
+        ]
+
+        count = 0
+        text_lower = text.lower()
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text_lower))
+
+        return count
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract multi-word compound concepts from text.
+
+        Finds adjacent non-stop-word pairs (bigrams) and triplets (trigrams)
+        that likely represent meaningful compound ideas.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+
+        # Bigrams: both words must be content words
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        # Trigrams: first and last must be content words
+        for i in range(len(words) - 2):
+            w1, w2, w3 = words[i], words[i + 1], words[i + 2]
+            if w1 not in stop_words and w3 not in stop_words:
+                compound = f"{w1} {w2} {w3}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds[:30]  # Limit to top 30 compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

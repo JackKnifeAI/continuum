@@ -21,11 +21,14 @@ API middleware for authentication, rate limiting, and other cross-cutting concer
 import hashlib
 import hmac
 import sqlite3
+import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # =============================================================================
 # CONFIGURATION
@@ -112,10 +115,15 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy SHA-256 hashes (no salt separator).
+        # validate_api_key auto-upgrades these to PBKDF2 on successful login.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
+
+
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if the hash uses the old plain SHA-256 format (no salt separator)."""
+    return ':' not in stored_hash
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -143,11 +151,19 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+            now = datetime.now().isoformat()
+            if is_legacy_hash(stored_hash):
+                # Auto-migrate: replace legacy SHA-256 hash with PBKDF2 in one UPDATE
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash),
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash),
+                )
             conn.commit()
             conn.close()
             return tenant_id
@@ -221,11 +237,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
 
-from typing import Optional
-
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """
@@ -256,9 +267,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # RATE LIMITING
 # =============================================================================
-
-import time
-from collections import defaultdict
 
 
 class RateLimiter:
