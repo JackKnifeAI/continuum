@@ -300,18 +300,89 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and compounds from both sides of the exchange
+        raw_decisions = (self._extract_decisions(user_message) +
+                         self._extract_decisions(ai_response))
+        seen_d: set = set()
+        deduped_decisions = []
+        for d in raw_decisions:
+            key = d[:40]
+            if key not in seen_d:
+                seen_d.add(key)
+                deduped_decisions.append(d)
+
+        raw_compounds = (self._extract_compounds(user_message) +
+                         self._extract_compounds(ai_response))
+        seen_c: set = set()
+        deduped_compounds = []
+        for c in raw_compounds:
+            if c not in seen_c:
+                seen_c.add(c)
+                deduped_compounds.append(c)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(deduped_decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(deduped_compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from text using pattern matching."""
+        patterns = [
+            r'\b(?:will|shall)\s+(?:use|implement|build|create|add|remove|change|update|deploy|migrate|adopt|switch|replace)\b[^.!?\n]*',
+            r'\b(?:decided|agreed|resolved|concluded|determined)\s+(?:to\s+)?\w+[^.!?\n]*',
+            r"\b(?:let's|lets|going\s+to)\s+\w+[^.!?\n]*",
+            r'\b(?:we|i)\s+(?:should|must|need\s+to|have\s+to)\s+\w+[^.!?\n]*',
+        ]
+        decisions = []
+        for pattern in patterns:
+            for m in re.finditer(pattern, text, re.IGNORECASE):
+                decisions.append(m.group().strip())
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """Detect compound concepts (consecutive non-stop-word runs of 2–4 words)."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{2,}\b', text.lower())
+        compounds: List[str] = []
+        i = 0
+        while i < len(tokens):
+            if tokens[i] not in stop_words:
+                run = [tokens[i]]
+                j = i + 1
+                while j < len(tokens) and tokens[j] not in stop_words and len(run) < 4:
+                    run.append(tokens[j])
+                    j += 1
+                if len(run) >= 2:
+                    compounds.append(' '.join(run))
+                i = j
+            else:
+                i += 1
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        return unique
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
