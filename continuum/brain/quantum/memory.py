@@ -35,6 +35,31 @@ from .core import (
     QuantumBrain,
 )
 
+# Compiled patterns for decision and compound-concept extraction
+_DECISION_RE = re.compile(
+    r'\b(?:decided?|chose|selected?|opted?|determined|resolved)\s+(?:to\s+)?'
+    r'([A-Za-z][\w ]{4,60}?)(?=[.,!?\n]|$)',
+    re.IGNORECASE | re.MULTILINE,
+)
+_FUTURE_RE = re.compile(
+    r'\b(?:going to|plan to|intend to)\s+([A-Za-z][\w ]{4,60}?)(?=[.,!?\n]|$)',
+    re.IGNORECASE | re.MULTILINE,
+)
+_PROPER_NOUN_RE = re.compile(r'\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+\b')
+
+_STOP_WORDS: frozenset = frozenset({
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+    'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+    'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+    'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+    'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+    'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+})
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATACLASSES (matching Continuum's interface)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -302,16 +327,53 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compound_concepts(combined_text)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision phrases using verb-marker patterns."""
+        found: List[str] = []
+        for pattern in (_DECISION_RE, _FUTURE_RE):
+            for m in pattern.finditer(text):
+                phrase = m.group(1).strip()
+                if 5 <= len(phrase) <= 80:
+                    found.append(phrase)
+        return found[:10]
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word compound concepts from text.
+
+        Uses two signals:
+        1. Proper-noun phrases: consecutive Title-Case words (e.g. "Machine Learning")
+        2. Content bigrams: adjacent non-stop words of 4+ chars each
+        """
+        proper = _PROPER_NOUN_RE.findall(text)
+
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', text.lower())
+        content = [w for w in words if w not in _STOP_WORDS]
+        bigrams = [f"{content[i]} {content[i + 1]}" for i in range(len(content) - 1)]
+
+        seen: set = set()
+        compounds: List[str] = []
+        for c in proper + bigrams:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                compounds.append(c)
+
+        return compounds[:10]
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
