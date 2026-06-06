@@ -566,11 +566,94 @@ class StripeClient:
         logger.info(f"Payment succeeded for invoice: {invoice['id']}")
         return {"status": "ok", "invoice_id": invoice['id']}
 
+    MAX_PAYMENT_RETRIES = 3
+
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """Handle invoice.payment_failed event with retry logic and email notification."""
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd').upper()
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        hosted_url = invoice.get('hosted_invoice_url')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} "
+            f"(customer={customer_id}, attempt={attempt_count}/{self.MAX_PAYMENT_RETRIES}, "
+            f"amount={amount_due / 100:.2f} {currency})"
+        )
+
+        self._notify_payment_failed(
+            customer_email=customer_email,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            currency=currency,
+            attempt_count=attempt_count,
+            hosted_url=hosted_url,
+        )
+
+        if not self.mock_mode and attempt_count < self.MAX_PAYMENT_RETRIES:
+            try:
+                stripe.Invoice.pay(invoice_id)
+                logger.info(f"Retried payment for invoice {invoice_id} (attempt {attempt_count + 1})")
+            except stripe.error.CardError as e:
+                logger.warning(f"Retry payment declined for invoice {invoice_id}: {e}")
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to retry payment for invoice {invoice_id}: {e}")
+        elif attempt_count >= self.MAX_PAYMENT_RETRIES:
+            logger.error(
+                f"Invoice {invoice_id} has exhausted {self.MAX_PAYMENT_RETRIES} payment attempts. "
+                f"Subscription {subscription_id} may be suspended."
+            )
+            if not self.mock_mode and subscription_id:
+                try:
+                    stripe.Subscription.modify(subscription_id, pause_collection={"behavior": "mark_uncollectible"})
+                    logger.warning(f"Marked subscription {subscription_id} uncollectible after max retries")
+                except stripe.error.StripeError as e:
+                    logger.error(f"Failed to update subscription after max retries: {e}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "retried": not self.mock_mode and attempt_count < self.MAX_PAYMENT_RETRIES,
+        }
+
+    def _notify_payment_failed(
+        self,
+        customer_email: Optional[str],
+        invoice_id: str,
+        amount_due: int,
+        currency: str,
+        attempt_count: int,
+        hosted_url: Optional[str],
+    ) -> None:
+        """
+        Send payment failure notification to customer.
+
+        Logs the notification details. Override or extend to integrate a real
+        email service (SendGrid, SES, SMTP, etc.).
+        """
+        if not customer_email:
+            logger.warning(f"No customer email on invoice {invoice_id}; skipping notification")
+            return
+
+        subject = "Action required: Payment failed for your CONTINUUM subscription"
+        body_lines = [
+            "Hi,",
+            "",
+            f"We were unable to process your payment of {amount_due / 100:.2f} {currency}.",
+            f"This is attempt {attempt_count} of {self.MAX_PAYMENT_RETRIES}.",
+        ]
+        if hosted_url:
+            body_lines += ["", f"Please update your payment method: {hosted_url}"]
+
+        logger.warning(
+            f"[EMAIL NOTIFICATION] To={customer_email} Subject={subject!r}\n"
+            + "\n".join(body_lines)
+        )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
