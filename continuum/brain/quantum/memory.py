@@ -35,6 +35,19 @@ from .core import (
     QuantumBrain,
 )
 
+_STOP_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+    'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+    'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+    'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+    'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+    'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATACLASSES (matching Continuum's interface)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -300,15 +313,27 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts across the full exchange
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined_text)
+
+        compounds = self._detect_compounds(combined_text)
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.7)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -339,21 +364,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in _STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
@@ -364,6 +375,39 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision/commitment markers — phrases where a course of action is chosen."""
+        patterns = [
+            r'\bdecided?\b',
+            r'\bchose\b',
+            r'\bchoosing\b',
+            r'\bgoing\s+with\b',
+            r'\bopted?\s+(?:for|to)\b',
+            r'\bwill\s+(?:use|implement|adopt|go\s+with)\b',
+            r'\b(?:plan|approach|strategy|decision)\s+(?:is|will\s+be)\b',
+            r'\blet(?:\'s|\s+us)\b',
+            r'\bcommit(?:ted|ting)?\s+to\b',
+            r'\bsettled?\s+on\b',
+        ]
+        count = 0
+        for pattern in patterns:
+            count += len(re.findall(pattern, text, re.IGNORECASE))
+        return count
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """Detect compound concepts — adjacent pairs of meaningful (non-stop) words."""
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in _STOP_WORDS and w2 not in _STOP_WORDS:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
