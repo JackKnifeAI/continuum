@@ -300,15 +300,49 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and compound concepts from the full exchange
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._detect_compound_concepts(combined_text)
+
+        # Store decisions as typed entities
+        decisions_detected = 0
+        for decision in decisions:
+            key = decision.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(decision, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = decision
+                self._store_entity_metadata(addr, decision, "decision", "")
+                concepts_extracted += 1
+            decisions_detected += 1
+
+        # Store compound concepts and link them to their component terms
+        compounds_found = 0
+        for compound in compounds:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.9)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+                # Link compound to its component words
+                for part in compound.replace("-", " ").split():
+                    if part.lower() in self.entity_cache:
+                        self.brain.link_concepts(compound, part, weight=0.7)
+                        links_created += 1
+            compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +398,47 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements and commitments from text."""
+        patterns = [
+            r"\b(?:will|shall|going\s+to|plan\s+to|decided\s+to|agreed\s+to|choose\s+to)\s+([\w][\w\s]{3,50}?)(?:[.!?\n]|$)",
+            r"\b(?:decision|plan|goal|objective|approach)\s*(?:is|:)\s*([\w][\w\s]{3,50}?)(?:[.!?\n]|$)",
+            r"\blet(?:'s|us)\s+([\w][\w\s]{3,40}?)(?:[.!?\n]|$)",
+        ]
+        decisions = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
+                decision = match.group(1).strip()
+                if len(decision) > 4:
+                    decisions.append(decision[:80])
+        seen: set = set()
+        unique = []
+        for d in decisions:
+            key = d.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(d)
+        return unique[:5]
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts: proper noun phrases, hyphenated terms, CamelCase."""
+        # Sequences of 2+ capitalized words (e.g. "Machine Learning", "Quantum Brain")
+        proper = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', text)
+        # Hyphenated compounds (e.g. "error-correction", "self-evolving")
+        hyphenated = re.findall(r'\b[a-zA-Z]{2,}-[a-zA-Z]{2,}\b', text)
+        # CamelCase identifiers used as concepts (e.g. "QuantumBrain", "ConsciousMemory")
+        camel = re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text)
+
+        seen: set = set()
+        unique = []
+        for c in proper + hyphenated + camel:
+            if len(c) > 4:
+                key = c.lower()
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+        return unique[:10]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
