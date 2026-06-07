@@ -300,18 +300,94 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions in the exchange
+        decisions_detected = (
+            self._detect_decisions(user_message)
+            + self._detect_decisions(ai_response)
+        )
+
+        # Detect and store compound concepts
+        compound_concepts = self._detect_compounds(user_message + " " + ai_response)
+        for compound in compound_concepts:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compound_concepts),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Detect decision-making patterns in text.
+
+        Looks for commitment language, explicit choices, and future-intent markers
+        that signal a decision was reached.
+
+        Returns:
+            Number of decisions detected
+        """
+        decision_patterns = [
+            r'\b(?:will|shall)\s+\w+',
+            r'\bdecided?\s+to\b',
+            r'\bgoing\s+to\b',
+            r'\blet\'?s\b',
+            r'\bwe\s+(?:should|must|need\s+to)\b',
+            r'\bthe\s+plan\s+(?:is|was)\b',
+            r'\bI\'?m\s+going\s+to\b',
+            r'\b(?:chose|choose|picked|selected|agreed)\b',
+        ]
+        count = 0
+        text_lower = text.lower()
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text_lower))
+        return count
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Detect compound concepts (consecutive meaningful word pairs) in text.
+
+        Bigrams of non-stop-words capture multi-word technical and domain terms
+        that single-token extraction misses (e.g. "neural network", "spreading activation").
+
+        Returns:
+            Deduplicated list of compound concept strings
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i].lower(), words[i + 1].lower()
+            if w1 not in stop_words and w2 not in stop_words:
+                key = f"{w1} {w2}"
+                if key not in seen:
+                    seen.add(key)
+                    compounds.append(f"{words[i]} {words[i + 1]}")
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

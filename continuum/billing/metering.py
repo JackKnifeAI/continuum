@@ -246,14 +246,45 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await self.storage.save_usage(dict(self._usage_cache))
+                self._prune_stale_cache()
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
         self._last_flush = datetime.now(timezone.utc)
+
+    def _prune_stale_cache(self) -> None:
+        """Remove cache entries older than 25 hours to prevent unbounded memory growth."""
+        now = datetime.now(timezone.utc)
+        stale_keys = []
+        for key in list(self._usage_cache.keys()):
+            # Keys are formatted as "{tenant_id}:{period_key}" or "{tenant_id}:storage"
+            parts = key.split(":", 1)
+            if len(parts) < 2:
+                continue
+            period = parts[1]
+            # Skip storage keys (not time-bounded)
+            if period == "storage":
+                continue
+            # Try to parse date from key (YYYY-MM-DD or YYYY-MM-DD-HH-MM or YYYY-MM)
+            try:
+                if len(period) == 10:  # YYYY-MM-DD
+                    entry_date = datetime.strptime(period, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                elif len(period) == 16:  # YYYY-MM-DD-HH-MM
+                    entry_date = datetime.strptime(period, "%Y-%m-%d-%H-%M").replace(tzinfo=timezone.utc)
+                elif len(period) == 7:  # YYYY-MM
+                    entry_date = datetime.strptime(period, "%Y-%m").replace(tzinfo=timezone.utc)
+                else:
+                    continue
+                if (now - entry_date).total_seconds() > 25 * 3600:
+                    stale_keys.append(key)
+            except ValueError:
+                continue
+        for key in stale_keys:
+            del self._usage_cache[key]
+        if stale_keys:
+            logger.debug(f"Pruned {len(stale_keys)} stale cache entries")
 
 
 class RateLimiter:
@@ -414,6 +445,24 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # Maps tenant_id -> subscription_item_id for background reporting
+        self._active_subscriptions: Dict[str, str] = {}
+
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register an active subscription for background usage reporting.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID
+        """
+        self._active_subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription {subscription_item_id} for tenant {tenant_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """Remove a tenant from background usage reporting."""
+        self._active_subscriptions.pop(tenant_id, None)
+        logger.debug(f"Unregistered subscription for tenant {tenant_id}")
 
     async def report_usage_to_stripe(
         self,
@@ -457,8 +506,14 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
             logger.debug("Background usage reporting tick")
+            if not self._active_subscriptions:
+                continue
+            for tenant_id, subscription_item_id in list(self._active_subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Background reporting failed for tenant {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
