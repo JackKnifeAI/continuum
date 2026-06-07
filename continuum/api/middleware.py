@@ -112,10 +112,16 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for old plain-SHA-256 hashes — auto-migrated to PBKDF2 on
+        # next successful login via validate_api_key(); removable once the DB
+        # contains no hashes without a ':' separator.
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
+
+
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash uses the old unsalted SHA-256 format."""
+    return ':' not in stored_hash
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -123,6 +129,7 @@ def validate_api_key(key: str) -> Optional[str]:
     Validate an API key and return the associated tenant ID.
 
     SECURITY: Uses constant-time comparison and PBKDF2 verification.
+    Legacy SHA-256 hashes are transparently upgraded to PBKDF2 on first use.
 
     Args:
         key: API key to validate
@@ -143,11 +150,19 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
-            # Update last_used timestamp
-            c.execute(
-                "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
-            )
+            now = datetime.now().isoformat()
+            if is_legacy_hash(stored_hash):
+                # Upgrade legacy SHA-256 hash to PBKDF2 in place
+                new_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ?, last_used = ? WHERE key_hash = ?",
+                    (new_hash, now, stored_hash),
+                )
+            else:
+                c.execute(
+                    "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
+                    (now, stored_hash),
+                )
             conn.commit()
             conn.close()
             return tenant_id

@@ -300,15 +300,25 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts from both messages
+        decisions_detected = (
+            self._extract_decisions(user_message)
+            + self._extract_decisions(ai_response)
+        )
+
+        compounds_found = self._store_compound_concepts(
+            user_message, ai_response, all_concepts
+        )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +339,78 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_decisions(self, text: str) -> int:
+        """Count decision-intent patterns in text."""
+        patterns = [
+            r'\b(?:i|we)\s+(?:will|shall|am\s+going\s+to|are\s+going\s+to)\s+\w+',
+            r'\b(?:decided|chose|opted|resolved)\s+to\s+\w+',
+            r"\blet(?:'s|\s+us)\s+\w+",
+            r"\b(?:i|we)\s+(?:have|'ve)\s+decided\b",
+            r'\b(?:the\s+)?decision\s+(?:is|was|to)\b',
+            r'\bgoing\s+to\s+\w+',
+            r'\b(?:i|we)\s+(?:need|must|should)\s+to\s+\w+',
+        ]
+        return sum(len(re.findall(p, text, re.IGNORECASE)) for p in patterns)
+
+    def _store_compound_concepts(
+        self, user_message: str, ai_response: str, known_concepts: set
+    ) -> int:
+        """
+        Detect and store compound (multi-word) concepts as linked brain nodes.
+
+        Finds adjacent non-stopword word pairs in both messages, stores novel
+        compounds in the brain, and links them to their component words.
+
+        Returns count of new compound concepts stored.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        compounds: List[str] = []
+        seen: set = set()
+        for text in (user_message, ai_response):
+            words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+            for i in range(len(words) - 1):
+                w1, w2 = words[i], words[i + 1]
+                if w1 not in stop_words and w2 not in stop_words:
+                    compound = f"{w1}_{w2}"
+                    if compound not in seen:
+                        seen.add(compound)
+                        compounds.append(compound)
+
+        new_count = 0
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                new_count += 1
+
+                # Link compound to each component word if present
+                parts = compound.split("_")
+                for part in parts:
+                    if part in self.entity_cache:
+                        self.brain.link_concepts(compound, part, weight=0.7)
+            else:
+                # Boost activation of existing compound
+                addr = self.entity_cache[compound]
+                self.brain.cells[addr].activation = min(
+                    1.0, self.brain.cells[addr].activation + 0.1
+                )
+
+        return new_count
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
