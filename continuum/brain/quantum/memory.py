@@ -302,13 +302,36 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions and store each as a "decision" entity
+        decisions = (self._extract_decisions(user_message) +
+                     self._extract_decisions(ai_response))
+        for decision in decisions:
+            key = decision.lower()[:60]
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(decision[:60], activation=1.0)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = decision[:60]
+                self._store_entity_metadata(addr, decision[:60], "decision", decision)
+
+        # Detect compound concepts and store new ones
+        compounds = (self._extract_compounds(user_message) +
+                     self._extract_compounds(ai_response))
+        new_compounds = 0
+        for phrase in compounds:
+            if phrase not in self.entity_cache:
+                addr = self.brain.store_concept(phrase, activation=0.8)
+                self.entity_cache[phrase] = addr
+                self.name_cache[addr] = phrase
+                self._store_entity_metadata(addr, phrase, "compound", "")
+                new_compounds += 1
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=new_compounds,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +352,45 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from text using trigger-phrase patterns."""
+        patterns = [
+            r'\b(?:decided?|choosing|chose|going with|will use|agreed? to)\s+[^.!?\n]{5,60}',
+            r'\b(?:the (?:decision|choice|plan) is)\s+[^.!?\n]{5,60}',
+            r'\b(?:I will|we will|we should|let\'s)\s+[^.!?\n]{5,60}',
+        ]
+        decisions = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text, re.IGNORECASE):
+                decision = match.strip()
+                if decision not in decisions:
+                    decisions.append(decision)
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """Extract compound (multi-word) concepts as adjacent non-stopword bigrams."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'where', 'when', 'how',
+            'all', 'each', 'every', 'both', 'some', 'such', 'no', 'not', 'only',
+            'so', 'than', 'too', 'very', 'just', 'about', 'into', 'also',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                phrase = f"{w1} {w2}"
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+        return compounds[:10]
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

@@ -568,9 +568,124 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd').upper()
+        next_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} | "
+            f"customer={customer_id} | "
+            f"amount={amount_due / 100:.2f} {currency} | "
+            f"attempt={attempt_count} | "
+            f"next_attempt={'scheduled' if next_attempt else 'none'}"
+        )
+
+        failure_context = self._build_payment_failure_context(
+            invoice_id=invoice_id,
+            customer_id=customer_id,
+            attempt_count=attempt_count,
+            amount_due=amount_due,
+            currency=currency,
+            next_attempt=next_attempt,
+        )
+
+        await self._notify_payment_failure(failure_context)
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "will_retry": next_attempt is not None,
+        }
+
+    def _build_payment_failure_context(
+        self,
+        invoice_id: str,
+        customer_id: str,
+        attempt_count: int,
+        amount_due: int,
+        currency: str,
+        next_attempt: Optional[int],
+    ) -> Dict[str, Any]:
+        """Build structured context for a payment failure notification."""
+        # Stripe retries up to ~4 times; treat later attempts as high severity.
+        if attempt_count >= 4:
+            severity = "critical"
+        elif attempt_count >= 2:
+            severity = "high"
+        else:
+            severity = "warning"
+
+        next_attempt_dt: Optional[str] = None
+        if next_attempt:
+            next_attempt_dt = datetime.fromtimestamp(next_attempt, tz=timezone.utc).isoformat()
+
+        return {
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "amount_due_cents": amount_due,
+            "amount_due_display": f"{amount_due / 100:.2f} {currency}",
+            "currency": currency,
+            "will_retry": next_attempt is not None,
+            "next_attempt_at": next_attempt_dt,
+            "severity": severity,
+        }
+
+    async def _notify_payment_failure(self, context: Dict[str, Any]) -> None:
+        """
+        Dispatch a payment failure notification.
+
+        Logs a structured record now; extend this method to send email/Slack/webhook
+        once a notification service is wired in (see STRIPE_FAILURE_NOTIFY_URL env var).
+        """
+        severity = context["severity"]
+        log_fn = logger.critical if severity == "critical" else logger.error
+
+        log_fn(
+            "PAYMENT_FAILURE | "
+            "invoice=%(invoice_id)s | "
+            "customer=%(customer_id)s | "
+            "amount=%(amount_due_display)s | "
+            "attempt=%(attempt_count)d | "
+            "severity=%(severity)s | "
+            "will_retry=%(will_retry)s | "
+            "next_attempt=%(next_attempt_at)s",
+            context,
+        )
+
+        notify_url = os.getenv("STRIPE_FAILURE_NOTIFY_URL")
+        if notify_url:
+            await self._post_failure_webhook(notify_url, context)
+
+    async def _post_failure_webhook(self, url: str, context: Dict[str, Any]) -> None:
+        """POST payment failure context to a configured notification URL."""
+        try:
+            import json
+            import urllib.request
+
+            payload = json.dumps({
+                "event": "payment_failed",
+                "data": context,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:  # noqa: S310
+                logger.info(
+                    f"Payment failure notification sent to {url} "
+                    f"(status {response.status})"
+                )
+        except Exception as e:
+            logger.error(f"Failed to post payment failure notification to {url}: {e}")
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
