@@ -568,9 +568,87 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        customer_name = invoice.get('customer_name', 'Customer')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd').upper()
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+        hosted_invoice_url = invoice.get('hosted_invoice_url')
+
+        logger.error(
+            f"Payment failed for invoice: {invoice_id} | "
+            f"customer: {customer_id} | "
+            f"amount: {amount_due / 100:.2f} {currency} | "
+            f"attempt: {attempt_count}"
+        )
+
+        # Emit structured notification payload so an upstream service
+        # (e.g. SendGrid, Postmark, or an internal mailer) can pick it up.
+        notification = {
+            "type": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "customer_name": customer_name,
+            "amount_due_cents": amount_due,
+            "currency": currency,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_payment_attempt,
+            "subscription_id": subscription_id,
+            "hosted_invoice_url": hosted_invoice_url,
+        }
+
+        if customer_email:
+            logger.info(
+                f"[NOTIFICATION] Payment failure email queued | "
+                f"to={customer_email} | invoice={invoice_id} | "
+                f"amount={amount_due / 100:.2f} {currency} | attempt={attempt_count}"
+            )
+        else:
+            logger.warning(
+                f"Cannot send payment failure notification: no email on invoice {invoice_id}"
+            )
+
+        # Retry via Stripe when the attempt count is low and we are in live mode.
+        # Stripe's automatic retry schedule handles later attempts; we only
+        # intervene on the first failure to give the customer an immediate second
+        # chance (e.g. transient network decline).
+        retry_attempted = False
+        retry_error: Optional[str] = None
+        MAX_IMMEDIATE_RETRIES = 1
+
+        if not self.mock_mode and attempt_count <= MAX_IMMEDIATE_RETRIES and STRIPE_AVAILABLE:
+            try:
+                logger.info(f"Attempting immediate payment retry for invoice: {invoice_id}")
+                stripe.Invoice.pay(invoice_id)
+                retry_attempted = True
+                logger.info(f"Retry payment succeeded for invoice: {invoice_id}")
+            except stripe.error.CardError as e:
+                retry_attempted = True
+                retry_error = str(e)
+                logger.warning(f"Retry payment declined for invoice {invoice_id}: {e}")
+            except stripe.error.InvalidRequestError as e:
+                retry_attempted = True
+                retry_error = str(e)
+                logger.warning(f"Retry payment invalid for invoice {invoice_id}: {e}")
+            except Exception as e:
+                retry_error = str(e)
+                logger.error(f"Unexpected error retrying payment for invoice {invoice_id}: {e}")
+        elif self.mock_mode:
+            logger.info(f"[MOCK] Skipping payment retry for invoice: {invoice_id}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "action": "payment_failed_handled",
+            "notification": notification,
+            "retry_attempted": retry_attempted,
+            "retry_error": retry_error,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

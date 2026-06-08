@@ -300,18 +300,97 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts from the exchange
+        decisions = self._detect_decisions(user_message + " " + ai_response)
+        for decision in decisions:
+            key = f"decision:{decision[:40]}"
+            if key.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=1.0)
+                self.entity_cache[key.lower()] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision)
+
+        compounds = self._detect_compounds(user_message + " " + ai_response)
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+                links_created += self._link_compound_parts(compound)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from conversation text."""
+        patterns = [
+            r"(?:we\s+)?(?:decided|chose|selected|agreed)\s+(?:to\s+)?([^.!?\n]{10,80})",
+            r"(?:let's|let us|we'll|we will|i'll|i will)\s+([^.!?\n]{10,80})",
+            r"(?:going to|going with|will use|will implement|will adopt)\s+([^.!?\n]{10,80})",
+            r"(?:the\s+)?(?:decision|conclusion|plan)\s+(?:is|was)\s+(?:to\s+)?([^.!?\n]{10,80})",
+        ]
+        decisions: List[str] = []
+        seen: set = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                decision = match.group(1).strip()
+                key = decision[:40].lower()
+                if key not in seen:
+                    seen.add(key)
+                    decisions.append(decision)
+                if len(decisions) >= 5:
+                    return decisions
+        return decisions
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts (bigrams of meaningful tokens)."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'where', 'when', 'why', 'how',
+            'all', 'each', 'every', 'both', 'some', 'no', 'not', 'only', 'own',
+            'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your', 'our',
+            'their', 'any', 'there', 'here', 'its', 'also', 'being', 'more',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        seen: set = set()
+        for i in range(len(tokens) - 1):
+            w1, w2 = tokens[i], tokens[i + 1]
+            if w1 in stop_words or w2 in stop_words:
+                continue
+            compound = f"{w1}_{w2}"
+            if compound not in seen:
+                seen.add(compound)
+                compounds.append(compound)
+            if len(compounds) >= 10:
+                break
+        return compounds
+
+    def _link_compound_parts(self, compound: str) -> int:
+        """Link a compound concept to its constituent parts. Returns links created."""
+        parts = compound.split("_")
+        links = 0
+        for part in parts:
+            if part in self.entity_cache and compound.lower() in self.entity_cache:
+                self.brain.link_concepts(part, compound, weight=0.7)
+                links += 1
+        return links
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
