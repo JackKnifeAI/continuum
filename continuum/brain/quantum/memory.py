@@ -302,13 +302,18 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions_detected = self._extract_decisions(user_message + " " + ai_response)
+        compounds_found = self._detect_compounds(
+            user_message + " " + ai_response, list(all_concepts)
+        )
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +369,44 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    # Decision marker patterns: imperative/volitional constructions
+    _DECISION_PATTERNS = [
+        r"\b(?:will|shall|going to|plan(?:ning)? to|decided? to|need to|must|have to)\s+[a-z]+",
+        r"\blet'?s\s+[a-z]+",
+        r"\bwe(?:'re|'ll)?\s+(?:going to|planning to|need to|should|must)\s+[a-z]+",
+        r"\bi(?:'ll|'m going to)\s+[a-z]+",
+    ]
+
+    def _extract_decisions(self, text: str) -> int:
+        """
+        Count distinct decision-like statements in text.
+
+        Detects volitional/imperative constructions that indicate a commitment
+        or chosen course of action (e.g. "will deploy", "let's refactor").
+        """
+        matches: set = set()
+        lower = text.lower()
+        for pattern in self._DECISION_PATTERNS:
+            for m in re.findall(pattern, lower):
+                matches.add(m.strip())
+        return len(matches)
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> int:
+        """
+        Detect compound concepts (adjacent content-word pairs) in text.
+
+        A compound is two consecutive concept words appearing together, e.g.
+        "machine learning", "neural network". Returns the count of distinct
+        pairs found.
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: set = set()
+        for i in range(len(words) - 1):
+            if words[i] in concept_set and words[i + 1] in concept_set:
+                compounds.add((words[i], words[i + 1]))
+        return len(compounds)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
