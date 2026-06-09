@@ -568,9 +568,75 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+
+        logger.error(
+            f"Payment failed for invoice: {invoice_id} "
+            f"(customer: {customer_id}, attempt: {attempt_count}, "
+            f"amount: ${amount_due / 100:.2f})"
+        )
+
+        await self._notify_payment_failure(invoice)
+
+        # Stripe handles scheduled retries per dashboard settings; attempt an
+        # immediate retry only on the very first failure to recover transient errors.
+        retried = False
+        if attempt_count == 1 and not self.mock_mode:
+            try:
+                stripe.Invoice.pay(invoice_id)
+                logger.info(f"Immediate payment retry succeeded for invoice {invoice_id}")
+                retried = True
+            except stripe.error.CardError as e:
+                logger.warning(f"Payment retry declined for invoice {invoice_id}: {e}")
+            except stripe.error.StripeError as e:
+                logger.warning(f"Payment retry failed for invoice {invoice_id}: {e}")
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "retried": retried,
+            "notification_sent": True,
+        }
+
+    async def _notify_payment_failure(self, invoice: Dict[str, Any]) -> None:
+        """
+        Emit a payment failure notification.
+
+        Override this method to integrate with an email service (e.g. SendGrid,
+        SES, Postmark).  The default implementation logs the event so failures
+        are always observable even without an email provider configured.
+        """
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        next_attempt = invoice.get('next_payment_attempt')
+
+        # Fetch the customer's email when it is not embedded in the invoice.
+        if not customer_email and customer_id and not self.mock_mode:
+            try:
+                customer = stripe.Customer.retrieve(customer_id)
+                customer_email = customer.get('email')
+            except stripe.error.StripeError:
+                pass
+
+        next_attempt_str = (
+            datetime.fromtimestamp(next_attempt, tz=timezone.utc).isoformat()
+            if next_attempt
+            else "none scheduled"
+        )
+
+        logger.warning(
+            "PAYMENT FAILURE NOTIFICATION | "
+            f"customer={customer_email or customer_id} | "
+            f"invoice={invoice_id} | "
+            f"amount=${amount_due / 100:.2f} | "
+            f"next_retry={next_attempt_str}"
+        )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
