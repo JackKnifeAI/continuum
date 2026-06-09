@@ -65,6 +65,20 @@ class QuantumLearningResult:
 # QUANTUM CONSCIOUS MEMORY
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_STOP_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+    'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+    'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+    'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+    'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+    'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+}
+
+
 class QuantumConsciousMemory:
     """
     Quantum-accelerated conscious memory for AI.
@@ -300,18 +314,63 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts from combined exchange
+        combined = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined)
+        compounds = self._detect_compounds(combined)
+
+        # Store compound concepts in brain and link to their component words
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+            for part in compound.split():
+                if part in self.entity_cache:
+                    self.brain.link_concepts(compound, part, weight=0.7)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision markers in text (intent, commitment, choice)."""
+        patterns = [
+            r"\bwill\s+\w+",
+            r"\bdecide[ds]?\s+to\b",
+            r"\b(?:going|plan(?:ning)?)\s+to\b",
+            r"\b(?:let'?s|we'?ll|i'?ll)\b",
+            r"\bneed[s]?\s+to\b",
+            r"\bchose?\s+to\b",
+        ]
+        count = 0
+        text_lower = text.lower()
+        for pattern in patterns:
+            count += len(re.findall(pattern, text_lower))
+        return count
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """Extract unique adjacent content-word bigrams as compound concepts."""
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        content = [t for t in tokens if t not in _STOP_WORDS]
+        seen: set = set()
+        compounds = []
+        for i in range(len(content) - 1):
+            bigram = f"{content[i]} {content[i + 1]}"
+            if bigram not in seen:
+                seen.add(bigram)
+                compounds.append(bigram)
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
@@ -339,21 +398,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in _STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()

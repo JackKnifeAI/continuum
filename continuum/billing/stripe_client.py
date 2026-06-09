@@ -568,9 +568,65 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        next_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount={amount_due / 100:.2f}, attempt={attempt_count}"
+        )
+
+        result: Dict[str, Any] = {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "subscription_id": subscription_id,
+            "action_taken": None,
+        }
+
+        # Stripe Smart Retries handles scheduling; we take escalating action based on attempt count.
+        _MAX_ATTEMPTS_BEFORE_SUSPEND = 3
+
+        if attempt_count == 1:
+            # First failure: emit structured dunning data for the notification layer.
+            logger.warning(
+                f"PAYMENT_FAILURE_NOTIFY: customer={customer_id} invoice={invoice_id} "
+                f"email={customer_email} amount={amount_due / 100:.2f} "
+                f"next_retry={next_attempt} — send first dunning email"
+            )
+            result["action_taken"] = "dunning_notification_queued"
+
+        elif attempt_count >= _MAX_ATTEMPTS_BEFORE_SUSPEND and subscription_id and not self.mock_mode:
+            # Repeated failures: pause the subscription to prevent further failed charges.
+            try:
+                stripe.Subscription.modify(
+                    subscription_id,
+                    pause_collection={"behavior": "mark_uncollectible"},
+                )
+                logger.warning(
+                    f"Subscription {subscription_id} paused after {attempt_count} "
+                    f"failed attempts for customer {customer_id}"
+                )
+                result["action_taken"] = "subscription_paused"
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to pause subscription {subscription_id}: {e}")
+                result["action_taken"] = "pause_failed"
+
+        else:
+            logger.warning(
+                f"Payment attempt {attempt_count} failed for customer {customer_id}; "
+                f"Stripe will retry at {next_attempt}"
+            )
+            result["action_taken"] = "awaiting_stripe_retry"
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
