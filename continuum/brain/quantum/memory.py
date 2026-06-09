@@ -300,15 +300,39 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Decision extraction: detect explicit choices/commitments in the exchange
+        decisions = self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+        for decision in decisions:
+            key = f"decision:{decision[:40]}"
+            if key.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=0.8)
+                self.entity_cache[key.lower()] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision)
+
+        # Compound concept detection: adjacent meaningful word pairs
+        compounds = self._extract_compounds(
+            user_message + " " + ai_response, list(all_concepts)
+        )
+        compounds_stored = 0
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.9)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+                compounds_stored += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_stored,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +388,51 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Detects explicit choices, commitments, and resolutions using
+        linguistic patterns.
+        """
+        patterns = [
+            r"(?:decided?|choosing|chose|chosen)\s+(?:to\s+)?\w[^.!?\n]{5,60}",
+            r"(?:going\s+with|will\s+use|opted?\s+(?:to|for))\s+\w[^.!?\n]{3,50}",
+            r"(?:I'll|we'll|I\s+will|we\s+will)\s+\w[^.!?\n]{5,50}",
+            r"(?:let's|let\s+us)\s+(?:use|go\s+with|try|implement|build)\s+\w[^.!?\n]{3,50}",
+            r"(?:plan(?:ning)?\s+to|going\s+to)\s+(?:use|build|implement|create)\s+\w[^.!?\n]{3,50}",
+        ]
+        decisions = []
+        seen: set = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                text_match = match.group(0).strip()
+                normalized = text_match.lower()[:40]
+                if normalized not in seen:
+                    seen.add(normalized)
+                    decisions.append(text_match)
+        return decisions
+
+    def _extract_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect compound concepts from adjacent meaningful word pairs.
+
+        Finds bigrams where both words are meaningful concepts, forming
+        richer semantic units (e.g., "quantum memory", "neural network").
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds = []
+        seen: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 in concept_set and w2 in concept_set and w1 != w2:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
