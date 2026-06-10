@@ -304,14 +304,42 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+        compounds_found = self._detect_compounds(user_message, ai_response)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """Count decision statements in a message exchange."""
+        combined = f"{user_message} {ai_response}".lower()
+        patterns = [
+            r'\bdecid(?:e|ed|ing)\b',
+            r'\bchoos(?:e|ing)\b|\bchose\b|\bchosen\b',
+            r'\bwill\s+(?:use|implement|go\s+with|switch|update|create|build|add|remove)\b',
+            r'\bi(?:\'ll|\'m\s+going\s+to)\s+\w+',
+            r'\blet\'s\s+\w+',
+            r'\bwe\s+(?:agreed|confirmed|selected|opted)\b',
+            r'\brecommend(?:ed)?\s+(?:using|to\s+use)\b',
+        ]
+        return sum(len(re.findall(p, combined)) for p in patterns)
+
+    def _detect_compounds(self, user_message: str, ai_response: str) -> int:
+        """Count compound concepts (multi-word / hyphenated phrases) in a message exchange."""
+        combined = f"{user_message} {ai_response}"
+        # Capitalized multi-word phrases (named entities / titled concepts)
+        proper_phrases = set(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', combined))
+        # Hyphenated compound terms (e.g. "self-evolving", "error-correction")
+        hyphenated = set(re.findall(r'\b[a-zA-Z]{3,}-[a-zA-Z]{3,}\b', combined))
+        # snake_case technical identifiers
+        snake_case = set(re.findall(r'\b[a-z]{2,}_[a-z]{2,}\b', combined))
+        return len(proper_phrases) + len(hyphenated) + len(snake_case)
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

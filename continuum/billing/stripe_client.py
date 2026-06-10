@@ -568,9 +568,58 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        subscription_id = invoice.get('subscription')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt = invoice.get('next_payment_attempt')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd').upper()
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, attempt={attempt_count}, "
+            f"amount={amount_due} {currency}"
+        )
+
+        will_retry = next_attempt is not None
+        action_taken: str
+
+        if attempt_count == 1:
+            # First failure — notify customer, Stripe will retry automatically
+            logger.warning(
+                f"First payment failure for customer {customer_id} "
+                f"(invoice {invoice_id}). Stripe will retry at timestamp {next_attempt}. "
+                f"Dunning email should be sent to: {customer_email}"
+            )
+            action_taken = "first_failure_notification"
+        elif will_retry:
+            # Intermediate failure — Stripe continues retrying per Smart Retry schedule
+            logger.warning(
+                f"Payment attempt {attempt_count} failed for customer {customer_id}. "
+                f"Next Stripe retry at timestamp {next_attempt}."
+            )
+            action_taken = f"retry_failure_notification_attempt_{attempt_count}"
+        else:
+            # Final failure — no more automatic retries; subscription goes unpaid/past_due
+            logger.error(
+                f"Final payment failure for customer {customer_id} after {attempt_count} "
+                f"attempts. Subscription {subscription_id} will be marked unpaid. "
+                f"Cancellation or manual intervention email should be sent to: {customer_email}"
+            )
+            action_taken = "final_failure_notification"
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+            "will_retry": will_retry,
+            "action_taken": action_taken,
+            "email_notification_pending": customer_email is not None,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
