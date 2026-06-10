@@ -568,9 +568,85 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount=${amount_due / 100:.2f}, "
+            f"attempt={attempt_count}"
+        )
+
+        await self._send_payment_failure_notification(
+            customer_email=customer_email,
+            customer_id=customer_id,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            attempt_count=attempt_count,
+            next_attempt=next_attempt,
+            subscription_id=subscription_id,
+        )
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt,
+        }
+
+    async def _send_payment_failure_notification(
+        self,
+        customer_email: Optional[str],
+        customer_id: Optional[str],
+        invoice_id: str,
+        amount_due: int,
+        attempt_count: int,
+        next_attempt: Optional[int],
+        subscription_id: Optional[str],
+    ) -> None:
+        """
+        Send payment failure notification, escalating by attempt count.
+
+        - Attempt 1: Friendly reminder with update link
+        - Attempt 2: Urgent notice, service may be suspended
+        - Attempt 3+: Final notice, subscription at risk of cancellation
+        """
+        if not customer_email:
+            logger.warning(
+                f"No email for customer {customer_id}, skipping payment failure "
+                f"notification for invoice {invoice_id}"
+            )
+            return
+
+        amount_str = f"${amount_due / 100:.2f}"
+
+        if attempt_count == 1:
+            subject = "Action required: Payment failed for your CONTINUUM subscription"
+            urgency = "friendly"
+        elif attempt_count == 2:
+            subject = "Urgent: Second payment attempt failed — please update your payment method"
+            urgency = "urgent"
+        else:
+            subject = "Final notice: Your CONTINUUM subscription is at risk of cancellation"
+            urgency = "critical"
+
+        next_attempt_str = (
+            datetime.fromtimestamp(next_attempt, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            if next_attempt
+            else "no further automatic retries scheduled"
+        )
+
+        logger.info(
+            f"[EMAIL:{urgency.upper()}] To: {customer_email} | Subject: {subject} | "
+            f"Invoice: {invoice_id} | Amount: {amount_str} | "
+            f"Attempt: {attempt_count} | Next retry: {next_attempt_str}"
+        )
+        # Integrate with email service (SendGrid, SES, etc.) here when available
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
