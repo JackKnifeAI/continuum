@@ -300,15 +300,67 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Decision extraction: detect choices and commitments in the exchange
+        all_decisions = (
+            self._extract_decisions(user_message) +
+            self._extract_decisions(ai_response)
+        )
+        seen_d: set = set()
+        unique_decisions = []
+        for d in all_decisions:
+            key = d.lower()
+            if key not in seen_d:
+                seen_d.add(key)
+                unique_decisions.append(d)
+
+        for decision in unique_decisions:
+            entity_key = f"decision:{decision.lower()[:40]}"
+            if entity_key not in self.entity_cache:
+                addr = self.brain.store_concept(entity_key, activation=1.0)
+                self.entity_cache[entity_key] = addr
+                self.name_cache[addr] = decision
+                self._store_entity_metadata(addr, decision, "decision", decision)
+                concepts_extracted += 1
+
+        decisions_detected = len(unique_decisions)
+
+        # Compound concept detection: hyphenated terms and titled multi-word phrases
+        all_compounds = (
+            self._extract_compound_concepts(user_message) +
+            self._extract_compound_concepts(ai_response)
+        )
+        seen_c: set = set()
+        unique_compounds = []
+        for c in all_compounds:
+            if c not in seen_c:
+                seen_c.add(c)
+                unique_compounds.append(c)
+
+        for compound in unique_compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", compound)
+                concepts_extracted += 1
+            # Link compound to its component parts for spreading activation
+            parts = [p for p in re.split(r'[-\s]', compound) if len(p) > 2]
+            for part in parts:
+                if part in self.entity_cache and compound in self.entity_cache:
+                    self.brain.link_concepts(compound, part, weight=0.8)
+                    links_created += 1
+
+        compounds_found = len(unique_compounds)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +416,58 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Detects commitments, choices, and resolutions using pattern matching.
+        """
+        patterns = [
+            r"\b(?:i|we)\s+(?:will|shall|have\s+decided?|decided?|chose?|agreed?)\s+(?:to\s+)?([\w][\w\s]{4,39}?)(?:[.,;]|$)",
+            r"\b(?:let'?s|going\s+to)\s+([\w][\w\s]{4,39}?)(?:[.,;]|$)",
+            r"\b(?:decision|choice|plan|approach)\s+(?:is|was|will\s+be)\s+(?:to\s+)?([\w][\w\s]{4,39}?)(?:[.,;]|$)",
+            r"\b(?:i|we)\s+(?:should|must|need\s+to)\s+([\w][\w\s]{4,39}?)(?:[.,;]|$)",
+        ]
+        decisions = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
+                decision = match.group(1).strip()
+                if decision and len(decision) > 4:
+                    decisions.append(decision)
+        seen: set = set()
+        unique = []
+        for d in decisions:
+            if d.lower() not in seen:
+                seen.add(d.lower())
+                unique.append(d)
+        return unique
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract multi-word compound concepts from text.
+
+        Detects hyphenated terms and title-case multi-word phrases that
+        represent named concepts (e.g., "error-correction", "Machine Learning").
+        """
+        compounds = []
+
+        # Hyphenated terms (e.g., quantum-protected, error-correction)
+        for term in re.findall(r'\b[a-zA-Z]{2,}-[a-zA-Z]{2,}(?:-[a-zA-Z]{2,})*\b', text):
+            if len(term) > 6:
+                compounds.append(term.lower())
+
+        # Title-case multi-word phrases (e.g., "Machine Learning", "Quantum Brain")
+        for phrase in re.findall(r'\b(?:[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+)\b', text):
+            compounds.append(phrase.lower())
+
+        seen: set = set()
+        unique = []
+        for c in compounds:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        return unique[:15]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
