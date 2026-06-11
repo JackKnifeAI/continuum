@@ -568,9 +568,65 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_retry_at = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount={amount_due} {currency}, "
+            f"attempt={attempt_count}, next_retry={next_retry_at}"
+        )
+
+        # Determine action based on attempt count
+        # Stripe retries on its own schedule; we escalate after repeated failures
+        MAX_ATTEMPTS_BEFORE_SUSPEND = 3
+        action_taken = "retry_pending"
+
+        if next_retry_at is None:
+            # Stripe will not retry — final failure
+            action_taken = "subscription_suspended"
+            logger.warning(
+                f"No further retries for invoice {invoice_id}. "
+                f"Subscription {subscription_id} requires manual intervention."
+            )
+            if not self.mock_mode and subscription_id:
+                try:
+                    stripe.Subscription.modify(
+                        subscription_id,
+                        pause_collection={"behavior": "void"}
+                    )
+                    logger.info(f"Paused collection on subscription {subscription_id}")
+                except stripe.error.StripeError as e:
+                    logger.error(f"Failed to pause subscription {subscription_id}: {e}")
+        elif attempt_count >= MAX_ATTEMPTS_BEFORE_SUSPEND:
+            action_taken = "dunning_escalated"
+            logger.warning(
+                f"Invoice {invoice_id} on attempt {attempt_count}. "
+                f"Escalating dunning for customer {customer_id}."
+            )
+
+        # Build notification payload for upstream systems to send email/Slack/etc.
+        notification = {
+            "event": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "currency": currency,
+            "attempt_count": attempt_count,
+            "next_retry_at": next_retry_at,
+            "action_taken": action_taken,
+        }
+
+        logger.info(f"Payment failure notification payload: {notification}")
+        return {"status": "ok", "invoice_id": invoice_id, "notification": notification}
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

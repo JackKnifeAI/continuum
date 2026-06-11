@@ -21,11 +21,14 @@ API middleware for authentication, rate limiting, and other cross-cutting concer
 import hashlib
 import hmac
 import sqlite3
+import time
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # =============================================================================
 # CONFIGURATION
@@ -90,19 +93,35 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is the old plain SHA-256 format (no ':' separator)."""
+    return ':' not in stored_hash
+
+
 def verify_key(key: str, stored_hash: str) -> bool:
     """
-    Verify API key against stored PBKDF2 hash.
+    Verify API key against stored hash.
+
+    Supports both current PBKDF2-HMAC-SHA256 format (salt_hex:hash_hex) and the
+    legacy plain SHA-256 format.  The legacy branch can be removed once all rows
+    in the api_keys table have been re-issued with PBKDF2 hashes — detectable via:
+        SELECT COUNT(*) FROM api_keys WHERE key_hash NOT LIKE '%:%';
+    When that query returns 0, delete the ``is_legacy_hash`` branch below.
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash — either ``salt_hex:hash_hex`` (PBKDF2) or a
+            64-char hex string (legacy SHA-256)
 
     Returns:
         True if key matches, False otherwise
     """
+    if is_legacy_hash(stored_hash):
+        old_hash = hashlib.sha256(key.encode()).hexdigest()
+        return hmac.compare_digest(old_hash, stored_hash)
+
     try:
-        salt_hex, hash_hex = stored_hash.split(':')
+        salt_hex, hash_hex = stored_hash.split(':', 1)
         salt = bytes.fromhex(salt_hex)
         key_hash = hashlib.pbkdf2_hmac(
             'sha256',
@@ -112,10 +131,7 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
-        old_hash = hashlib.sha256(key.encode()).hexdigest()
-        return hmac.compare_digest(old_hash, stored_hash)
+        return False
 
 
 def validate_api_key(key: str) -> Optional[str]:
@@ -221,11 +237,6 @@ async def optional_tenant_from_key(x_api_key: Optional[str] = Header(None)) -> s
 # AUTHENTICATION MIDDLEWARE
 # =============================================================================
 
-from typing import Optional
-
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-
 
 class AuthenticationMiddleware(BaseHTTPMiddleware):
     """
@@ -256,9 +267,6 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 # =============================================================================
 # RATE LIMITING
 # =============================================================================
-
-import time
-from collections import defaultdict
 
 
 class RateLimiter:
