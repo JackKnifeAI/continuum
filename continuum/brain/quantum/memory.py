@@ -300,15 +300,41 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions in the exchange
+        all_decisions = (
+            self._detect_decisions(user_message)
+            + self._detect_decisions(ai_response)
+        )
+        decisions_detected = len(set(all_decisions))
+
+        # Detect and store compound concepts
+        raw_compounds = (
+            self._detect_compound_concepts(user_message)
+            + self._detect_compound_concepts(ai_response)
+        )
+        compounds_found = 0
+        for compound in set(raw_compounds):
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+            else:
+                addr = self.entity_cache[compound]
+                self.brain.cells[addr].activation = min(
+                    1.0, self.brain.cells[addr].activation + 0.05
+                )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +355,67 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision statements in text.
+
+        Matches commitment/resolution language: "decided to X", "will use X",
+        "let's X", "agreed to X", etc.
+        """
+        patterns = [
+            r"\b(?:decided?|choosing?|chosen|selected?|agreed?|concluded?|determined?)\s+(?:to\s+)?\w[\w\s]{2,40}",
+            r"\b(?:will|going\s+to|shall)\s+(?:use|implement|build|create|add|remove|change|adopt|switch)\b[\w\s]{0,40}",
+            r"\b(?:let'?s|we\s+should|we\s+must|we\s+will)\s+\w[\w\s]{2,40}",
+        ]
+        decisions: List[str] = []
+        for pattern in patterns:
+            for m in re.findall(pattern, text.lower()):
+                decisions.append(m.strip())
+        seen: set = set()
+        unique: List[str] = []
+        for d in decisions:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        return unique
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract multi-word compound concepts (bigrams and trigrams) from text.
+
+        Only retains phrases where both boundary words are meaningful
+        (not stop words, at least 4 characters each).
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words and len(w1) >= 4 and len(w2) >= 4:
+                compounds.append(f"{w1} {w2}")
+        for i in range(len(words) - 2):
+            w1, w2, w3 = words[i], words[i + 1], words[i + 2]
+            if w1 not in stop_words and w3 not in stop_words and len(w1) >= 4 and len(w3) >= 4:
+                compounds.append(f"{w1} {w2} {w3}")
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        return unique
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
