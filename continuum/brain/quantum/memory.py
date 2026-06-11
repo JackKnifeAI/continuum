@@ -302,13 +302,29 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions from the exchange
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+
+        # Extract and store compound concepts
+        all_text = user_message + " " + ai_response
+        compound_concepts = self._extract_compound_concepts(all_text)
+        compounds_found = 0
+        for compound in compound_concepts:
+            compound_key = compound.lower()
+            if compound_key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound_key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,40 +346,95 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    # Common English stop words to exclude from concept/compound extraction
+    _STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
+    # Patterns that signal a decision was made in the conversation
+    _DECISION_PATTERNS = [
+        r'\b(?:decid(?:e[ds]?|ing)|chose|chosen|choosing|opted)\b',
+        r"\b(?:i'll|we'll|let's)\s+\w+",
+        r'\b(?:going\s+to|will)\s+(?:use|implement|add|create|build|try|switch|go\s+with)\b',
+        r'\b(?:agreed?|confirmed?|resolved?|committed?|settled\s+on)\b',
+        r'\b(?:decision|conclusion|resolution|commitment|agreement)\b',
+        r'\bfinal(?:ly)?\b',
+    ]
+
     def _extract_concepts(self, text: str) -> List[str]:
-        """
-        Extract concepts from text.
-
-        Simple extraction - can be enhanced with NLP.
-        """
-        # Clean and tokenize
+        """Extract single-word concepts from text, filtering stop words."""
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
-
-        # Deduplicate while preserving order
-        seen = set()
+        seen: set = set()
         unique = []
         for c in concepts:
             if c not in seen:
                 seen.add(c)
                 unique.append(c)
 
-        return unique[:20]  # Limit to top 20 concepts
+        return unique[:20]
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Count decision signals in the conversation exchange.
+
+        Scans for linguistic markers of choices made: "decided", "we'll use X",
+        "agreed", "let's go with", etc.  Nearby matches (within 20 chars) are
+        collapsed into one decision to avoid double-counting.
+        """
+        combined = (user_message + " " + ai_response).lower()
+        decision_count = 0
+        seen_buckets: set = set()
+        for pattern in self._DECISION_PATTERNS:
+            for m in re.finditer(pattern, combined):
+                # Bucket by ~20-char window to avoid counting the same phrase twice
+                bucket = m.start() // 20
+                if bucket not in seen_buckets:
+                    seen_buckets.add(bucket)
+                    decision_count += 1
+        return decision_count
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract multi-word and CamelCase compound concepts from text.
+
+        Two strategies:
+        1. CamelCase identifiers (e.g. QuantumBrain, ConsciousMemory)
+        2. Adjacent pairs of meaningful (non-stop) words (e.g. "quantum memory")
+        """
+        compounds = []
+
+        # CamelCase identifiers present in technical/code text
+        for m in re.finditer(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text):
+            compounds.append(m.group())
+
+        # Adjacent meaningful-word bigrams
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
+        for i in range(len(words) - 1):
+            w1, w2 = words[i].lower(), words[i + 1].lower()
+            if w1 not in self._STOP_WORDS and w2 not in self._STOP_WORDS:
+                compounds.append(f"{words[i]} {words[i + 1]}")
+
+        # Deduplicate case-insensitively
+        seen: set = set()
+        unique = []
+        for c in compounds:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+
+        return unique[:15]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

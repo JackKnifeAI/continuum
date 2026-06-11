@@ -90,13 +90,18 @@ def hash_key(key: str) -> str:
     return salt.hex() + ':' + key_hash.hex()
 
 
+def is_legacy_hash(stored_hash: str) -> bool:
+    """Return True if stored_hash is a legacy plain SHA-256 value (no salt separator)."""
+    return ':' not in stored_hash
+
+
 def verify_key(key: str, stored_hash: str) -> bool:
     """
     Verify API key against stored PBKDF2 hash.
 
     Args:
         key: Plain text API key to verify
-        stored_hash: Stored hash in format salt_hex:hash_hex
+        stored_hash: Stored hash in format salt_hex:hash_hex (or legacy SHA-256)
 
     Returns:
         True if key matches, False otherwise
@@ -112,8 +117,10 @@ def verify_key(key: str, stored_hash: str) -> bool:
         )
         return hmac.compare_digest(key_hash.hex(), hash_hex)
     except (ValueError, AttributeError):
-        # Fallback for old SHA-256 hashes (backwards compatibility)
-        # TODO: Remove after migration
+        # Fallback for legacy SHA-256 hashes. validate_api_key auto-upgrades each
+        # key to PBKDF2 on first use, so this path becomes unreachable once every
+        # key has been used once. Remove when:
+        #   SELECT COUNT(*) FROM api_keys WHERE key_hash NOT LIKE '%:%'  →  0
         old_hash = hashlib.sha256(key.encode()).hexdigest()
         return hmac.compare_digest(old_hash, stored_hash)
 
@@ -143,10 +150,18 @@ def validate_api_key(key: str) -> Optional[str]:
 
     for stored_hash, tenant_id in rows:
         if verify_key(key, stored_hash):
+            effective_hash = stored_hash
+            if is_legacy_hash(stored_hash):
+                # Upgrade legacy SHA-256 hash to PBKDF2 in place
+                effective_hash = hash_key(key)
+                c.execute(
+                    "UPDATE api_keys SET key_hash = ? WHERE key_hash = ?",
+                    (effective_hash, stored_hash)
+                )
             # Update last_used timestamp
             c.execute(
                 "UPDATE api_keys SET last_used = ? WHERE key_hash = ?",
-                (datetime.now().isoformat(), stored_hash)
+                (datetime.now().isoformat(), effective_hash)
             )
             conn.commit()
             conn.close()
