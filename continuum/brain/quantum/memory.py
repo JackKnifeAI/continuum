@@ -302,13 +302,22 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions_detected = (
+            self._detect_decisions(user_message) +
+            self._detect_decisions(ai_response)
+        )
+        compounds_found = (
+            self._detect_compounds(user_message) +
+            self._detect_compounds(ai_response)
+        )
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +373,84 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Detect decision statements in text.
+
+        Scans for linguistic markers indicating choices, commitments, or
+        conclusions: "decided to", "therefore", "let's X", "we will", etc.
+
+        Returns:
+            Number of decision patterns matched
+        """
+        decision_patterns = [
+            r'\b(?:decided?|deciding)\s+to\b',
+            r'\b(?:going|plan(?:ning)?|intend(?:ing)?)\s+to\b',
+            r'\b(?:we|i)\s+(?:will|shall|must|need\s+to)\b',
+            r'\b(?:let\'s|lets)\s+\w+',
+            r'\b(?:therefore|thus|hence|consequently)\b',
+            r'\bthe\s+(?:decision|choice|conclusion|solution)\s+is\b',
+            r'\b(?:chose|chosen|selected|opted)\s+to\b',
+            r'\bgoing\s+(?:ahead\s+)?with\b',
+        ]
+        count = 0
+        text_lower = text.lower()
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text_lower))
+        return count
+
+    def _detect_compounds(self, text: str) -> int:
+        """
+        Detect and register compound concepts (adjacent non-stopword pairs).
+
+        Finds bigrams where both tokens pass the stopword filter and are
+        separated by at most whitespace/hyphens, then stores each new
+        compound as a named node in the quantum brain linked to its parts.
+
+        Returns:
+            Number of new compound concepts stored
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        # Collect (start_pos, lowercase, original) for every 3+-char word
+        tokens = [
+            (m.start(), m.group().lower(), m.group())
+            for m in re.finditer(r'\b[a-zA-Z]{3,}\b', text)
+        ]
+        content = [(s, lo, orig) for s, lo, orig in tokens if lo not in stop_words]
+
+        compounds_found = 0
+        for i in range(len(content) - 1):
+            s1, lo1, orig1 = content[i]
+            s2, lo2, orig2 = content[i + 1]
+            gap = text[s1 + len(orig1): s2]
+            # Only treat as compound when the two words are directly adjacent
+            if not re.fullmatch(r'[\s\-]{0,3}', gap):
+                continue
+            compound_key = f"{lo1}_{lo2}"
+            if compound_key not in self.entity_cache:
+                display = f"{orig1} {orig2}"
+                addr = self.brain.store_concept(display, activation=0.8)
+                self.entity_cache[compound_key] = addr
+                self.name_cache[addr] = display
+                self._store_entity_metadata(addr, display, "compound", "")
+                for part_lo, part_orig in [(lo1, orig1), (lo2, orig2)]:
+                    if part_lo in self.entity_cache:
+                        self.brain.link_concepts(display, part_orig, weight=0.7)
+                compounds_found += 1
+        return compounds_found
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

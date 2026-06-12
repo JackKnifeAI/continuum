@@ -246,10 +246,29 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await self.storage.execute(
+                    """CREATE TABLE IF NOT EXISTS usage_metrics (
+                        cache_key TEXT NOT NULL,
+                        metric TEXT NOT NULL,
+                        value INTEGER NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (cache_key, metric)
+                    )"""
+                )
+                records = [
+                    (cache_key, metric, value, datetime.now(timezone.utc).isoformat())
+                    for cache_key, metrics in self._usage_cache.items()
+                    for metric, value in metrics.items()
+                ]
+                if records:
+                    await self.storage.executemany(
+                        """INSERT INTO usage_metrics (cache_key, metric, value, updated_at)
+                           VALUES (?, ?, ?, ?)
+                           ON CONFLICT(cache_key, metric) DO UPDATE SET
+                           value = excluded.value, updated_at = excluded.updated_at""",
+                        records
+                    )
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -414,6 +433,7 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        self._active_subscriptions: Dict[str, str] = {}  # tenant_id -> subscription_item_id
 
     async def report_usage_to_stripe(
         self,
@@ -453,12 +473,29 @@ class UsageReporter:
         except Exception as e:
             logger.error(f"Failed to report usage to Stripe: {e}")
 
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """Register an active subscription for background usage reporting."""
+        self._active_subscriptions[tenant_id] = subscription_item_id
+        logger.info(f"Registered subscription {subscription_item_id} for tenant {tenant_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """Remove a subscription from background usage reporting."""
+        self._active_subscriptions.pop(tenant_id, None)
+        logger.info(f"Unregistered subscription for tenant {tenant_id}")
+
     async def start_background_reporting(self) -> None:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+            if not self._active_subscriptions:
+                logger.debug("Background usage reporting tick: no active subscriptions")
+                continue
+            logger.debug(f"Reporting usage for {len(self._active_subscriptions)} active subscriptions")
+            for tenant_id, subscription_item_id in list(self._active_subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
