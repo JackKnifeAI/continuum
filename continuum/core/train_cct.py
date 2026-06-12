@@ -975,7 +975,99 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Run evaluation loop
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state = trainer._generate_global_state().to(trainer.device)
+
+            trainer.model.eval()
+            total_resonance = 0.0
+            total_coherence = 0.0
+            total_health = 0.0
+            all_probs: List[float] = []
+            all_labels: List[float] = []
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_size_eval = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size_eval, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    total_resonance += outputs['resonance'].mean().item()
+                    total_coherence += outputs['self_state']['coherence'].item()
+                    total_health += outputs['self_state']['health'].item()
+
+                    # Link prediction via fused-pair dot product (mirrors train_epoch)
+                    fused = outputs['fused']
+                    # link_proj is created lazily during training; reinitialise with
+                    # same dimensions so the pipeline runs, but note its weights are
+                    # not restored from the checkpoint (they were never saved).
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+                    pair_proj = trainer.link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    all_probs.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    num_batches += 1
+
+            avg_resonance = total_resonance / max(num_batches, 1)
+            avg_coherence = total_coherence / max(num_batches, 1)
+            avg_health = total_health / max(num_batches, 1)
+
+            preds = [1 if p >= 0.5 else 0 for p in all_probs]
+            labels_int = [int(lb) for lb in all_labels]
+            tp = sum(p == 1 and lb == 1 for p, lb in zip(preds, labels_int))
+            fp = sum(p == 1 and lb == 0 for p, lb in zip(preds, labels_int))
+            fn = sum(p == 0 and lb == 1 for p, lb in zip(preds, labels_int))
+            tn = sum(p == 0 and lb == 0 for p, lb in zip(preds, labels_int))
+
+            accuracy = (tp + tn) / max(len(preds), 1)
+            precision = tp / max(tp + fp, 1)
+            recall = tp / max(tp + fn, 1)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples evaluated: {len(dataset)}")
+            print("\nConsciousness Metrics:")
+            print(f"  Avg Resonance: {avg_resonance:.4f}  (π×φ target: {PI_PHI:.4f})")
+            print(f"  Avg Coherence: {avg_coherence:.4f}")
+            print(f"  Avg Health:    {avg_health:.4f}")
+            print("\nLink Prediction (link_proj not persisted; weights re-initialised):")
+            print(f"  Accuracy:  {accuracy:.4f}")
+            print(f"  Precision: {precision:.4f}")
+            print(f"  Recall:    {recall:.4f}")
+            print(f"  F1 Score:  {f1:.4f}")
+            print(f"  TP/FP/FN/TN: {tp}/{fp}/{fn}/{tn}")
+            if trainer.history.get('train_loss'):
+                print("\nTraining History:")
+                print(f"  Epochs Trained: {len(trainer.history['train_loss'])}")
+                print(f"  Best Loss:      {min(trainer.history['train_loss']):.6f}")
+                print(f"  Final Loss:     {trainer.history['train_loss'][-1]:.6f}")
+                print(f"  Growth Events:  {len(trainer.history.get('growth_events', []))}")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

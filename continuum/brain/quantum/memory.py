@@ -300,15 +300,43 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        decisions_detected = len(decisions)
+
+        # Store decisions as typed entities so they're recallable
+        for decision in decisions:
+            key = decision.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(decision, activation=0.9)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = decision
+                self._store_entity_metadata(addr, decision, "decision", decision)
+                concepts_extracted += 1
+
+        compounds = self._extract_compounds(combined_text, list(all_concepts))
+        compounds_found = len(compounds)
+
+        # Store compound concepts as first-class entities
+        for compound in compounds:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", compound)
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +392,71 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Detects phrases like "I will", "we decided to", "let's", etc.
+        and returns the core decision phrase for each match.
+        """
+        patterns = [
+            r"(?:i|we)\s+will\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+(?:have\s+)?decided\s+to\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"let(?:'s|\s+us)\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+(?:am|are)\s+going\s+to\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+choose\s+to\s+([a-z]+(?:\s+[a-z]+){0,3})",
+            r"(?:i|we)\s+(?:must|should|shall)\s+([a-z]+(?:\s+[a-z]+){0,3})",
+        ]
+
+        stop_words = {'the', 'a', 'an', 'be', 'do', 'use'}
+        decisions: List[str] = []
+        seen: set = set()
+        text_lower = text.lower()
+
+        for pattern in patterns:
+            for match in re.finditer(pattern, text_lower):
+                phrase = match.group(1).strip()
+                # Filter trivially short or stop-word-only phrases
+                words = phrase.split()
+                if len(words) == 1 and words[0] in stop_words:
+                    continue
+                if phrase not in seen:
+                    seen.add(phrase)
+                    decisions.append(phrase)
+
+        return decisions
+
+    def _extract_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect compound concepts (adjacent meaningful word pairs/triples).
+
+        Finds bigrams and trigrams where every token is already a known
+        concept, representing composite ideas like "quantum memory".
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        seen: set = set()
+        compounds: List[str] = []
+
+        # Bigrams
+        for i in range(len(words) - 1):
+            if words[i] in concept_set and words[i + 1] in concept_set:
+                compound = f"{words[i]} {words[i + 1]}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        # Trigrams
+        for i in range(len(words) - 2):
+            if all(words[i + j] in concept_set for j in range(3)):
+                compound = f"{words[i]} {words[i + 1]} {words[i + 2]}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
