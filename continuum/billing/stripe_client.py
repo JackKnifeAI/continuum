@@ -568,9 +568,56 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} | "
+            f"customer={customer_id} | "
+            f"amount={amount_due / 100:.2f} | "
+            f"attempt={attempt_count} | "
+            f"next_retry={'none' if next_attempt is None else datetime.fromtimestamp(next_attempt, tz=timezone.utc).isoformat()}"
+        )
+
+        # Determine urgency based on attempt count; Stripe retries on its own
+        # schedule, so we don't call stripe.Invoice.pay() here — we just react.
+        if attempt_count == 1:
+            urgency = "warning"
+            action = "notify_first_failure"
+        elif attempt_count <= 3:
+            urgency = "high"
+            action = "notify_retry_failure"
+        else:
+            urgency = "critical"
+            action = "notify_final_failure"
+            # Stripe will eventually mark the invoice uncollectible and cancel
+            # the subscription per the account dunning settings; we surface this
+            # so the application layer can proactively restrict access.
+            logger.critical(
+                f"Repeated payment failures (attempt {attempt_count}) for "
+                f"customer {customer_id} (subscription {subscription_id}). "
+                "Consider suspending access pending resolution."
+            )
+
+        # Return a structured payload so the application layer can dispatch
+        # email notifications, restrict feature access, etc.
+        return {
+            "status": "action_required",
+            "action": action,
+            "urgency": urgency,
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
