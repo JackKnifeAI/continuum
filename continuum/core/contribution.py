@@ -35,12 +35,22 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
+
+# PII patterns: match before contributing to the federation
+_PII_PATTERNS: List[re.Pattern] = [
+    re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),  # email
+    re.compile(r"\b(?:\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b"),  # phone (NA)
+    re.compile(r"\b\d{3}[\s\-]\d{2}[\s\-]\d{4}\b"),  # SSN
+    re.compile(r"\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6011)[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),  # credit card
+    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),  # IPv4
+]
 
 logger = logging.getLogger("CONTRIBUTION")
 
@@ -110,9 +120,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -123,27 +133,31 @@ class ContributionManager:
 
         return concepts, links
 
+    def _strip_pii(self, text: str) -> str:
+        """Replace PII tokens with a neutral placeholder."""
+        for pattern in _PII_PATTERNS:
+            text = pattern.sub("[REDACTED]", text)
+        return text
+
     def _sanitize_concepts(self, concepts: List[Dict]) -> List[Dict]:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = self._strip_pii(c["name"].lower().strip())
+            desc = self._strip_pii(c["desc"][:200]) if c["desc"] else ""
+            clean.append({"name": name, "desc": desc})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": link["a"].lower().strip(),
+                "b": link["b"].lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"],
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:

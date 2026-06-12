@@ -246,10 +246,30 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                self.storage.execute(
+                    """CREATE TABLE IF NOT EXISTS usage_metrics (
+                        cache_key TEXT NOT NULL,
+                        metric TEXT NOT NULL,
+                        value INTEGER NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (cache_key, metric)
+                    )"""
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                rows = [
+                    (cache_key, metric, value, now)
+                    for cache_key, metrics in self._usage_cache.items()
+                    for metric, value in metrics.items()
+                ]
+                if rows:
+                    self.storage.executemany(
+                        """INSERT OR REPLACE INTO usage_metrics
+                           (cache_key, metric, value, updated_at)
+                           VALUES (?, ?, ?, ?)""",
+                        rows
+                    )
+                    logger.debug(f"Flushed {len(rows)} usage metrics to storage")
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -414,6 +434,29 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # Maps tenant_id → Stripe subscription_item_id for active metered subscriptions
+        self._subscriptions: Dict[str, str] = {}
+
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register an active subscription for background usage reporting.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID for metered billing
+        """
+        self._subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription for {tenant_id}: {subscription_item_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """
+        Unregister a subscription (e.g., on cancellation).
+
+        Args:
+            tenant_id: Tenant identifier
+        """
+        self._subscriptions.pop(tenant_id, None)
+        logger.debug(f"Unregistered subscription for {tenant_id}")
 
     async def report_usage_to_stripe(
         self,
@@ -457,8 +500,12 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+            logger.debug(f"Background usage reporting tick: {len(self._subscriptions)} active subscriptions")
+            for tenant_id, subscription_item_id in list(self._subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Background reporting failed for {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

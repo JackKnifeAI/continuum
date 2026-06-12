@@ -568,9 +568,66 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+        hosted_url = invoice.get('hosted_invoice_url')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount={amount_due / 100:.2f} {currency.upper()}, "
+            f"attempt={attempt_count}"
+        )
+
+        # Escalate severity based on retry attempt count
+        if attempt_count == 1:
+            logger.warning(
+                f"First payment failure for customer {customer_id} - Stripe will retry automatically"
+            )
+            notification_level = "warning"
+        elif attempt_count <= 3:
+            logger.error(
+                f"Repeated payment failure (attempt {attempt_count}) for customer {customer_id}"
+            )
+            notification_level = "error"
+        else:
+            logger.critical(
+                f"Multiple payment failures (attempt {attempt_count}) for customer {customer_id} "
+                f"- subscription at risk"
+            )
+            notification_level = "critical"
+
+        if next_payment_attempt:
+            next_retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.info(f"Next Stripe retry scheduled for {next_retry_dt.isoformat()}")
+        else:
+            logger.error(
+                f"No further retries scheduled for invoice {invoice_id} - manual intervention required"
+            )
+
+        # Return a structured notification payload for the caller to dispatch
+        # (e.g., send email, trigger Slack alert, update tenant status)
+        notification = {
+            "type": "payment_failed",
+            "level": notification_level,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "invoice_id": invoice_id,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "currency": currency,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_payment_attempt,
+            "hosted_invoice_url": hosted_url,
+            "requires_intervention": next_payment_attempt is None,
+        }
+
+        return {"status": "ok", "invoice_id": invoice_id, "notification": notification}
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
