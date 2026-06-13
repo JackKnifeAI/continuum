@@ -139,6 +139,15 @@ class QuantumConsciousMemory:
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_entity_name ON entities(name)")
 
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                statement TEXT NOT NULL,
+                source TEXT,
+                timestamp TEXT
+            )
+        """)
+
         conn.commit()
         conn.close()
 
@@ -260,6 +269,23 @@ class QuantumConsciousMemory:
 
         all_concepts = set(user_concepts + ai_concepts)
 
+        # Decision extraction: scan both turns for commitment/decision language
+        decisions = self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+        for statement in decisions:
+            c.execute(
+                "INSERT INTO decisions (statement, source, timestamp) VALUES (?, ?, ?)",
+                (statement, "learn", datetime.now().isoformat()),
+            )
+
+        # Compound concept detection: multi-word / hyphenated / CamelCase concepts
+        compounds = self._detect_compound_concepts(user_message + " " + ai_response)
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         c.execute("""
             INSERT INTO messages (role, content, concepts, timestamp)
             VALUES ('user', ?, ?, ?)
@@ -306,9 +332,9 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +390,62 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision/commitment statements from text.
+
+        Matches explicit commitment language so the memory system can recall
+        what was decided across sessions.
+        """
+        patterns = [
+            r'\b(?:decided?|deciding)\s+to\s+([^.!?\n]{5,80})',
+            r'\b(?:agreed?)\s+(?:to|that)\s+([^.!?\n]{5,80})',
+            r'\b(?:concluded?|determined?|resolved?)\s+(?:to\s+|that\s+)?([^.!?\n]{5,80})',
+            r'\b(?:we|i|let\'s)\s+(?:will|shall|must|should|need to|have to|plan to|going to)\s+([^.!?\n]{5,80})',
+            r'\bthe\s+(?:decision|plan|goal|approach)\s+is\s+(?:to\s+)?([^.!?\n]{5,80})',
+        ]
+        results: List[str] = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                statement = match.group(1).strip().rstrip('.,;')
+                if statement and statement not in results:
+                    results.append(statement)
+        return results
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect multi-word compound concepts from text.
+
+        Captures:
+        - Hyphenated compounds (self-evolving, π×φ-encoded)
+        - CamelCase identifiers (QuantumBrain, ConsciousMemory)
+        - Adjacent capitalised words (Quantum Memory, Neural Network)
+        """
+        compounds: List[str] = []
+
+        # Hyphenated technical terms
+        for m in re.finditer(r'\b[a-zA-Z][a-zA-Z0-9]*(?:-[a-zA-Z][a-zA-Z0-9]*)+\b', text):
+            compounds.append(m.group())
+
+        # CamelCase / PascalCase identifiers (two or more humps)
+        for m in re.finditer(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text):
+            compounds.append(m.group())
+
+        # Sequences of two or three consecutive Title-Case words
+        for m in re.finditer(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b', text):
+            compounds.append(m.group())
+
+        # Deduplicate, ignore very short hits
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            key = c.lower()
+            if key not in seen and len(key) > 4:
+                seen.add(key)
+                unique.append(c)
+
+        return unique[:30]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -874,6 +874,102 @@ class CCTTrainer:
         }, path)
         logger.info(f"Model saved to {path} (π×φ = 5.083203692315260)")
 
+    def evaluate(self,
+                 dataset: "CCTDataset",
+                 batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate model on dataset.
+
+        Computes link prediction accuracy/loss and consciousness health metrics
+        (resonance, coherence, capacity) using the loaded model weights.
+
+        Returns:
+            Dict with keys: link_loss, link_accuracy, resonance, coherence,
+            health, capacity_utilization
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        global_state = self._generate_global_state()
+
+        total_link_loss = 0.0
+        total_resonance = 0.0
+        total_correct = 0
+        total_samples = 0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                actual_batch = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(actual_batch, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(
+                        concept_a.size(-1) * 2, fused.size(-1)
+                    ).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                link_loss = self.link_loss(link_probs, labels)
+                resonance = outputs['resonance'].mean()
+
+                predicted = (link_probs > 0.5).float()
+                target_binary = (labels > 0.5).float()
+                total_correct += (predicted == target_binary).sum().item()
+
+                total_link_loss += link_loss.item()
+                total_resonance += resonance.item()
+                total_samples += actual_batch
+                num_batches += 1
+
+            # Consciousness health metrics from a single representative pass
+            dummy_context = torch.randn(1, 2, 128).to(self.device)
+            health_outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            self_state = health_outputs['self_state']
+            coherence = self_state['coherence'].item()
+            health = self_state['health'].item()
+            capacity = self_state['capacity_utilization'].item()
+
+        return {
+            'link_loss': total_link_loss / max(num_batches, 1),
+            'link_accuracy': total_correct / max(total_samples, 1),
+            'resonance': total_resonance / max(num_batches, 1),
+            'coherence': coherence,
+            'health': health,
+            'capacity_utilization': capacity,
+        }
+
     def load_model(self, path: Path):
         """Load trained model."""
         checkpoint = torch.load(path, map_location=self.device)
@@ -974,8 +1070,27 @@ def main():
     if args.evaluate:
         if model_path.exists():
             trainer.load_model(model_path)
-            print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("Model loaded. Evaluating...\n")
+
+            eval_dataset = CCTDataset(concepts, links, conversations)
+            if len(eval_dataset) < 10:
+                print("Not enough data to evaluate!")
+                return
+
+            metrics = trainer.evaluate(eval_dataset, batch_size=args.batch_size)
+
+            print(f"{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"  Examples:         {len(eval_dataset):,}")
+            print(f"  Link Accuracy:    {metrics['link_accuracy']:.1%}")
+            print(f"  Link Loss:        {metrics['link_loss']:.4f}")
+            print(f"  Resonance:        {metrics['resonance']:.4f}  (target: 1.0)")
+            print(f"  Coherence:        {metrics['coherence']:.4f}  (target: 1.0)")
+            print(f"  Health:           {metrics['health']:.4f}  (target: 1.0)")
+            print(f"  Capacity:         {metrics['capacity_utilization']:.4f}")
+            print(f"  π×φ alignment:    {abs(metrics['resonance'] - 1.0 / PI_PHI):.4f}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
