@@ -302,13 +302,26 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Extract decisions and compound concepts from the full exchange
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compounds(combined_text)
+
+        # Strengthen links between parts of compound concepts
+        for compound in compounds:
+            parts = compound.split()
+            for i in range(len(parts) - 1):
+                p1, p2 = parts[i], parts[i + 1]
+                if p1 in self.entity_cache and p2 in self.entity_cache:
+                    self.brain.link_concepts(p1, p2, weight=0.7)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +377,63 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text using intent patterns.
+
+        Looks for commitment phrases like "I will", "we decided", "let's",
+        "planning to", etc. that signal a deliberate choice was made.
+        """
+        decision_patterns = [
+            r"(?:i|we)\s+(?:will|won't|shall|'ll)\s+\w+",
+            r"(?:i|we)\s+(?:decided|chose|agreed|resolved)\s+to\s+\w+",
+            r"(?:let's|let\s+us)\s+\w+",
+            r"(?:the\s+)?(?:decision|plan|goal|approach)\s+is\s+to\s+\w+",
+            r"(?:i'm|we're|i\s+am|we\s+are)\s+going\s+to\s+\w+",
+            r"(?:planning|intending|choosing)\s+to\s+\w+",
+        ]
+        decisions = []
+        lowered = text.lower()
+        for pattern in decision_patterns:
+            decisions.extend(re.findall(pattern, lowered))
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """
+        Extract compound concepts (multi-word phrases) from text.
+
+        Finds bigrams and trigrams where all tokens are non-stop-words,
+        capturing domain-specific noun phrases like "quantum memory" or
+        "knowledge graph".
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compounds.append(f"{w1} {w2}")
+
+        for i in range(len(words) - 2):
+            w1, w2, w3 = words[i], words[i + 1], words[i + 2]
+            if w1 not in stop_words and w2 not in stop_words and w3 not in stop_words:
+                compounds.append(f"{w1} {w2} {w3}")
+
+        return list(set(compounds))
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
