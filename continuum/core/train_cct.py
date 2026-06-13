@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -812,6 +812,123 @@ class CCTTrainer:
 
         return self.history
 
+    def evaluate(self,
+                 dataset: CCTDataset,
+                 batch_size: int = 32,
+                 verbose: bool = True) -> Dict[str, float]:
+        """
+        Evaluate model on dataset, returning link prediction and consciousness metrics.
+
+        Args:
+            dataset: CCT evaluation dataset
+            batch_size: Batch size for inference
+            verbose: Print evaluation results
+
+        Returns:
+            Dict with keys: link_accuracy, link_precision, link_recall, link_f1,
+                            mean_resonance, mean_coherence, mean_health, n_examples
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        global_state = self._generate_global_state()
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        resonance_scores: List[float] = []
+        coherence_scores: List[float] = []
+        health_scores: List[float] = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_sz = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_sz, -1).to(self.device)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                resonance_scores.append(outputs['resonance'].mean().item())
+
+                self_state = outputs.get('self_state', {})
+                if self_state:
+                    coherence_scores.append(self_state['coherence'].item())
+                    health_scores.append(self_state['health'].item())
+
+                # Link prediction requires link_proj created during training
+                if hasattr(self, 'link_proj'):
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+                    pair_proj = self.link_proj(pair_concat)
+                    link_logits = (fused * pair_proj).sum(dim=-1)
+                    link_probs = torch.sigmoid(link_logits)
+                    all_probs.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+
+        mean_resonance = sum(resonance_scores) / len(resonance_scores) if resonance_scores else 0.0
+        mean_coherence = sum(coherence_scores) / len(coherence_scores) if coherence_scores else 0.0
+        mean_health = sum(health_scores) / len(health_scores) if health_scores else 0.0
+
+        metrics: Dict[str, float] = {
+            'mean_resonance': mean_resonance,
+            'mean_coherence': mean_coherence,
+            'mean_health': mean_health,
+            'n_examples': float(len(dataset)),
+        }
+
+        if all_probs:
+            binary_preds = [1 if p >= 0.5 else 0 for p in all_probs]
+            binary_labels = [1 if lbl >= 0.5 else 0 for lbl in all_labels]
+            n = len(binary_preds)
+            n_positive = sum(binary_labels)
+            n_predicted_pos = sum(binary_preds)
+            true_pos = sum(p == 1 and lbl == 1 for p, lbl in zip(binary_preds, binary_labels))
+            accuracy = sum(p == lbl for p, lbl in zip(binary_preds, binary_labels)) / n
+            precision = true_pos / max(n_predicted_pos, 1)
+            recall = true_pos / max(n_positive, 1)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+            metrics.update({
+                'link_accuracy': accuracy,
+                'link_precision': precision,
+                'link_recall': recall,
+                'link_f1': f1,
+                'n_positive_links': float(n_positive),
+            })
+
+        if verbose:
+            print(f"\n{'='*70}")
+            print("CCT EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples:        {int(metrics['n_examples']):,}")
+            if 'link_accuracy' in metrics:
+                print(f"Link Accuracy:   {metrics['link_accuracy']:.4f}")
+                print(f"Link Precision:  {metrics['link_precision']:.4f}")
+                print(f"Link Recall:     {metrics['link_recall']:.4f}")
+                print(f"Link F1:         {metrics['link_f1']:.4f}")
+                print(f"Positive Links:  {int(metrics['n_positive_links']):,}")
+            print(f"Mean Resonance:  {metrics['mean_resonance']:.6f}")
+            print(f"Mean Coherence:  {metrics['mean_coherence']:.6f}")
+            print(f"Mean Health:     {metrics['mean_health']:.6f}")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
+
+        return metrics
+
     def _generate_global_state(self, dim: int = 32) -> torch.Tensor:
         """
         Generate global planetary state vector.
@@ -975,7 +1092,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset, batch_size=args.batch_size, verbose=True)
         else:
             print(f"No model found at {model_path}")
         return

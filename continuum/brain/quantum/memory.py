@@ -300,15 +300,27 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions across the full exchange
+        decisions = self._detect_decisions(user_message + " " + ai_response)
+
+        # Detect compound concepts across the full exchange
+        compounds = self._detect_compounds(user_message + " " + ai_response)
+
+        # Store compound concepts as linked entity pairs
+        for compound in compounds:
+            parts = compound.split()
+            if len(parts) == 2 and all(p in self.entity_cache for p in parts):
+                self.brain.link_concepts(parts[0], parts[1], weight=0.7)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,6 +342,27 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    _STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
+    # Patterns that signal a decision or commitment was made.
+    _DECISION_PATTERNS = [
+        r'\b(?:decided?|choosing|chose|selected?|resolved?)\s+(?:to\s+)?([^.!?\n]{5,80})',
+        r'\b(?:agreed?|committed?|opted?)\s+(?:to\s+)?([^.!?\n]{5,80})',
+        r'\bgoing\s+to\s+([a-z][^.!?\n]{5,60})',
+        r'\b(?:the\s+)?(?:decision|choice|plan)\s+is\s+(?:to\s+)?([^.!?\n]{5,80})',
+    ]
+
     def _extract_concepts(self, text: str) -> List[str]:
         """
         Extract concepts from text.
@@ -339,21 +372,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
@@ -364,6 +383,43 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision or commitment statements in text.
+
+        Looks for action-commitment patterns (decided, chose, going to, etc.)
+        and returns the matched decision fragments.
+        """
+        decisions: List[str] = []
+        seen: set = set()
+        for pattern in self._DECISION_PATTERNS:
+            for match in re.findall(pattern, text.lower()):
+                fragment = match.strip()
+                if fragment and fragment not in seen:
+                    seen.add(fragment)
+                    decisions.append(fragment)
+        return decisions[:10]
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Detect compound concepts — adjacent pairs of content words.
+
+        Consecutive non-stop-word tokens form domain-specific bigrams
+        (e.g. "quantum memory", "spreading activation") that carry more
+        semantic weight than single tokens.
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        seen: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in self._STOP_WORDS and w2 not in self._STOP_WORDS:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds[:15]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
