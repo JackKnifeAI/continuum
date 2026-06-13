@@ -302,13 +302,24 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+
+        compounds = self._extract_compound_concepts(user_message + " " + ai_response)
+        compounds_found = len(compounds)
+        for phrase in compounds:
+            if phrase not in self.entity_cache:
+                addr = self.brain.store_concept(phrase, activation=0.8)
+                self.entity_cache[phrase] = addr
+                self.name_cache[addr] = phrase
+                self._store_entity_metadata(addr, phrase, "compound", "")
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +340,75 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Detect decision points in a conversation exchange.
+
+        Looks for linguistic markers indicating a choice was made or committed to.
+        """
+        decision_patterns = [
+            r"\bI(?:'ll| will| shall)\b",
+            r"\bwe(?:'ll| will| shall)\b",
+            r"\bdecided?\s+to\b",
+            r"\bgoing\s+to\b",
+            r"\blet(?:'s| us)\s+(?:use|go|try|implement|build|switch|pick|choose)\b",
+            r"\bchose\b|\bchoosing\b|\bchoose\b",
+            r"\buse\s+\w+\s+instead\b",
+            r"\bwill\s+use\b",
+            r"\bagreed?\s+to\b",
+            r"\bopt(?:ed|ing)?\s+(?:for|to)\b",
+            r"\bswitching?\s+to\b",
+            r"\bgo(?:ing)?\s+with\b",
+        ]
+        combined = user_message + " " + ai_response
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, combined, re.IGNORECASE))
+        return count
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract compound (multi-word) concepts from text.
+
+        Detects meaningful bigrams and trigrams by finding adjacent
+        non-stop-word sequences.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        seen: set = set()
+
+        # Scan for runs of 2–3 consecutive non-stop-word tokens
+        i = 0
+        while i < len(tokens):
+            run = []
+            j = i
+            while j < len(tokens) and tokens[j] not in stop_words and len(run) < 3:
+                run.append(tokens[j])
+                j += 1
+            if len(run) >= 2:
+                phrase = " ".join(run)
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+                i = j
+            else:
+                i += 1
+
+        return compounds
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

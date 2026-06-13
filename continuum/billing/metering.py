@@ -246,10 +246,9 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                serialized = {k: dict(v) for k, v in self._usage_cache.items()}
+                await self.storage.save_usage(serialized)
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -414,6 +413,8 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # Maps tenant_id -> stripe subscription_item_id for background reporting
+        self._active_subscriptions: Dict[str, str] = {}
 
     async def report_usage_to_stripe(
         self,
@@ -453,12 +454,26 @@ class UsageReporter:
         except Exception as e:
             logger.error(f"Failed to report usage to Stripe: {e}")
 
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """Register a subscription for background usage reporting."""
+        self._active_subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription for {tenant_id}: {subscription_item_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """Unregister a subscription from background usage reporting."""
+        self._active_subscriptions.pop(tenant_id, None)
+        logger.debug(f"Unregistered subscription for {tenant_id}")
+
     async def start_background_reporting(self) -> None:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
             logger.debug("Background usage reporting tick")
+            for tenant_id, subscription_item_id in list(self._active_subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Failed to report usage for {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

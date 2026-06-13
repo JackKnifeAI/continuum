@@ -568,9 +568,49 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt_ts = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount={amount_due/100:.2f}, "
+            f"attempt={attempt_count}, subscription={subscription_id}"
+        )
+
+        # Emit structured event for downstream notification systems (email, Slack, etc.)
+        failure_event = {
+            "event": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt_ts,
+        }
+        logger.warning(f"BILLING_EVENT: {failure_event}")
+
+        retry_triggered = False
+        if not self.mock_mode and attempt_count == 1 and next_attempt_ts is None:
+            # Stripe won't auto-retry (e.g., Smart Retries disabled): trigger manual retry once
+            try:
+                stripe.Invoice.pay(invoice_id)
+                retry_triggered = True
+                logger.info(f"Manual retry triggered for invoice {invoice_id}")
+            except stripe.error.StripeError as e:
+                logger.error(f"Manual retry failed for invoice {invoice_id}: {e}")
+
+        return {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt_ts,
+            "retry_triggered": retry_triggered,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
