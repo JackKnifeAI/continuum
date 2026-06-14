@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,118 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: 'CCTDataset', batch_size: int = 16) -> Dict[str, float]:
+        """
+        Evaluate the model on a dataset and report link prediction metrics.
+
+        Computes accuracy, precision, recall, F1 at threshold 0.5, plus
+        average resonance/coherence/health/capacity from the self-perception module.
+
+        Returns:
+            Dict of evaluation metrics.
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = self._generate_global_state().to(self.device)
+
+        all_probs: List[torch.Tensor] = []
+        all_labels: List[torch.Tensor] = []
+        total_resonance = 0.0
+        total_coherence = 0.0
+        total_health = 0.0
+        total_capacity = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+                batch_size_actual = concept_a.size(0)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size_actual, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights,
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                all_probs.append(link_probs.cpu())
+                all_labels.append(labels.cpu())
+
+                self_state = outputs['self_state']
+                total_resonance += outputs['resonance'].mean().item()
+                total_coherence += self_state['coherence'].mean().item()
+                total_health += self_state['health'].mean().item()
+                total_capacity += self_state['capacity_utilization'].mean().item()
+                num_batches += 1
+
+        probs = torch.cat(all_probs)
+        labels_all = torch.cat(all_labels)
+        preds = (probs >= 0.5).float()
+
+        tp = ((preds == 1) & (labels_all == 1)).sum().item()
+        fp = ((preds == 1) & (labels_all == 0)).sum().item()
+        fn = ((preds == 0) & (labels_all == 1)).sum().item()
+        tn = ((preds == 0) & (labels_all == 0)).sum().item()
+        total = len(labels_all)
+
+        accuracy = (tp + tn) / max(total, 1)
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+        n = max(num_batches, 1)
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': total_resonance / n,
+            'coherence': total_coherence / n,
+            'health': total_health / n,
+            'capacity': total_capacity / n,
+            'total_examples': total,
+            'positive_examples': int(labels_all.sum().item()),
+        }
+
+        print(f"\n{'='*70}")
+        print("CCT EVALUATION RESULTS")
+        print(f"{'='*70}")
+        print(f"  Examples      : {metrics['total_examples']:,} ({metrics['positive_examples']:,} positive)")
+        print(f"  Accuracy      : {metrics['accuracy']:.4f}")
+        print(f"  Precision     : {metrics['precision']:.4f}")
+        print(f"  Recall        : {metrics['recall']:.4f}")
+        print(f"  F1 Score      : {metrics['f1']:.4f}")
+        print(f"{'─'*70}")
+        print(f"  Resonance     : {metrics['resonance']:.4f}  (π×φ target: {PI_PHI:.4f})")
+        print(f"  Coherence     : {metrics['coherence']:.4f}")
+        print(f"  Health        : {metrics['health']:.4f}")
+        print(f"  Capacity Use  : {metrics['capacity']:.4f}")
+        print(f"{'='*70}\n")
+
+        return metrics
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1087,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset, batch_size=args.batch_size)
         else:
             print(f"No model found at {model_path}")
         return
