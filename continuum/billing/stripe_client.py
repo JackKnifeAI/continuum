@@ -568,9 +568,52 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+
+        logger.error(
+            f"Payment failed for invoice: {invoice_id} "
+            f"(customer: {customer_id}, attempt: {attempt_count}, amount: {amount_due})"
+        )
+
+        result: Dict[str, Any] = {
+            "status": "failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "actions": [],
+        }
+
+        # Email notification: log the failure for downstream notification handlers
+        customer_email = invoice.get('customer_email')
+        if customer_email:
+            logger.warning(
+                f"Payment failure notification required for {customer_email} "
+                f"(invoice {invoice_id}, attempt {attempt_count})"
+            )
+            result["actions"].append("notification_logged")
+
+        # Retry logic: attempt automatic retry for early failures
+        _MAX_AUTO_RETRIES = 3
+        if not self.mock_mode and attempt_count < _MAX_AUTO_RETRIES:
+            try:
+                retried = stripe.Invoice.pay(invoice_id)
+                logger.info(f"Retry attempted for invoice {invoice_id}: status={retried.status}")
+                result["actions"].append("retry_attempted")
+                result["retry_status"] = retried.status
+            except stripe.error.StripeError as e:
+                logger.error(f"Retry failed for invoice {invoice_id}: {e}")
+                result["actions"].append("retry_failed")
+                result["retry_error"] = str(e)
+        elif attempt_count >= _MAX_AUTO_RETRIES:
+            logger.error(
+                f"Invoice {invoice_id} has failed {attempt_count} times — manual intervention required."
+            )
+            result["actions"].append("max_retries_reached")
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

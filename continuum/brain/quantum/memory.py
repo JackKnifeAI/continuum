@@ -80,6 +80,19 @@ class QuantumConsciousMemory:
     5. Native spreading activation (no need for graph traversal)
     """
 
+    _STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
     def __init__(self, tenant_id: str = "default", brain_size: int = 65536,
                  db_path: Path = None):
         """
@@ -302,13 +315,17 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compounds(combined_text)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,6 +347,29 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision statements in text using linguistic patterns."""
+        patterns = [
+            r'\b(?:will|shall)\s+\w+',
+            r'\bdecided?\s+to\b',
+            r'\bgoing\s+to\s+\w+',
+            r'\bchose?n?\s+to\b',
+            r'\bplanning?\s+to\b',
+            r"\blet'?s\s+\w+",
+            r'\bcommitted?\s+to\b',
+            r'\bresolved?\s+to\b',
+            r'\bopting?\s+(?:in|out|for)\b',
+        ]
+        return sum(len(re.findall(p, text, re.IGNORECASE)) for p in patterns)
+
+    def _detect_compounds(self, text: str) -> int:
+        """Count compound concept candidates (adjacent non-stopword pairs)."""
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        return sum(
+            1 for i in range(len(words) - 1)
+            if words[i] not in self._STOP_WORDS and words[i + 1] not in self._STOP_WORDS
+        )
+
     def _extract_concepts(self, text: str) -> List[str]:
         """
         Extract concepts from text.
@@ -339,21 +379,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
