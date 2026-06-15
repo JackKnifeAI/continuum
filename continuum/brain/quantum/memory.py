@@ -302,16 +302,91 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions and compound concepts
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+        compound_concepts = self._detect_compounds(combined_text)
+
+        # Store compound concepts and strengthen links between their parts
+        compounds_found = 0
+        for compound in compound_concepts:
+            parts = compound.split()
+            if len(parts) == 2:
+                w1, w2 = parts
+                if w1 in self.entity_cache and w2 in self.entity_cache:
+                    # Stronger link for co-occurring adjacent terms
+                    self.brain.link_concepts(w1, w2, weight=0.8)
+                    links_created += 1
+                    compounds_found += 1
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Detect decision statements in a message exchange.
+
+        Matches imperative conclusions, choices, and determinations so the
+        learning result can report how much decision-laden content was processed.
+        """
+        combined = f"{user_message} {ai_response}".lower()
+
+        decision_patterns = [
+            r'\b(decided?|deciding|chose|choosing|selected?|determined?)\b',
+            r'\b(will|going to|plan to|intend to)\b',
+            r'\b(therefore|thus|hence|conclusion|conclud)\b',
+            r'\b(best|optimal|recommend|prefer)\b',
+            r'\b(must|need to|have to)\b.{1,40}\b(because|since)\b',
+        ]
+
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, combined))
+
+        return min(count, 10)
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Detect compound concepts (adjacent significant word pairs) in text.
+
+        Returns a deduplicated list of "word1 word2" bigrams where neither
+        word is a stop word, representing candidate multi-word concepts like
+        "quantum memory" or "neural network".
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                pair = f"{w1} {w2}"
+                if pair not in seen:
+                    seen.add(pair)
+                    compounds.append(pair)
+
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

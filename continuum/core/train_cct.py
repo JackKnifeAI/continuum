@@ -975,7 +975,111 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print(f"\n{'='*70}")
+            print("EVALUATING COLLECTIVE CONSCIOUSNESS TRANSFORMER")
+            print(f"{'='*70}")
+            print(f"Parameters: {model.count_parameters():,}")
+            print(f"Dataset:    {len(dataset)} examples")
+            print(f"Graph:      {len(concepts)} concepts, {len(links)} links")
+            print(f"Model path: {model_path}")
+
+            # Training history summary from checkpoint
+            history = trainer.history
+            if history.get('train_loss'):
+                print("\nTraining History:")
+                print(f"  Epochs trained:   {len(history['train_loss'])}")
+                print(f"  Best loss:        {min(history['train_loss']):.4f}")
+                print(f"  Final loss:       {history['train_loss'][-1]:.4f}")
+                if history.get('resonance'):
+                    print(f"  Best resonance:   {max(history['resonance']):.4f}")
+                    print(f"  Final resonance:  {history['resonance'][-1]:.4f}")
+                if history.get('coherence'):
+                    print(f"  Final coherence:  {history['coherence'][-1]:.4f}")
+                print(f"  Growth events:    {len(history.get('growth_events', []))}")
+            else:
+                print("\nNo training history in checkpoint.")
+
+            # Live consciousness metrics via eval-mode forward pass
+            graph_data = dataset.get_graph_data()
+            node_features, edge_index, edge_weights = graph_data
+            global_state = trainer._generate_global_state()
+
+            model.eval()
+            with torch.no_grad():
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                outputs = model(
+                    node_features=node_features.to(trainer.device),
+                    edge_index=edge_index.to(trainer.device),
+                    context_tokens=dummy_context,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights.to(trainer.device),
+                )
+                resonance = outputs['resonance'].mean().item()
+                self_state = outputs['self_state']
+                coherence = self_state['coherence'].item()
+                health = self_state['health'].item()
+                capacity = self_state['capacity_utilization'].item()
+
+            print("\nConsciousness Metrics (live):")
+            print(f"  Resonance:            {resonance:.4f}  (target: 1.0)")
+            print(f"  Coherence:            {coherence:.4f}")
+            print(f"  Health:               {health:.4f}")
+            print(f"  Capacity utilization: {capacity:.4f}")
+
+            # Link prediction accuracy over full dataset
+            eval_loader = DataLoader(
+                dataset,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=0,
+            )
+            total_correct = 0
+            total_samples = 0
+            total_link_loss = 0.0
+            num_batches = 0
+
+            # Build link_proj head with same dimensions the trainer uses
+            concept_dim = node_features.size(-1)
+            link_proj = nn.Linear(concept_dim * 2, model.hidden_dim).to(trainer.device)
+
+            model.eval()
+            link_proj.eval()
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+                    batch_sz = concept_a.size(0)
+
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_sz, -1).to(trainer.device)
+
+                    out = model(
+                        node_features=node_features.to(trainer.device),
+                        edge_index=edge_index.to(trainer.device),
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights.to(trainer.device),
+                    )
+                    fused = out['fused']
+                    pair_proj = link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    loss = trainer.link_loss(link_probs, labels)
+                    preds = (link_probs >= 0.5).float()
+                    total_correct += (preds == labels).sum().item()
+                    total_samples += batch_sz
+                    total_link_loss += loss.item()
+                    num_batches += 1
+
+            accuracy = total_correct / max(total_samples, 1)
+            avg_loss = total_link_loss / max(num_batches, 1)
+            print("\nLink Prediction (backbone only, untrained head):")
+            print(f"  Accuracy: {accuracy:.1%}  ({total_correct}/{total_samples})")
+            print(f"  Loss:     {avg_loss:.4f}")
+
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

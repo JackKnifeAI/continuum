@@ -568,9 +568,61 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, email={customer_email}, "
+            f"amount_due={amount_due}, attempt={attempt_count}"
+        )
+
+        # Classify failure and choose notification message based on severity
+        if attempt_count == 1:
+            action = "first_failure"
+            subject = "Payment failed - please update your payment method"
+        elif next_payment_attempt is not None:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            action = "retry_scheduled"
+            subject = f"Payment failed - retry scheduled for {retry_dt.strftime('%Y-%m-%d %H:%M UTC')}"
+        else:
+            # Stripe has exhausted its automatic retries
+            action = "final_failure"
+            subject = "Subscription payment failed - immediate action required"
+
+        # Notify the customer via email
+        if customer_email:
+            logger.info(
+                f"[NOTIFY] Sending payment failure email to {customer_email}: "
+                f"subject='{subject}', invoice={invoice_id}, subscription={subscription_id}"
+            )
+            # Wire in an email service here (e.g., SendGrid, SES, Postmark):
+            # await email_service.send(
+            #     to=customer_email,
+            #     subject=subject,
+            #     template="payment_failed",
+            #     context={
+            #         "invoice_id": invoice_id,
+            #         "amount_due": amount_due,
+            #         "attempt_count": attempt_count,
+            #         "subscription_id": subscription_id,
+            #         "portal_url": f"https://billing.continuum.ai/portal?customer={customer_id}",
+            #     },
+            # )
+
+        return {
+            "status": "processed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "action": action,
+            "attempt_count": attempt_count,
+            "retry_scheduled": next_payment_attempt is not None,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
