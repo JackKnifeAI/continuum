@@ -300,15 +300,39 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions across the full exchange
+        combined_text = user_message + " " + ai_response
+        decisions = self._detect_decisions(combined_text)
+        decisions_detected = len(decisions)
+        for decision in decisions:
+            key = decision.lower()[:60]
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = decision[:60]
+                self._store_entity_metadata(addr, decision[:60], "decision", decision)
+
+        # Detect compound concepts (multi-word phrases)
+        compounds = self._detect_compound_concepts(combined_text)
+        compounds_found = len(compounds)
+        for compound in compounds:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=0.9)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,6 +354,79 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    # Shared stop-word set used by extraction and compound detection
+    _STOP_WORDS: frozenset = frozenset({
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    })
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision statements in text using heuristic patterns.
+
+        Looks for phrases expressing intent, plans, or conclusions.
+        """
+        patterns = [
+            r"(?:I|we)\s+(?:will|decided?\s+to|choose\s+to|plan\s+to)\s+[^.!?\n]{5,80}",
+            r"let(?:'s|us)\s+[^.!?\n]{5,80}",
+            r"(?:the\s+)?(?:decision|plan|approach|solution)\s+is\s+to\s+[^.!?\n]{5,80}",
+            r"(?:should|must|need\s+to)\s+[^.!?\n]{5,80}",
+        ]
+        decisions: List[str] = []
+        seen: set = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                decision = match.group().strip()
+                key = decision.lower()
+                if key not in seen and len(decision) > 10:
+                    seen.add(key)
+                    decisions.append(decision)
+        return decisions
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect multi-word compound concepts from text.
+
+        Finds:
+        - Capitalized multi-word phrases (named concepts, e.g. "Quantum Brain")
+        - Hyphenated technical terms (e.g. "error-correction")
+        - snake_case identifiers converted to spaces (e.g. "brain_size" -> "brain size")
+        """
+        compounds: List[str] = []
+        seen: set = set()
+
+        # Capitalized multi-word phrases
+        for match in re.finditer(r'\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+)\b', text):
+            phrase = match.group()
+            key = phrase.lower()
+            if key not in seen:
+                seen.add(key)
+                compounds.append(phrase)
+
+        # Hyphenated technical terms
+        for match in re.finditer(r'\b([a-z]{2,}-[a-z]{2,}(?:-[a-z]{2,})?)\b', text):
+            phrase = match.group()
+            if phrase not in seen:
+                seen.add(phrase)
+                compounds.append(phrase)
+
+        # snake_case identifiers -> space-separated phrase
+        for match in re.finditer(r'\b([a-z]{2,}_[a-z]{2,}(?:_[a-z]{2,})?)\b', text):
+            phrase = match.group().replace('_', ' ')
+            if phrase not in seen:
+                seen.add(phrase)
+                compounds.append(phrase)
+
+        return compounds
+
     def _extract_concepts(self, text: str) -> List[str]:
         """
         Extract concepts from text.
@@ -339,21 +436,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
