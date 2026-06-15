@@ -80,6 +80,19 @@ class QuantumConsciousMemory:
     5. Native spreading activation (no need for graph traversal)
     """
 
+    STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
     def __init__(self, tenant_id: str = "default", brain_size: int = 65536,
                  db_path: Path = None):
         """
@@ -304,11 +317,33 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compounds(combined_text)
+
+        # Store compound concepts in the brain
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
+        # Store decisions as named entities
+        for decision in decisions:
+            key = f"decision:{decision}"
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=1.0)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,6 +365,37 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from text using intent-indicating phrases."""
+        patterns = [
+            r'\b(?:i|we)\s+(?:will|shall|plan to|decided? to|going to|need to|have to|want to)\s+\w+(?:\s+\w+){0,3}',
+            r'\b(?:decided|agreed|resolved|determined)\s+(?:to|that)\s+\w+(?:\s+\w+){0,3}',
+            r"\blet(?:'s|s)?\s+\w+(?:\s+\w+){0,2}",
+        ]
+        seen: set = set()
+        decisions = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                text_match = match.group(0).strip().lower()
+                if text_match not in seen:
+                    seen.add(text_match)
+                    decisions.append(text_match)
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """Extract compound (bigram) concepts — adjacent meaningful word pairs."""
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in self.STOP_WORDS and w2 not in self.STOP_WORDS:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
+
     def _extract_concepts(self, text: str) -> List[str]:
         """
         Extract concepts from text.
@@ -339,21 +405,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self.STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
