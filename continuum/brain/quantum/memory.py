@@ -306,12 +306,55 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=self._extract_decisions(user_message, ai_response),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=self._extract_compound_concepts(user_message + " " + ai_response),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> int:
+        """Count decision-indicating phrases across the message exchange."""
+        decision_patterns = [
+            r"\b(?:will|shall)\s+[a-z]+",
+            r"\b(?:going|planning|intending)\s+to\s+[a-z]+",
+            r"\bdecided?\s+to\s+[a-z]+",
+            r"\blet'?s\s+[a-z]+",
+            r"\b(?:I'll|we'll|you'll)\s+[a-z]+",
+            r"\bneed\s+to\s+[a-z]+",
+        ]
+        combined = f"{user_message} {ai_response}"
+        found: set = set()
+        for pattern in decision_patterns:
+            for match in re.findall(pattern, combined, re.IGNORECASE):
+                found.add(match.lower())
+        return len(found)
+
+    def _extract_compound_concepts(self, text: str) -> int:
+        """Count compound concepts: hyphenated terms and adjacent content-word bigrams."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        # Hyphenated compounds (e.g. "self-evolving", "quantum-protected")
+        hyphenated = set(re.findall(r'\b[a-zA-Z]{2,}-[a-zA-Z]{2,}(?:-[a-zA-Z]{2,})?\b', text))
+
+        # Adjacent content-word bigrams (both words non-stopword, 3+ chars)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        bigrams: set = set()
+        for i in range(len(words) - 1):
+            if words[i] not in stop_words and words[i + 1] not in stop_words:
+                bigrams.add(f"{words[i]} {words[i + 1]}")
+
+        return len(hyphenated | bigrams)
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
