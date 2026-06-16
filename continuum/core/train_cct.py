@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,102 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+            node_features, edge_index, edge_weights = graph_data
+
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+
+            trainer.model.eval()
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                nf = node_features.to(trainer.device)
+                ei = edge_index.to(trainer.device)
+                ew = edge_weights.to(trainer.device)
+                gs = global_state.to(trainer.device)
+
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+
+                    batch_size = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = gs.expand(batch_size, -1)
+
+                    outputs = trainer.model(
+                        node_features=nf,
+                        edge_index=ei,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=ew,
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                    if not hasattr(trainer, 'link_proj'):
+                        trainer.link_proj = nn.Linear(
+                            concept_a.size(-1) * 2, fused.size(-1)
+                        ).to(trainer.device)
+
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_logits = (fused * pair_proj).sum(dim=-1)
+                    link_probs = torch.sigmoid(link_logits)
+
+                    all_preds.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                # Self-perception metrics
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                self_outputs = trainer.model(
+                    node_features=nf,
+                    edge_index=ei,
+                    context_tokens=dummy_context,
+                    global_state=gs.unsqueeze(0),
+                    edge_weights=ew,
+                )
+                self_state = self_outputs['self_state']
+                coherence = self_state['coherence'].item()
+                health = self_state['health'].item()
+                capacity = self_state['capacity_utilization'].item()
+
+            # Compute link prediction metrics
+            threshold = 0.5
+            tp = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= threshold and lbl >= threshold)
+            fp = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= threshold and lbl < threshold)
+            fn = sum(1 for p, lbl in zip(all_preds, all_labels) if p < threshold and lbl >= threshold)
+            tn = sum(1 for p, lbl in zip(all_preds, all_labels) if p < threshold and lbl < threshold)
+            total = len(all_preds)
+
+            accuracy = (tp + tn) / total if total > 0 else 0.0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples evaluated : {total}")
+            print(f"Link Accuracy      : {accuracy:.4f}")
+            print(f"Link Precision     : {precision:.4f}")
+            print(f"Link Recall        : {recall:.4f}")
+            print(f"Link F1            : {f1:.4f}")
+            print(f"Confusion Matrix   : TP={tp} FP={fp} FN={fn} TN={tn}")
+            print(f"Avg Resonance      : {avg_resonance:.4f}")
+            print(f"Coherence          : {coherence:.4f}")
+            print(f"Health             : {health:.4f}")
+            print(f"Capacity Usage     : {capacity:.4f}")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

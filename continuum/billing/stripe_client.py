@@ -567,10 +567,64 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """Handle invoice.payment_failed event with retry tracking and escalation."""
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        next_retry_ts = invoice.get('next_payment_attempt')
+
+        amount_fmt = f"{amount_due / 100:.2f} {currency.upper()}"
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: customer={customer_id} "
+            f"email={customer_email} amount={amount_fmt} attempt={attempt_count}"
+        )
+
+        if next_retry_ts:
+            next_retry_dt = datetime.fromtimestamp(next_retry_ts, tz=timezone.utc)
+            logger.warning(
+                f"Stripe will retry invoice {invoice_id} at {next_retry_dt.isoformat()} "
+                f"(attempt {attempt_count} of automatic retries)"
+            )
+            action = "retry_scheduled"
+        else:
+            # Stripe has exhausted automatic retries — subscription is delinquent
+            logger.error(
+                f"Payment exhausted all retries for invoice {invoice_id} "
+                f"(customer={customer_id}, {attempt_count} attempts). "
+                f"Subscription {subscription_id} requires manual intervention."
+            )
+            if subscription_id and not self.mock_mode:
+                try:
+                    await self.update_subscription(
+                        subscription_id,
+                        metadata={
+                            "payment_failed": "true",
+                            "failed_invoice": invoice_id,
+                            "failure_attempts": str(attempt_count),
+                        }
+                    )
+                    logger.warning(
+                        f"Marked subscription {subscription_id} as delinquent "
+                        f"after {attempt_count} failed payment attempts"
+                    )
+                except Exception as update_err:
+                    logger.error(
+                        f"Failed to update subscription metadata after payment exhaustion: {update_err}"
+                    )
+            action = "final_failure"
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "action": action,
+            "attempt": attempt_count,
+            "customer_email": customer_email,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

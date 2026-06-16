@@ -300,18 +300,69 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts
+        decisions_detected = self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+
+        compound_concepts = list(set(
+            self._extract_compound_concepts(user_message) +
+            self._extract_compound_concepts(ai_response)
+        ))
+        for compound in compound_concepts:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                links_created += sum(
+                    1 for part in compound.replace("-", "_").split("_")
+                    if part in self.entity_cache and self.entity_cache[part] != addr
+                    and not self.brain.link_concepts(part, compound, weight=0.7)
+                )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compound_concepts),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision-type statements in text using linguistic markers."""
+        patterns = [
+            r'\b(?:i|we)\s+(?:will|shall|must|have\s+to|am\s+going\s+to|are\s+going\s+to)\s+\w+',
+            r'\b(?:decided|agreed|resolved|determined|concluded)\s+to\b',
+            r'\blet(?:\'s|us)\s+\w+',
+            r'\bgoing\s+to\s+\w+',
+            r'\b(?:decision|plan|goal)\s+is\s+to\b',
+        ]
+        lower = text.lower()
+        return sum(len(re.findall(p, lower)) for p in patterns)
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word compound concepts: hyphenated terms and capitalized bigrams."""
+        compounds: List[str] = []
+
+        # Hyphenated compounds: quantum-protected, self-evolving, π×φ-encoded
+        for match in re.findall(r'\b[a-zA-Z]{2,}-[a-zA-Z]{2,}\b', text):
+            compounds.append(match.lower())
+
+        # Adjacent capitalized words (named concepts): "Neural Network", "Knowledge Graph"
+        for a, b in re.findall(r'\b([A-Z][a-z]{1,})\s+([A-Z][a-z]{1,})\b', text):
+            compounds.append(f"{a.lower()}_{b.lower()}")
+
+        seen: set = set()
+        unique: List[str] = []
+        for c in compounds:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+        return unique
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
