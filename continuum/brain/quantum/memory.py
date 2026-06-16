@@ -300,18 +300,78 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and compound concepts from the full exchange
+        decisions = (
+            self._extract_decisions(user_message) +
+            self._extract_decisions(ai_response)
+        )
+        compounds = (
+            self._extract_compound_concepts(user_message) +
+            self._extract_compound_concepts(ai_response)
+        )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements using intent-signal patterns."""
+        patterns = [
+            r"(?:I|we)\s+(?:will|shall|must|need to|plan to|going to|decided? to)\s+\w[\w\s]{3,50}",
+            r"let(?:'s| us)\s+\w[\w\s]{3,50}",
+            r"(?:the\s+)?(?:decision|plan|goal|approach|strategy)\s+is\s+to\s+\w[\w\s]{3,50}",
+        ]
+        decisions: List[str] = []
+        seen: set = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                fragment = match.group(0).strip()
+                if fragment not in seen:
+                    seen.add(fragment)
+                    decisions.append(fragment)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract bigram and trigram noun phrases (consecutive non-stop words)."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: List[str] = []
+        seen: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                bigram = f"{w1} {w2}"
+                if bigram not in seen:
+                    seen.add(bigram)
+                    compounds.append(bigram)
+            if i < len(words) - 2:
+                w3 = words[i + 2]
+                if w1 not in stop_words and w2 not in stop_words and w3 not in stop_words:
+                    trigram = f"{w1} {w2} {w3}"
+                    if trigram not in seen:
+                        seen.add(trigram)
+                        compounds.append(trigram)
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

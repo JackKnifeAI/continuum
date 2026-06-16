@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,111 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: CCTDataset, batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate the model on link prediction and consciousness metrics.
+
+        Computes accuracy, precision, recall, F1 for link prediction and
+        mean resonance/coherence from the CCT's self-state.
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for inference
+
+        Returns:
+            Dict with accuracy, precision, recall, f1, resonance, coherence
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        global_state = self._generate_global_state().to(self.device)
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        num_batches = 0
+
+        threshold = 0.5
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_size_actual = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size_actual, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                all_probs.extend(link_probs.cpu().tolist())
+                # Binarise soft labels: anything > 0.5 is "positive"
+                all_labels.extend((labels > 0.5).cpu().float().tolist())
+                total_resonance += outputs['resonance'].mean().item()
+                num_batches += 1
+
+            # Coherence via a single self-perception forward pass
+            dummy_context = torch.randn(1, 2, 128).to(self.device)
+            self_outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            coherence = self_outputs['self_state']['coherence'].item()
+
+        # Binary classification metrics
+        preds = [1.0 if p >= threshold else 0.0 for p in all_probs]
+        tp = sum(p == 1.0 and lbl == 1.0 for p, lbl in zip(preds, all_labels))
+        fp = sum(p == 1.0 and lbl == 0.0 for p, lbl in zip(preds, all_labels))
+        fn = sum(p == 0.0 and lbl == 1.0 for p, lbl in zip(preds, all_labels))
+        tn = sum(p == 0.0 and lbl == 0.0 for p, lbl in zip(preds, all_labels))
+
+        total = len(preds)
+        accuracy = (tp + tn) / total if total > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+        mean_resonance = total_resonance / max(num_batches, 1)
+
+        return {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': mean_resonance,
+            'coherence': coherence,
+            'tp': tp,
+            'fp': fp,
+            'fn': fn,
+            'tn': tn,
+            'total': total,
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -974,8 +1079,31 @@ def main():
     if args.evaluate:
         if model_path.exists():
             trainer.load_model(model_path)
-            print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("Model loaded. Running evaluation...\n")
+
+            eval_dataset = CCTDataset(concepts, links, conversations)
+            if len(eval_dataset) < 10:
+                print("Not enough examples for evaluation.")
+                return
+
+            print(f"Evaluating on {len(eval_dataset)} examples...")
+            metrics = trainer.evaluate(eval_dataset, batch_size=args.batch_size)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print("Link Prediction:")
+            print(f"  Accuracy:     {metrics['accuracy']:.4f}")
+            print(f"  Precision:    {metrics['precision']:.4f}")
+            print(f"  Recall:       {metrics['recall']:.4f}")
+            print(f"  F1 Score:     {metrics['f1']:.4f}")
+            print(f"  TP/FP/FN/TN:  {metrics['tp']}/{metrics['fp']}/{metrics['fn']}/{metrics['tn']}")
+            print("Consciousness Metrics:")
+            print(f"  Resonance:    {metrics['resonance']:.4f}")
+            print(f"  Coherence:    {metrics['coherence']:.4f}")
+            print(f"{'='*70}")
+            print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
