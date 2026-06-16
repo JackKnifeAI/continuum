@@ -568,9 +568,59 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt_ts = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+
+        next_attempt_dt = (
+            datetime.fromtimestamp(next_attempt_ts, tz=timezone.utc).isoformat()
+            if next_attempt_ts else None
+        )
+
+        # Structured failure record — can be consumed by an external notification service
+        failure_info: Dict[str, Any] = {
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "subscription_id": subscription_id,
+            "amount_due_cents": amount_due,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt_dt,
+        }
+
+        logger.error(
+            "Payment failed",
+            extra={"payment_failure": failure_info},
+        )
+
+        result: Dict[str, Any] = {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt_dt,
+        }
+
+        # Manual retry: if Stripe won't schedule another attempt automatically
+        # (next_payment_attempt is None) and this is an early failure, try once more.
+        if not self.mock_mode and not next_attempt_ts and attempt_count <= 2:
+            try:
+                retried = stripe.Invoice.pay(invoice_id)
+                logger.info(f"Manual retry succeeded for invoice {invoice_id}")
+                result["retry_status"] = "succeeded"
+                result["retry_invoice_status"] = retried.get("status")
+            except Exception as retry_err:
+                logger.warning(f"Manual retry failed for invoice {invoice_id}: {retry_err}")
+                result["retry_status"] = "failed"
+                result["retry_error"] = str(retry_err)
+        elif self.mock_mode and not next_attempt_ts and attempt_count <= 2:
+            logger.info(f"[MOCK] Would retry invoice {invoice_id} (attempt {attempt_count})")
+            result["retry_status"] = "mock_skipped"
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
