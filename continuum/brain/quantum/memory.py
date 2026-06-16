@@ -302,16 +302,96 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Decision extraction
+        decisions = self._extract_decisions(user_message + " " + ai_response)
+        for decision in decisions:
+            if decision not in self.entity_cache:
+                addr = self.brain.store_concept(decision, activation=0.8)
+                self.entity_cache[decision] = addr
+                self.name_cache[addr] = decision
+                self._store_entity_metadata(addr, decision, "decision", "")
+
+        # Compound concept detection
+        compounds = self._extract_compound_concepts(user_message + " " + ai_response)
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.9)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Detect decision/commitment phrases: 'decided to X', 'will X', 'plan to X', etc."""
+        patterns = [
+            r'\bdecided?\s+to\s+\w+(?:\s+\w+){0,3}',
+            r'\bgoing\s+to\s+\w+(?:\s+\w+){0,3}',
+            r'\bplan(?:ning)?\s+to\s+\w+(?:\s+\w+){0,3}',
+            r'\bagreed?\s+to\s+\w+(?:\s+\w+){0,3}',
+            r"\blet'?s\s+\w+(?:\s+\w+){0,3}",
+            r'\bwill\s+\w+(?:\s+\w+){0,3}',
+            r'\bshould\s+\w+(?:\s+\w+){0,3}',
+            r'\bneed\s+to\s+\w+(?:\s+\w+){0,3}',
+        ]
+        seen: set = set()
+        decisions = []
+        for pattern in patterns:
+            for m in re.finditer(pattern, text.lower()):
+                phrase = m.group(0).strip()
+                if phrase not in seen:
+                    seen.add(phrase)
+                    decisions.append(phrase)
+        return decisions[:10]
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract meaningful bigram/trigram noun phrases from text."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'how', 'all', 'each',
+            'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such',
+            'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too',
+            'very', 'just', 'about', 'into', 'your', 'our', 'their', 'any',
+            'there', 'here', 'its', 'also', 'being', 'use', 'used',
+        }
+        words = re.findall(r'\b[a-z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds = []
+        i = 0
+        while i < len(words) - 1:
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                # Try trigram first
+                if i + 2 < len(words):
+                    w3 = words[i + 2]
+                    if w3 not in stop_words:
+                        phrase = f"{w1} {w2} {w3}"
+                        if phrase not in seen:
+                            seen.add(phrase)
+                            compounds.append(phrase)
+                        i += 3
+                        continue
+                phrase = f"{w1} {w2}"
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+                i += 2
+            else:
+                i += 1
+        return compounds[:10]
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
