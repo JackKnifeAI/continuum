@@ -568,9 +568,104 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, email={customer_email}, "
+            f"amount=${amount_due / 100:.2f}, attempt={attempt_count}"
+        )
+
+        actions_taken = []
+
+        if customer_email:
+            self._notify_payment_failure(
+                email=customer_email,
+                invoice_id=invoice_id,
+                amount_due=amount_due,
+                attempt_count=attempt_count,
+            )
+            actions_taken.append("email_sent")
+
+        max_retries = 3
+        if attempt_count < max_retries:
+            logger.info(
+                f"Invoice {invoice_id}: attempt {attempt_count}/{max_retries}, "
+                "Stripe will retry automatically per dunning settings"
+            )
+            actions_taken.append("retry_scheduled")
+        else:
+            logger.warning(
+                f"Invoice {invoice_id}: reached max attempts ({max_retries}), "
+                "subscription may be suspended or canceled"
+            )
+            actions_taken.append("max_retries_reached")
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "actions_taken": actions_taken,
+        }
+
+    def _notify_payment_failure(
+        self,
+        email: str,
+        invoice_id: Optional[str],
+        amount_due: int,
+        attempt_count: int,
+    ) -> None:
+        """
+        Send payment failure email via SMTP.
+
+        Requires env vars: SMTP_HOST, SMTP_PORT (default 587), SMTP_USER,
+        SMTP_PASSWORD, NOTIFICATION_FROM_EMAIL.
+        """
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        smtp_host = os.getenv('SMTP_HOST')
+        if not smtp_host:
+            logger.warning(
+                f"SMTP not configured; skipping payment failure email to {email} "
+                f"for invoice {invoice_id}"
+            )
+            return
+
+        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        smtp_user = os.getenv('SMTP_USER', '')
+        smtp_password = os.getenv('SMTP_PASSWORD', '')
+        from_email = os.getenv('NOTIFICATION_FROM_EMAIL', smtp_user)
+
+        amount_str = f"${amount_due / 100:.2f}"
+        msg = MIMEMultipart()
+        msg['From'] = from_email
+        msg['To'] = email
+        msg['Subject'] = f"Action required: payment of {amount_str} failed"
+        body = (
+            f"We were unable to process your payment of {amount_str} "
+            f"(attempt {attempt_count}).\n\n"
+            f"Invoice: {invoice_id}\n\n"
+            "Please update your payment method to avoid service interruption:\n"
+            "  https://billing.continuum.ai/portal\n"
+        )
+        msg.attach(MIMEText(body, 'plain'))
+
+        try:
+            with smtplib.SMTP(smtp_host, smtp_port) as server:
+                server.starttls()
+                if smtp_user and smtp_password:
+                    server.login(smtp_user, smtp_password)
+                server.send_message(msg)
+            logger.info(f"Payment failure notification sent to {email} for invoice {invoice_id}")
+        except Exception as e:
+            logger.error(f"Failed to send payment failure email to {email}: {e}")
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

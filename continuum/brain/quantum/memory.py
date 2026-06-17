@@ -302,13 +302,17 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._extract_decisions(combined_text)
+        compounds_found = self._extract_compound_concepts(combined_text, list(all_concepts))
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +368,43 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> int:
+        """
+        Count decision statements in text.
+
+        Detects commitments, resolutions, and intent markers that signal
+        a decision was made during the exchange.
+        """
+        decision_patterns = [
+            r'\b(?:decided?|choosing?|chose)\s+to\b',
+            r'\b(?:will|shall|going\s+to)\s+[a-z]+\b',
+            r'\bagreed?\s+to\b',
+            r'\bcommit(?:ted|ting)?\s+to\b',
+            r"\blet'?s\s+[a-z]+\b",
+            r'\bfinal\s+(?:decision|answer|choice)\b',
+            r'\bconclusion\s+is\b',
+            r'\bwe\s+(?:should|must|need\s+to)\s+[a-z]+\b',
+        ]
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text, re.IGNORECASE))
+        return count
+
+    def _extract_compound_concepts(self, text: str, concepts: List[str]) -> int:
+        """
+        Detect compound multi-word concepts via adjacent concept bigrams.
+
+        Two consecutive non-stopword tokens that are both recognized concepts
+        form a compound (e.g. "quantum memory", "neural network").
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concept_set = set(concepts)
+        compounds: set = set()
+        for i in range(len(words) - 1):
+            if words[i] in concept_set and words[i + 1] in concept_set:
+                compounds.add(f"{words[i]} {words[i + 1]}")
+        return len(compounds)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
