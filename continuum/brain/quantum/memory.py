@@ -302,16 +302,55 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions = self._extract_decisions(user_message + " " + ai_response)
+        compounds = self._extract_compound_concepts(user_message + " " + ai_response)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from text using intent patterns."""
+        patterns = [
+            r'(?:I|we|you)\s+(?:will|shall|must|should|need to|have to|am going to|are going to)\s+\w+[^.!?]*[.!?]',
+            r'(?:decided|agreed|chose|resolved|concluded|determined)\s+to\s+\w+[^.!?]*[.!?]',
+            r"let'?s\s+\w+[^.!?]*[.!?]",
+            r'the\s+(?:decision|plan|goal|objective)\s+is\s+[^.!?]*[.!?]',
+        ]
+        decisions = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text, re.IGNORECASE):
+                decisions.append(match.strip())
+        seen: set = set()
+        unique = []
+        for d in decisions:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        return unique
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word compound concepts (named entities and hyphenated terms)."""
+        compounds: List[str] = []
+        # Named entities: two or more consecutive capitalized words
+        compounds.extend(re.findall(r'\b(?:[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)\b', text))
+        # Hyphenated compound terms (e.g. self-evolving, error-correction)
+        compounds.extend(re.findall(r'\b[a-z]{3,}-[a-z]{3,}\b', text))
+        seen: set = set()
+        unique = []
+        for c in compounds:
+            key = c.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+        return unique
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
