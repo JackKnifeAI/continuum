@@ -568,9 +568,45 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_retry_ts = invoice.get('next_payment_attempt')
+
+        will_retry = next_retry_ts is not None
+        next_retry_dt = (
+            datetime.fromtimestamp(next_retry_ts, tz=timezone.utc).isoformat()
+            if will_retry else None
+        )
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id} email={customer_email} "
+            f"amount={amount_due} attempt={attempt_count} "
+            f"will_retry={will_retry} next_retry={next_retry_dt}"
+        )
+
+        if not will_retry:
+            logger.critical(
+                f"Final payment failure for invoice {invoice_id} "
+                f"(subscription {subscription_id}). "
+                f"Manual intervention required for customer {customer_id}."
+            )
+
+        return {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "will_retry": will_retry,
+            "next_retry_at": next_retry_dt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

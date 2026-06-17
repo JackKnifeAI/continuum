@@ -300,15 +300,36 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions and compound concepts from the full exchange
+        combined_text = f"{user_message} {ai_response}"
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compound_concepts(combined_text)
+
+        # Store compound concepts in the brain as enriched entities
+        compounds_found = 0
+        for compound in compounds:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+            else:
+                addr = self.entity_cache[key]
+                self.brain.cells[addr].activation = min(
+                    1.0, self.brain.cells[addr].activation + 0.05
+                )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +385,71 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decisions and commitments from text.
+
+        Looks for linguistic markers that indicate a choice was made or a
+        commitment was established during the conversation.
+        """
+        decision_patterns = [
+            r"decided(?:\s+to)?\s+([^.!?\n]{5,60})",
+            r"(?:will|shall)\s+([^.!?\n]{5,60})",
+            r"chose(?:n)?\s+(?:to\s+)?([^.!?\n]{5,60})",
+            r"agreed?\s+(?:to\s+)?([^.!?\n]{5,60})",
+            r"planning?\s+to\s+([^.!?\n]{5,60})",
+            r"committed?\s+to\s+([^.!?\n]{5,60})",
+            r"going\s+to\s+([^.!?\n]{5,60})",
+        ]
+
+        raw: List[str] = []
+        for pattern in decision_patterns:
+            raw.extend(re.findall(pattern, text.lower()))
+
+        seen: set = set()
+        unique: List[str] = []
+        for d in raw:
+            d = d.strip()
+            if d and d not in seen:
+                seen.add(d)
+                unique.append(d)
+
+        return unique
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect compound concepts (multi-word phrases) from text.
+
+        Finds adjacent non-stop-word pairs that likely form meaningful
+        compound terms (e.g. "neural network", "quantum brain").
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
