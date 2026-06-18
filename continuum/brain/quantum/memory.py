@@ -302,13 +302,20 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions_detected = (
+            self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+        )
+        compounds_found = (
+            self._detect_compounds(user_message) + self._detect_compounds(ai_response)
+        )
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +336,44 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _detect_decisions(self, text: str) -> int:
+        """Detect decision statements in text using linguistic patterns."""
+        decision_patterns = [
+            r'\b(?:i|we)\s+(?:decided?|chose|chosen|agreed?|determined?)\s+to\b',
+            r'\b(?:i|we)\s+will\s+\w',
+            r"\blet(?:'s| us)\s+\w",
+            r'\b(?:i|we)(?:\'m|\'re|am|are)\s+going\s+to\b',
+            r'\bthe\s+(?:decision|plan|approach|solution)\s+(?:is|was|will\s+be)\b',
+            r'\bwe\s+(?:should|must|need\s+to)\b',
+            r'\b(?:therefore|thus|hence|consequently)\s+(?:i|we|the)\b',
+            r'\bdecided?\s+(?:to|that|on)\b',
+        ]
+        text_lower = text.lower()
+        return sum(len(re.findall(p, text_lower)) for p in decision_patterns)
+
+    def _detect_compounds(self, text: str) -> int:
+        """Detect compound concepts (consecutive meaningful word pairs) in text."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        word_matches = list(re.finditer(r'\b[a-zA-Z]{3,}\b', text.lower()))
+        compounds = set()
+        for i in range(len(word_matches) - 1):
+            w1 = word_matches[i].group()
+            w2 = word_matches[i + 1].group()
+            if w1 not in stop_words and w2 not in stop_words:
+                compounds.add(f"{w1} {w2}")
+        return len(compounds)
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

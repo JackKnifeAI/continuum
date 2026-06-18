@@ -568,9 +568,77 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, subscription={subscription_id}, "
+            f"amount={amount_due/100:.2f}, attempt={attempt_count}"
+        )
+
+        actions_taken: List[str] = []
+
+        # Notify the customer on every failure
+        self._notify_payment_failure(
+            customer_id=customer_id,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            attempt_count=attempt_count,
+            next_attempt=next_attempt,
+        )
+        actions_taken.append("notification_sent")
+
+        # After 3 failed attempts, cancel the subscription rather than letting
+        # Stripe keep retrying indefinitely and leaving the account in past_due limbo.
+        MAX_ATTEMPTS_BEFORE_CANCEL = 3
+        if attempt_count >= MAX_ATTEMPTS_BEFORE_CANCEL and subscription_id and not self.mock_mode:
+            try:
+                stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+                logger.warning(
+                    f"Subscription {subscription_id} scheduled for cancellation "
+                    f"after {attempt_count} failed payment attempts"
+                )
+                actions_taken.append("subscription_cancel_scheduled")
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to cancel subscription {subscription_id} after payment failure: {e}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "actions_taken": actions_taken,
+        }
+
+    def _notify_payment_failure(
+        self,
+        customer_id: Optional[str],
+        invoice_id: str,
+        amount_due: int,
+        attempt_count: int,
+        next_attempt: Optional[int],
+    ) -> None:
+        """
+        Emit a payment failure notification.
+
+        Logs a structured record for now; wire up an email/Slack sender here
+        when a notification service is available.
+        """
+        next_attempt_dt = (
+            datetime.fromtimestamp(next_attempt, tz=timezone.utc).isoformat()
+            if next_attempt
+            else "no further retries scheduled"
+        )
+        logger.warning(
+            "PAYMENT_FAILURE_NOTIFICATION | "
+            f"customer={customer_id} | invoice={invoice_id} | "
+            f"amount=${amount_due/100:.2f} | attempt={attempt_count} | "
+            f"next_retry={next_attempt_dt}"
+        )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

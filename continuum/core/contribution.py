@@ -35,6 +35,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -43,6 +44,23 @@ from .config import get_config
 from .immune_system import AntibodyDetector
 
 logger = logging.getLogger("CONTRIBUTION")
+
+# PII patterns: email addresses and US/international phone numbers
+_PII_PATTERNS = [
+    re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'),
+    re.compile(r'\b(\+?1[\s.\-]?)?(\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4})\b'),
+]
+
+
+def _contains_pii(text: str) -> bool:
+    return any(p.search(text) for p in _PII_PATTERNS)
+
+
+def _redact_pii(text: str) -> str:
+    for pattern in _PII_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
+
 
 @dataclass
 class ContributionPacket:
@@ -110,9 +128,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for lnk in links:
+            concept_names.add(lnk["a"])
+            concept_names.add(lnk["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,23 +145,27 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = c["name"].lower().strip()
+            desc = c["desc"][:200] if c["desc"] else ""
+
+            # Skip concepts whose name is itself PII (e.g. an email stored as a node)
+            if _contains_pii(name):
+                logger.debug("Skipping PII concept name: %s…", name[:20])
+                continue
+
+            clean.append({"name": name, "desc": _redact_pii(desc)})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": lnk["a"].lower().strip(),
+                "b": lnk["b"].lower().strip(),
+                "w": round(lnk["w"], 4),
+                "t": lnk["t"]
             }
-            for l in links
+            for lnk in links
         ]
 
     def _get_anonymous_id(self) -> str:
