@@ -300,15 +300,34 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions from the exchange
+        decisions_detected = self._extract_decisions(user_message, ai_response)
+
+        # Extract and store compound concepts
+        compounds = self._extract_compounds(user_message + " " + ai_response)
+        compounds_found = 0
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+            else:
+                addr = self.entity_cache[compound]
+                self.brain.cells[addr].activation = min(
+                    1.0, self.brain.cells[addr].activation + 0.05
+                )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +383,56 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Count decision markers in a message exchange.
+
+        Looks for linguistic patterns that signal a choice or commitment
+        was made (e.g. "we will", "I decided", "let's use", "going with").
+        """
+        decision_patterns = [
+            r"\b(?:i|we)\s+(?:will|shall|am going to|are going to)\s+\w+",
+            r"\b(?:decided|choosing|selected|opted for|going with)\b",
+            r"\blet(?:'s| us)\s+\w+",
+            r"\b(?:should|must|need to|have to)\s+\w+",
+            r"\b(?:i|we)\s+(?:choose|prefer|pick|want)\s+\w+",
+        ]
+        combined = (user_message + " " + ai_response).lower()
+        found: set = set()
+        for pattern in decision_patterns:
+            for match in re.finditer(pattern, combined):
+                found.add(match.group(0))
+        return len(found)
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """
+        Extract compound concepts (adjacent non-stop-word bigrams) from text.
+
+        For example, "machine learning", "quantum memory", "neural network".
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            if words[i] not in stop_words and words[i + 1] not in stop_words:
+                phrase = f"{words[i]} {words[i + 1]}"
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+        return compounds[:20]  # Mirror the single-concept limit
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
