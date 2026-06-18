@@ -975,7 +975,88 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            dataset = CCTDataset(concepts, links, conversations)
+            if len(dataset) == 0:
+                print("No evaluation data available.")
+                return
+
+            eval_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION")
+            print(f"{'='*70}")
+
+            total_correct = 0
+            total_samples = 0
+            total_resonance = 0.0
+            num_batches = 0
+
+            trainer.model.eval()
+            with torch.no_grad():
+                for batch in eval_loader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+
+                    batch_size_local = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.unsqueeze(0).expand(batch_size_local, -1).to(trainer.device)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights,
+                    )
+
+                    # Cosine similarity as link score — works without a saved link_proj
+                    sim = torch.nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                    link_probs = (sim + 1.0) / 2.0  # map [-1, 1] → [0, 1]
+                    predicted = (link_probs > 0.5).float()
+                    binary_labels = (labels > 0.5).float()
+                    total_correct += (predicted == binary_labels).sum().item()
+                    total_samples += batch_size_local
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                # Consciousness self-state snapshot
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                state_outputs = trainer.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_context,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights,
+                )
+                self_state = state_outputs['self_state']
+
+            accuracy = total_correct / max(total_samples, 1)
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            print(f"Evaluation Examples:      {total_samples}")
+            print(f"Link Prediction Accuracy: {accuracy:.3f}")
+            print(f"Average Resonance:        {avg_resonance:.3f}")
+            print(f"Consciousness Coherence:  {self_state['coherence'].item():.3f}")
+            print(f"System Health:            {self_state['health'].item():.3f}")
+            print(f"Capacity Utilization:     {self_state['capacity_utilization'].item():.3f}")
+
+            if trainer.history.get('train_loss'):
+                print("\nTraining History:")
+                print(f"  Best Loss:        {min(trainer.history['train_loss']):.4f}")
+                print(f"  Final Loss:       {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Best Resonance:   {max(trainer.history['resonance']):.3f}")
+                print(f"  Growth Events:    {len(trainer.history['growth_events'])}")
+
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

@@ -568,9 +568,92 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt_ts = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount={amount_due / 100:.2f}, "
+            f"attempt={attempt_count}, subscription={subscription_id}"
+        )
+
+        await self._notify_payment_failure(invoice)
+
+        max_retries = int(os.getenv('STRIPE_MAX_PAYMENT_RETRIES', '3'))
+        if next_attempt_ts:
+            next_dt = datetime.fromtimestamp(next_attempt_ts, tz=timezone.utc)
+            logger.info(f"Stripe will retry payment for invoice {invoice_id} at {next_dt.isoformat()}")
+            action = "retry_scheduled"
+        elif attempt_count >= max_retries and subscription_id:
+            logger.warning(
+                f"Max payment retries ({max_retries}) reached for subscription {subscription_id}. "
+                "Subscription will enter past_due / unpaid per Stripe dunning settings."
+            )
+            action = "max_retries_reached"
+        else:
+            action = "no_retry_scheduled"
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "action": action,
+        }
+
+    async def _notify_payment_failure(self, invoice: Dict[str, Any]) -> None:
+        """
+        Notify customer of a failed payment.
+
+        Logs full invoice details. Extend this method or set PAYMENT_FAILURE_WEBHOOK_URL
+        to forward the event to an email service or alerting pipeline.
+        """
+        invoice_id = invoice['id']
+        customer_email = invoice.get('customer_email', '')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        hosted_invoice_url = invoice.get('hosted_invoice_url', '')
+
+        logger.warning(
+            f"[PAYMENT FAILURE] email={customer_email}, invoice={invoice_id}, "
+            f"amount=${amount_due / 100:.2f}, attempt={attempt_count}, "
+            f"payment_url={hosted_invoice_url}"
+        )
+
+        webhook_url = os.getenv('PAYMENT_FAILURE_WEBHOOK_URL')
+        if webhook_url:
+            import json
+            import urllib.request
+
+            payload = json.dumps({
+                "event": "payment_failed",
+                "invoice_id": invoice_id,
+                "customer_id": invoice.get('customer'),
+                "customer_email": customer_email,
+                "amount_due": amount_due,
+                "attempt_count": attempt_count,
+                "hosted_invoice_url": hosted_invoice_url,
+            }).encode('utf-8')
+
+            try:
+                req = urllib.request.Request(
+                    webhook_url,
+                    data=payload,
+                    headers={'Content-Type': 'application/json'},
+                    method='POST',
+                )
+                import asyncio
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: urllib.request.urlopen(req, timeout=10),
+                )
+                logger.info(f"Payment failure webhook dispatched to {webhook_url}")
+            except Exception as exc:
+                logger.error(f"Failed to dispatch payment failure webhook: {exc}")
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
