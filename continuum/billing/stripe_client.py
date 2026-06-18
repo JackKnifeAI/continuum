@@ -568,9 +568,63 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            "Payment failed: invoice=%s customer=%s amount=%.2f attempt=%d",
+            invoice_id, customer_id, amount_due / 100, attempt_count,
+        )
+
+        # Structured alert — wire PAYMENT_FAILURE_ALERT lines to email/Slack/PagerDuty
+        logger.warning(
+            "PAYMENT_FAILURE_ALERT customer=%s invoice=%s amount_cents=%d attempt=%d next_attempt=%s",
+            customer_id, invoice_id, amount_due, attempt_count,
+            datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+            if next_payment_attempt else "none",
+        )
+
+        result: Dict[str, Any] = {
+            "status": "failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "notification": "logged",
+        }
+
+        if self.mock_mode:
+            result["retry"] = "skipped_mock"
+            return result
+
+        # On the first failure, attempt an immediate retry before Stripe's scheduled window.
+        # If next_payment_attempt is already set, Stripe queued a retry — don't double-trigger.
+        if attempt_count == 1 and next_payment_attempt is None:
+            try:
+                stripe.Invoice.pay(invoice_id, forgive=True)
+                logger.info("Immediate retry triggered for invoice %s", invoice_id)
+                result["retry"] = "triggered"
+            except stripe.error.CardError as e:
+                logger.warning("Immediate retry declined for invoice %s: %s", invoice_id, e)
+                result["retry"] = "declined"
+            except stripe.error.StripeError as e:
+                logger.error("Immediate retry error for invoice %s: %s", invoice_id, e)
+                result["retry"] = "error"
+        elif next_payment_attempt:
+            retry_at = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+            logger.info("Stripe will retry invoice %s at %s", invoice_id, retry_at)
+            result["retry"] = "scheduled_by_stripe"
+            result["retry_at"] = retry_at
+        else:
+            logger.error(
+                "Payment exhausted for invoice %s after %d attempts",
+                invoice_id, attempt_count,
+            )
+            result["retry"] = "exhausted"
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

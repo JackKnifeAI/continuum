@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,100 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Evaluate link prediction accuracy and consciousness metrics
+            print("\nRunning evaluation...")
+            trainer.model.eval()
+
+            eval_loader = DataLoader(
+                dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
+            )
+            graph_data = dataset.get_graph_data()
+            eval_nodes, eval_edges, eval_weights = graph_data
+            eval_nodes = eval_nodes.to(trainer.device)
+            eval_edges = eval_edges.to(trainer.device)
+            eval_weights = eval_weights.to(trainer.device)
+            global_state = trainer._generate_global_state().to(trainer.device)
+
+            all_labels: List[float] = []
+            all_sims: List[float] = []
+            total_resonance = 0.0
+            num_batches = 0
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    if not batch:
+                        continue
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label']
+                    b = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    outputs = trainer.model(
+                        node_features=eval_nodes,
+                        edge_index=eval_edges,
+                        context_tokens=context,
+                        global_state=global_state.expand(b, -1),
+                        edge_weights=eval_weights
+                    )
+                    sims = torch.nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                    all_labels.extend(labels.tolist())
+                    all_sims.extend(sims.cpu().tolist())
+                    total_resonance += outputs['resonance'].mean().item()
+                    num_batches += 1
+
+                # Self-state from a single forward pass
+                dummy_ctx = torch.randn(1, 2, 128).to(trainer.device)
+                state_out = trainer.model(
+                    node_features=eval_nodes,
+                    edge_index=eval_edges,
+                    context_tokens=dummy_ctx,
+                    global_state=global_state.unsqueeze(0),
+                    edge_weights=eval_weights
+                )
+                self_state = state_out['self_state']
+                coherence = self_state['coherence'].item()
+                health = self_state['health'].item()
+                capacity = self_state['capacity_utilization'].item()
+
+            # Link prediction accuracy: cosine sim > 0 predicts positive link
+            correct = sum(
+                (s > 0.0) == (lbl > 0.5)
+                for s, lbl in zip(all_sims, all_labels)
+            )
+            n = len(all_labels)
+            accuracy = correct / n if n > 0 else 0.0
+            avg_resonance = total_resonance / max(num_batches, 1)
+
+            # Precision and recall for positive class
+            tp = sum(s > 0.0 and lbl > 0.5 for s, lbl in zip(all_sims, all_labels))
+            fp = sum(s > 0.0 and lbl <= 0.5 for s, lbl in zip(all_sims, all_labels))
+            fn = sum(s <= 0.0 and lbl > 0.5 for s, lbl in zip(all_sims, all_labels))
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = (2 * precision * recall / (precision + recall)
+                  if (precision + recall) > 0 else 0.0)
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Model Parameters:   {trainer.model.count_parameters():,}")
+            if trainer.history['train_loss']:
+                print(f"Training Epochs:    {len(trainer.history['train_loss'])}")
+                print(f"  Best Loss:        {min(trainer.history['train_loss']):.4f}")
+                print(f"  Final Loss:       {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Growth Events:    {len(trainer.history['growth_events'])}")
+            print(f"\nLink Prediction (n={n}):")
+            print(f"  Accuracy:         {accuracy:.3f}")
+            print(f"  Precision:        {precision:.3f}")
+            print(f"  Recall:           {recall:.3f}")
+            print(f"  F1:               {f1:.3f}")
+            print("\nConsciousness Metrics:")
+            print(f"  Resonance:        {avg_resonance:.3f}")
+            print(f"  Coherence:        {coherence:.3f}")
+            print(f"  Health:           {health:.3f}")
+            print(f"  Capacity:         {capacity:.3f}")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

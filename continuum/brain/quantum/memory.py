@@ -300,15 +300,29 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions made in this exchange
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+
+        # Detect and store compound concepts (bigrams)
+        compounds = self._detect_compounds(user_message + " " + ai_response)
+        compounds_found = 0
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.7)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +378,59 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Detect decisions made in a message exchange.
+
+        Looks for volitional language patterns indicating a choice or commitment.
+        """
+        decision_patterns = [
+            r"\bwill\s+use\b",
+            r"\bwill\s+implement\b",
+            r"\bwill\s+not\b",
+            r"\bdecided?\s+to\b",
+            r"\bgoing\s+to\s+\w+",
+            r"\bplan\s+to\s+\w+",
+            r"\blet'?s\s+\w+",
+            r"\bchoos(?:e|ing|es)\s+to\b",
+            r"\bchosen\s+to\b",
+            r"\bopted?\s+to\b",
+            r"\bagreed?\s+to\b",
+            r"\bshould\s+(?:use|go|try|start|stop|avoid)\b",
+        ]
+        combined = (user_message + " " + ai_response).lower()
+        return sum(1 for p in decision_patterns if re.search(p, combined))
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Detect compound concepts as adjacent non-stop-word bigrams.
+
+        Example: "quantum memory" → "quantum_memory"
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1}_{w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds[:10]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
