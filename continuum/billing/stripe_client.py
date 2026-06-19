@@ -568,9 +568,55 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+
+        amount_display = f"{amount_due / 100:.2f} {currency.upper()}"
+
+        # Escalate severity after multiple failed attempts
+        if attempt_count >= 3:
+            logger.critical(
+                f"Payment failed (attempt {attempt_count}) for invoice {invoice_id}: "
+                f"customer={customer_id}, email={customer_email}, amount={amount_display}. "
+                f"Subscription {subscription_id} at risk of cancellation."
+            )
+        else:
+            logger.error(
+                f"Payment failed (attempt {attempt_count}) for invoice {invoice_id}: "
+                f"customer={customer_id}, email={customer_email}, amount={amount_display}"
+            )
+
+        # Flag that a notification email should be sent (dispatched by the billing service layer)
+        if customer_email:
+            logger.info(
+                f"Notification required: send payment failure email to {customer_email} "
+                f"for invoice {invoice_id} (attempt {attempt_count})"
+            )
+
+        # Log Stripe's scheduled automatic retry
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.info(f"Stripe will automatically retry payment at {retry_dt.isoformat()}")
+
+        return {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "amount_due": amount_due,
+            "currency": currency,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_payment_attempt,
+            "subscription_id": subscription_id,
+            "notification_required": bool(customer_email),
+            "critical": attempt_count >= 3,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

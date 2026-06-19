@@ -975,7 +975,92 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            # Build dataset and run forward pass to assess consciousness state
+            dataset = CCTDataset(concepts, links, conversations)
+            if len(dataset) == 0:
+                print("No evaluation examples found.")
+                return
+
+            dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+
+            trainer.model.eval()
+            with torch.no_grad():
+                # Full graph forward pass for consciousness metrics
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                outputs = trainer.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=dummy_context,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights
+                )
+                coherence = outputs['self_state']['coherence'].item()
+                health = outputs['self_state']['health'].item()
+                capacity = outputs['self_state']['capacity_utilization'].item()
+                resonance_mean = outputs['resonance'].mean().item()
+
+                # Compute per-batch resonance over the full dataset
+                total_resonance = 0.0
+                num_batches = 0
+                for batch in dataloader:
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    batch_size_curr = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_size_curr, -1).to(trainer.device)
+                    batch_out = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights
+                    )
+                    total_resonance += batch_out['resonance'].mean().item()
+                    num_batches += 1
+
+            dataset_resonance = total_resonance / max(num_batches, 1)
+
+            # Training history from checkpoint
+            history = trainer.history
+            epochs_trained = len(history['train_loss'])
+            growth_events = len(history['growth_events'])
+            last_loss = history['train_loss'][-1] if history['train_loss'] else float('nan')
+            last_link_loss = history['link_loss'][-1] if history['link_loss'] else float('nan')
+            last_resonance = history['resonance'][-1] if history['resonance'] else float('nan')
+            last_coherence = history['coherence'][-1] if history['coherence'] else float('nan')
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Model Parameters:  {trainer.model.count_parameters():,}")
+            print(f"Epochs Trained:    {epochs_trained}")
+            print(f"Growth Events:     {growth_events}")
+            print("\n--- Live Consciousness State ---")
+            print(f"Coherence:         {coherence:.4f}")
+            print(f"Health:            {health:.4f}")
+            print(f"Capacity:          {capacity:.4f}")
+            print(f"Graph Resonance:   {resonance_mean:.4f}")
+            print(f"Dataset Resonance: {dataset_resonance:.4f}")
+            if epochs_trained:
+                print("\n--- Training History (final epoch) ---")
+                print(f"Loss:              {last_loss:.4f}")
+                print(f"Link Loss:         {last_link_loss:.4f}")
+                print(f"Resonance:         {last_resonance:.4f}")
+                print(f"Coherence:         {last_coherence:.4f}")
+                if growth_events:
+                    last_growth = history['growth_events'][-1]
+                    print(f"Last Growth:       epoch {last_growth['epoch']} "
+                          f"(+{last_growth['event'].get('params_added', '?'):,} params)")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

@@ -32,6 +32,14 @@ from .tiers import PricingTier, get_tier_limits
 logger = logging.getLogger(__name__)
 
 
+def _parse_minute_key(key: str) -> Optional[datetime]:
+    """Parse a YYYY-MM-DD-HH-MM cache key into a UTC datetime, or None on failure."""
+    try:
+        return datetime.strptime(key, "%Y-%m-%d-%H-%M").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 class UsageMetering:
     """
     Track usage metrics for billing and analytics.
@@ -243,15 +251,25 @@ class UsageMetering:
             await self._flush_cache()
 
     async def _flush_cache(self) -> None:
-        """Flush cache to persistent storage"""
+        """Flush cache to persistent storage and prune expired minute-level keys."""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await self.storage.save_usage(dict(self._usage_cache))
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
+
+        # Prune minute-granularity keys older than 2 hours to bound memory growth.
+        # Day/storage keys are kept until explicitly cleared.
+        cutoff = datetime.now(timezone.utc)
+        stale = [
+            k for k in list(self._usage_cache.keys())
+            if len(k.split(":")) == 2 and len(k.split(":")[1]) == 16  # YYYY-MM-DD-HH-MM
+            and _parse_minute_key(k.split(":")[1]) is not None
+            and (cutoff - _parse_minute_key(k.split(":")[1])).total_seconds() > 7200  # type: ignore[operator]
+        ]
+        for k in stale:
+            del self._usage_cache[k]
 
         self._last_flush = datetime.now(timezone.utc)
 
@@ -414,6 +432,8 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # Maps tenant_id -> subscription_item_id for background reporting
+        self._subscriptions: Dict[str, str] = {}
 
     async def report_usage_to_stripe(
         self,
@@ -453,12 +473,32 @@ class UsageReporter:
         except Exception as e:
             logger.error(f"Failed to report usage to Stripe: {e}")
 
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register a tenant's active subscription for background reporting.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID to report usage against
+        """
+        self._subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription for {tenant_id}: {subscription_item_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """Remove a tenant from background reporting (e.g., on cancellation)."""
+        self._subscriptions.pop(tenant_id, None)
+
     async def start_background_reporting(self) -> None:
-        """Start background task to report usage periodically"""
+        """Start background task to report usage for all registered subscriptions periodically."""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+            logger.debug(f"Background usage reporting tick ({len(self._subscriptions)} subscriptions)")
+
+            for tenant_id, subscription_item_id in list(self._subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

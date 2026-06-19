@@ -300,15 +300,38 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and compound concepts from the full exchange
+        all_text = user_message + " " + ai_response
+        detected_decisions = self._extract_decisions(all_text)
+        decisions_detected = 0
+        for decision in detected_decisions:
+            key = decision[:50]
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision)
+            decisions_detected += 1
+
+        detected_compounds = self._extract_compound_concepts(all_text)
+        compounds_found = 0
+        for compound in detected_compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.9)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+            compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +387,48 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from a message exchange."""
+        patterns = [
+            r"(?:i will|we will|i'll|we'll|going to|decided to)\s+([a-z][^.!?\n]{5,60})",
+            r"(?:let's|lets|we should|i should)\s+([a-z][^.!?\n]{5,60})",
+            r"(?:will use|will implement|will add|will create|will build)\s+([a-z][^.!?\n]{3,50})",
+        ]
+        decisions = []
+        text_lower = text.lower()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text_lower):
+                decision = match.group(1).strip().rstrip(".,;:")
+                if len(decision) > 5:
+                    decisions.append(decision)
+        seen: set = set()
+        unique = []
+        for d in decisions:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+        return unique[:5]
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word and compound concepts from text."""
+        compounds = []
+        # Consecutive capitalized words (named entities / proper nouns)
+        for m in re.finditer(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text):
+            compounds.append(m.group(1).lower())
+        # Hyphenated terms (e.g., "quantum-protected", "drop-in")
+        for m in re.finditer(r'\b([a-zA-Z]{3,}-[a-zA-Z]{3,}(?:-[a-zA-Z]+)?)\b', text):
+            compounds.append(m.group(1).lower())
+        # snake_case technical identifiers
+        for m in re.finditer(r'\b([a-z]{2,}_[a-z]{2,}(?:_[a-z]+)*)\b', text):
+            compounds.append(m.group(1))
+        seen2: set = set()
+        unique2 = []
+        for c in compounds:
+            if c not in seen2 and 4 < len(c) < 60:
+                seen2.add(c)
+                unique2.append(c)
+        return unique2[:10]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
