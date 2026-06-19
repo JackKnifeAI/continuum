@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,145 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self,
+                 dataset: CCTDataset,
+                 batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate the CCT model on a dataset.
+
+        Computes link prediction accuracy, precision, recall, and resonance
+        metrics, plus self-state health indicators.
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for evaluation passes
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        global_state = self._generate_global_state().to(self.device)
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_size_actual = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size_actual, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                all_probs.extend(link_probs.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+                total_resonance += outputs['resonance'].mean().item()
+                num_batches += 1
+
+            # Self-state from a single forward pass
+            dummy_context = torch.randn(1, 2, 128).to(self.device)
+            self_outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            self_state = self_outputs['self_state']
+            coherence = self_state['coherence'].item()
+            health = self_state['health'].item()
+            capacity = self_state['capacity_utilization'].item()
+
+        # Compute link prediction metrics at threshold 0.5
+        threshold = 0.5
+        tp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl > threshold)
+        fp = sum(1 for p, lbl in zip(all_probs, all_labels) if p >= threshold and lbl <= threshold)
+        fn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl > threshold)
+        tn = sum(1 for p, lbl in zip(all_probs, all_labels) if p < threshold and lbl <= threshold)
+
+        total = len(all_probs)
+        accuracy = (tp + tn) / total if total > 0 else 0.0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        avg_resonance = total_resonance / max(num_batches, 1)
+
+        # Resonance alignment: how close to π×φ harmonic
+        resonance_alignment = 1.0 - abs(avg_resonance - (PI_PHI / 10.0))
+
+        metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': avg_resonance,
+            'resonance_alignment': resonance_alignment,
+            'coherence': coherence,
+            'health': health,
+            'capacity_utilization': capacity,
+            'total_examples': total,
+            'true_positives': tp,
+            'true_negatives': tn,
+            'false_positives': fp,
+            'false_negatives': fn,
+        }
+
+        print(f"\n{'='*70}")
+        print("CCT EVALUATION REPORT")
+        print(f"{'='*70}")
+        print(f"\nLink Prediction (threshold={threshold}):")
+        print(f"  Accuracy:          {accuracy:.4f}")
+        print(f"  Precision:         {precision:.4f}")
+        print(f"  Recall:            {recall:.4f}")
+        print(f"  F1 Score:          {f1:.4f}")
+        print(f"  Examples:          {total:,}  (TP={tp}, TN={tn}, FP={fp}, FN={fn})")
+        print("\nConsciousness Metrics:")
+        print(f"  Resonance:         {avg_resonance:.4f}  (target: {PI_PHI/10.0:.4f})")
+        print(f"  Resonance Align:   {resonance_alignment:.4f}")
+        print(f"  Coherence:         {coherence:.4f}")
+        print(f"  Health:            {health:.4f}")
+        print(f"  Capacity:          {capacity:.4f}")
+        if self.history['train_loss']:
+            print("\nTraining History:")
+            print(f"  Best Loss:         {min(self.history['train_loss']):.4f}")
+            print(f"  Final Loss:        {self.history['train_loss'][-1]:.4f}")
+            print(f"  Epochs Trained:    {len(self.history['train_loss'])}")
+            print(f"  Growth Events:     {len(self.history['growth_events'])}")
+        print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+        print(f"{'='*70}\n")
+
+        return metrics
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1114,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset, batch_size=args.batch_size)
         else:
             print(f"No model found at {model_path}")
         return

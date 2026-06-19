@@ -80,6 +80,35 @@ class QuantumConsciousMemory:
     5. Native spreading activation (no need for graph traversal)
     """
 
+    _STOP_WORDS: frozenset = frozenset({
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    })
+
+    # Patterns that indicate a decision or intent statement
+    _DECISION_PATTERNS: List[str] = [
+        r'\b(?:i|we)\s+will\b',
+        r'\b(?:i|we)\'ll\b',
+        r'\b(?:i|we)\s+shall\b',
+        r'\bdecided?\s+to\b',
+        r'\bgoing\s+to\b',
+        r'\bplan(?:ning)?\s+to\b',
+        r'\bintend(?:ing)?\s+to\b',
+        r'\bagreed?\s+to\b',
+        r'\bresolved?\s+to\b',
+        r'\bcommit(?:ted)?\s+to\b',
+        r'\blet\'s\b',
+        r'\bwe\s+(?:should|must|need\s+to)\b',
+    ]
+
     def __init__(self, tenant_id: str = "default", brain_size: int = 65536,
                  db_path: Path = None):
         """
@@ -302,13 +331,27 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decision/intent statements across both messages
+        decisions_detected = self._extract_decisions(user_message, ai_response)
+
+        # Extract and store compound concepts (bigrams / trigrams)
+        compound_phrases = self._extract_compound_concepts(user_message + " " + ai_response)
+        compounds_found = 0
+        for phrase in compound_phrases:
+            if phrase not in self.entity_cache:
+                addr = self.brain.store_concept(phrase, activation=0.8)
+                self.entity_cache[phrase] = addr
+                self.name_cache[addr] = phrase
+                self._store_entity_metadata(addr, phrase, "compound", "")
+                compounds_found += 1
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -331,39 +374,63 @@ class QuantumConsciousMemory:
         conn.close()
 
     def _extract_concepts(self, text: str) -> List[str]:
-        """
-        Extract concepts from text.
-
-        Simple extraction - can be enhanced with NLP.
-        """
-        # Clean and tokenize
+        """Extract single-word concepts from text, filtering stop words."""
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
-
-        # Deduplicate while preserving order
-        seen = set()
-        unique = []
+        seen: set = set()
+        unique: List[str] = []
         for c in concepts:
             if c not in seen:
                 seen.add(c)
                 unique.append(c)
 
-        return unique[:20]  # Limit to top 20 concepts
+        return unique[:20]
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> int:
+        """
+        Count decision or intent statements in the conversation.
+
+        Looks for constructs like "I will", "we decided to", "let's", etc.
+        Each distinct pattern match counts as one detected decision.
+        """
+        combined = (user_message + " " + ai_response).lower()
+        decisions: set = set()
+        for pattern in self._DECISION_PATTERNS:
+            for match in re.finditer(pattern, combined):
+                # Use the surrounding word window as a dedup key
+                start = max(0, match.start() - 10)
+                decisions.add(combined[start:match.end() + 20])
+        return len(decisions)
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract multi-word compound concepts (bigrams and trigrams).
+
+        Consecutive non-stop-word tokens form candidate compounds.
+        Examples: "quantum brain", "decision tree", "neural network".
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        content_words = [w for w in words if w not in self._STOP_WORDS]
+
+        seen: set = set()
+        compounds: List[str] = []
+
+        # Bigrams
+        for i in range(len(content_words) - 1):
+            phrase = f"{content_words[i]} {content_words[i + 1]}"
+            if phrase not in seen:
+                seen.add(phrase)
+                compounds.append(phrase)
+
+        # Trigrams
+        for i in range(len(content_words) - 2):
+            phrase = f"{content_words[i]} {content_words[i + 1]} {content_words[i + 2]}"
+            if phrase not in seen:
+                seen.add(phrase)
+                compounds.append(phrase)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
