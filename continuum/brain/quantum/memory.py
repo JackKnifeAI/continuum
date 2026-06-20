@@ -300,15 +300,34 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions from the conversation exchange
+        decisions_detected = (
+            len(self._extract_decisions(user_message))
+            + len(self._extract_decisions(ai_response))
+        )
+
+        # Extract compound concepts and store new ones in the brain
+        all_compounds = list(dict.fromkeys(
+            self._extract_compounds(user_message) + self._extract_compounds(ai_response)
+        ))
+        for compound in all_compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+        compounds_found = len(all_compounds)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +383,48 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from text using pattern matching."""
+        patterns = [
+            r'\b(?:i|we)\s+will\s+\w+',
+            r'\b(?:i|we)\s+(?:am|are)\s+going\s+to\s+\w+',
+            r'\bdecided?\s+to\s+\w+',
+            r"\blet'?s\s+\w+",
+            r'\b(?:i|we)\s+(?:plan|intend)\s+to\s+\w+',
+            r'\bwill\s+(?:use|implement|create|build|make|add|remove|change|update|fix)\b',
+        ]
+        decisions = []
+        text_lower = text.lower()
+        for pattern in patterns:
+            decisions.extend(re.findall(pattern, text_lower))
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """Extract compound concepts (adjacent meaningful word pairs) from text."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
+        seen: set = set()
+        compounds = []
+        for i in range(len(words) - 1):
+            w1, w2 = words[i].lower(), words[i + 1].lower()
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
