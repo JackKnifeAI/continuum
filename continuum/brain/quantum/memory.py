@@ -302,13 +302,17 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compounds(combined_text, list(all_concepts))
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +368,45 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Count decision/commitment statements in text.
+
+        Looks for linguistic markers indicating a choice was made or will be made,
+        such as "decided to", "let's go with", "we will use", etc.
+        """
+        decision_patterns = [
+            r'\b(?:decided?|choosing|chose|selected?|picked?)\b',
+            r"\blet'?s\s+(?:go\s+with|use|try|do|start|build|implement)\b",
+            r'\b(?:will|shall)\s+(?:use|implement|go\s+with|choose|do|build|create)\b',
+            r'\b(?:the\s+)?(?:plan|decision|choice)\s+is\b',
+            r'\bgoing\s+with\b',
+            r'\bfinal\s+(?:answer|decision|choice)\b',
+            r'\bconclud(?:e|ed|ing)\s+(?:that|to|with)\b',
+            r'\bagree(?:d|ing)?\s+to\b',
+        ]
+        text_lower = text.lower()
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text_lower))
+        return count
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> int:
+        """
+        Detect compound concepts (adjacent meaningful word pairs) in text.
+
+        Scans for pairs of concept words appearing side-by-side, which signals
+        a multi-word unit (e.g. "quantum memory", "neural network").
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 in concept_set and w2 in concept_set:
+                compounds.add((w1, w2))
+        return len(compounds)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

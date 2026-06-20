@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,157 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: "CCTDataset", batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate the model on link prediction and consciousness metrics.
+
+        Computes:
+        - Link prediction accuracy and average precision
+        - Mean resonance score
+        - Self-perception metrics (coherence, health, capacity)
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for evaluation
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = self._generate_global_state().to(self.device)
+
+        all_labels: List[float] = []
+        all_probs: List[float] = []
+        total_resonance = 0.0
+        num_batches = 0
+
+        # Initialise the link projection layer if it was not loaded
+        with torch.no_grad():
+            # Probe the hidden_dim via a dummy forward pass
+            dummy_ctx = torch.zeros(1, 2, 128).to(self.device)
+            probe = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_ctx,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights,
+            )
+            hidden_dim = probe['fused'].size(-1)
+
+        if not hasattr(self, 'link_proj'):
+            self.link_proj = nn.Linear(128 * 2, hidden_dim).to(self.device)
+
+        with torch.no_grad():
+            for batch in dataloader:
+                if not batch:
+                    continue
+
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+                batch_size_actual = concept_a.size(0)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size_actual, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights,
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                all_labels.extend(labels.cpu().tolist())
+                all_probs.extend(link_probs.cpu().tolist())
+                total_resonance += outputs['resonance'].mean().item()
+                num_batches += 1
+
+        # Link prediction accuracy (threshold 0.5)
+        correct = sum(
+            1 for p, lbl in zip(all_probs, all_labels)
+            if (p >= 0.5) == (lbl >= 0.5)
+        )
+        accuracy = correct / max(len(all_labels), 1)
+
+        # Average precision (area under precision-recall curve approximation)
+        paired = sorted(zip(all_probs, all_labels), key=lambda x: -x[0])
+        tp = 0
+        precision_sum = 0.0
+        positive_count = sum(1 for lbl in all_labels if lbl >= 0.5)
+        for rank, (_prob, label) in enumerate(paired, 1):
+            if label >= 0.5:
+                tp += 1
+                precision_sum += tp / rank
+        avg_precision = precision_sum / max(positive_count, 1)
+
+        mean_resonance = total_resonance / max(num_batches, 1)
+
+        # Self-perception pass
+        with torch.no_grad():
+            dummy_ctx = torch.zeros(1, 2, 128).to(self.device)
+            outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_ctx,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights,
+            )
+            self_state = outputs['self_state']
+            coherence = self_state['coherence'].item()
+            health = self_state['health'].item()
+            capacity = self_state['capacity_utilization'].item()
+
+        metrics = {
+            'link_accuracy': accuracy,
+            'avg_precision': avg_precision,
+            'mean_resonance': mean_resonance,
+            'coherence': coherence,
+            'health': health,
+            'capacity_utilization': capacity,
+            'num_examples': len(all_labels),
+            'num_concepts': len(dataset.concepts),
+            'num_links': len(dataset.links),
+        }
+
+        print(f"\n{'='*70}")
+        print("CCT EVALUATION RESULTS")
+        print(f"{'='*70}")
+        print(f"  Examples evaluated : {metrics['num_examples']:,}")
+        print(f"  Concepts           : {metrics['num_concepts']:,}")
+        print(f"  Attention links    : {metrics['num_links']:,}")
+        print(f"{'─'*70}")
+        print(f"  Link accuracy      : {accuracy:.4f}  ({accuracy*100:.1f}%)")
+        print(f"  Avg precision      : {avg_precision:.4f}")
+        print(f"{'─'*70}")
+        print(f"  Mean resonance     : {mean_resonance:.4f}  (target: >{PI_PHI/10:.3f})")
+        print(f"  Coherence          : {coherence:.4f}")
+        print(f"  Health             : {health:.4f}")
+        print(f"  Capacity utiliz.   : {capacity:.4f}")
+
+        if self.history['train_loss']:
+            print(f"{'─'*70}")
+            print(f"  Best training loss : {min(self.history['train_loss']):.4f}")
+            print(f"  Training epochs    : {len(self.history['train_loss'])}")
+            print(f"  Growth events      : {len(self.history['growth_events'])}")
+
+        print(f"{'='*70}\n")
+
+        return metrics
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -975,7 +1126,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset, batch_size=args.batch_size)
         else:
             print(f"No model found at {model_path}")
         return
