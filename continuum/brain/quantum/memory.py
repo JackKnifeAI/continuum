@@ -302,13 +302,18 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions and compound concepts from the full exchange
+        full_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(full_text)
+        compounds_found = self._detect_compound_concepts(full_text)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +369,67 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Count decision-marker phrases in text.
+
+        Scans for language that signals a choice or conclusion was reached,
+        which is useful for understanding what commitments or directions
+        emerged from a conversation.
+        """
+        patterns = [
+            r'\b(?:decided|decision|deciding)\b',
+            r'\b(?:chose|choosing|choice|chosen)\b',
+            r'\b(?:selected|selecting|selection)\b',
+            r'\b(?:will\s+use|going\s+with|going\s+to\s+use)\b',
+            r'\b(?:therefore|thus|hence|consequently)\b',
+            r'\b(?:recommend(?:ed|ing)?|suggestion|suggested)\b',
+            r'\b(?:should\s+use|best\s+approach|optimal\s+(?:approach|solution))\b',
+            r'\b(?:conclusion|concluded|resolved|resolution)\b',
+        ]
+        lower = text.lower()
+        return sum(len(re.findall(p, lower)) for p in patterns)
+
+    def _detect_compound_concepts(self, text: str) -> int:
+        """
+        Detect and store compound (multi-word) concepts from text.
+
+        Finds bigrams of adjacent content words where both words are
+        substantive (>=5 chars), stores novel compounds in the brain,
+        and returns how many new compounds were created.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        content = [w for w in words if w not in stop_words]
+
+        compounds_stored = 0
+        for i in range(len(content) - 1):
+            w1, w2 = content[i], content[i + 1]
+            # Only keep bigrams where both words are substantive
+            if len(w1) < 5 or len(w2) < 5:
+                continue
+            compound = f"{w1}_{w2}"
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.5)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_stored += 1
+
+        return compounds_stored
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

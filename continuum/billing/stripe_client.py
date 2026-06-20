@@ -568,9 +568,67 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        attempt_count = invoice.get('attempt_count', 1)
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        subscription_id = invoice.get('subscription')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, attempt={attempt_count}, "
+            f"amount={amount_due/100:.2f} {currency.upper()}"
+        )
+
+        # Determine action based on attempt count
+        MAX_RETRY_ATTEMPTS = 4
+        should_suspend = attempt_count >= MAX_RETRY_ATTEMPTS
+
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.info(f"Stripe will retry invoice {invoice_id} at {retry_dt.isoformat()}")
+        elif should_suspend:
+            logger.warning(
+                f"Max retry attempts ({MAX_RETRY_ATTEMPTS}) reached for invoice {invoice_id}. "
+                f"Subscription {subscription_id} may be suspended by Stripe."
+            )
+
+        # Build notification payload for upstream email dispatch
+        notification = {
+            "type": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "amount_due_cents": amount_due,
+            "currency": currency,
+            "attempt_count": attempt_count,
+            "max_attempts": MAX_RETRY_ATTEMPTS,
+            "next_retry_timestamp": next_payment_attempt,
+            "subscription_id": subscription_id,
+            "should_suspend": should_suspend,
+        }
+
+        # Log the notification payload so callers / email workers can consume it
+        logger.warning(f"Payment failure notification payload: {notification}")
+
+        # In non-mock mode, attempt a manual retry on the first failure
+        # before Stripe's Smart Retry schedule kicks in
+        if not self.mock_mode and attempt_count == 1 and STRIPE_AVAILABLE:
+            try:
+                stripe.Invoice.pay(invoice_id)
+                logger.info(f"Triggered immediate retry for invoice {invoice_id}")
+            except stripe.error.StripeError as e:
+                logger.warning(f"Immediate retry not possible for {invoice_id}: {e}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "action": "suspended" if should_suspend else "retrying",
+            "notification": notification,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
