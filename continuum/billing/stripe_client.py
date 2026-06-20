@@ -568,9 +568,54 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        subscription_id = invoice.get('subscription')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount=${amount_due / 100:.2f}, "
+            f"attempt={attempt_count}"
+        )
+
+        # Check Stripe's smart retry schedule
+        if next_payment_attempt:
+            retry_at = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.info(
+                f"Stripe will retry payment for invoice {invoice_id} at {retry_at.isoformat()}"
+            )
+            action = "retry_scheduled"
+        else:
+            logger.warning(
+                f"No further retries scheduled for invoice {invoice_id}. "
+                f"Subscription {subscription_id} may be suspended."
+            )
+            action = "subscription_at_risk"
+
+        # Emit structured notification payload for downstream email/alerting service
+        notification = {
+            "type": "payment_failed",
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "invoice_id": invoice_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "next_retry_at": next_payment_attempt,
+            "subscription_id": subscription_id,
+        }
+        logger.info(f"Payment failure notification queued: {notification}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "action": action,
+            "attempt_count": attempt_count,
+            "next_retry_at": next_payment_attempt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

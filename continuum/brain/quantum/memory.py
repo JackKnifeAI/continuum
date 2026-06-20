@@ -300,15 +300,37 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and store them as typed entities in the brain
+        decisions = self._extract_decisions(user_message, ai_response)
+        for decision in decisions:
+            key = f"decision:{decision[:40]}"
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=0.8)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision)
+
+        # Detect compound concepts and store the novel ones
+        all_text = user_message + " " + ai_response
+        compounds = self._detect_compounds(all_text)
+        compounds_found = len(compounds)
+        for compound in compounds[:10]:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.7)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +351,51 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> List[str]:
+        """Extract decision statements from a user/AI message pair."""
+        decision_patterns = [
+            r"\b(?:I|we)\s+(?:will|shall|must)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,4})",
+            r"\b(?:decided|choosing|chose|agreed|going)\s+to\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,4})",
+            r"\blet'?s\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,3})",
+            r"\b(?:I'll|we'll)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,4})",
+        ]
+        combined = user_message + " " + ai_response
+        seen: set = set()
+        decisions: List[str] = []
+        for pattern in decision_patterns:
+            for match in re.finditer(pattern, combined, re.IGNORECASE):
+                phrase = match.group(1).strip().lower()
+                if phrase not in seen:
+                    seen.add(phrase)
+                    decisions.append(phrase)
+        return decisions
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """Detect compound concepts (adjacent non-stop-word bigrams) in text."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(tokens) - 1):
+            w1, w2 = tokens[i], tokens[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
