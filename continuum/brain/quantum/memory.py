@@ -302,13 +302,26 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Decision extraction
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._extract_decisions(combined_text)
+
+        # Compound concept detection — store new compounds in brain
+        compounds = self._detect_compounds(combined_text)
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +377,57 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> int:
+        """
+        Count decision/commitment statements in text.
+
+        Matches first-person future commitments, explicit choices, and
+        planning language that indicates a decision was reached.
+        """
+        decision_patterns = [
+            r"\b(?:i'll|we'll|they'll)\s+\w+",
+            r"\b(?:decided|choosing|chose|selected)\s+to\b",
+            r"\blet's\s+\w+",
+            r"\b(?:will|shall)\s+(?:be\s+)?(?:use|using|implement|implementing|build|building|create|creating|do|doing)\b",
+            r"\b(?:going to|plan to|planning to|intend to)\s+\w+",
+            r"\b(?:we should|we must|we need to)\s+\w+",
+            r"\bthe\s+(?:decision|plan|approach|solution)\s+is\b",
+            r"\bagreed\s+to\b",
+        ]
+        text_lower = text.lower()
+        return sum(len(re.findall(p, text_lower)) for p in decision_patterns)
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Detect compound concepts (adjacent meaningful word pairs) in text.
+
+        Returns deduplicated list of underscore-joined bigrams where both
+        tokens are non-stop content words of at least 3 characters.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'where', 'when', 'how',
+            'all', 'each', 'every', 'both', 'few', 'more', 'most', 'other',
+            'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
+            'than', 'too', 'very', 'just', 'about', 'into', 'your', 'our',
+            'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        tokens = re.findall(r'\b[a-z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+        for i in range(len(tokens) - 1):
+            w1, w2 = tokens[i], tokens[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                compound = f"{w1}_{w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
