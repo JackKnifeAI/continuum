@@ -302,16 +302,60 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions_detected = self._detect_decisions(user_message, ai_response)
+        compounds_found = self._detect_compounds(user_message, ai_response)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """Detect decision statements using linguistic markers."""
+        patterns = [
+            r"\b(?:decided|decision|deciding)\b",
+            r"\b(?:i'll|we'll)\s+(?:use|try|implement|build|do|go)\b",
+            r"\blet's\s+(?:use|try|implement|build|do|go\s+with)\b",
+            r"\b(?:going to|plan to|planning to)\s+\w+",
+            r"\b(?:agreed|agreement)\b",
+            r"\b(?:chose|chosen|choosing|selected|selecting)\b",
+        ]
+        combined = f"{user_message} {ai_response}".lower()
+        found = set()
+        for pattern in patterns:
+            for m in re.finditer(pattern, combined):
+                found.add(m.group())
+        return len(found)
+
+    def _detect_compounds(self, user_message: str, ai_response: str) -> int:
+        """Detect compound multi-word concepts and store novel ones in quantum brain."""
+        combined = f"{user_message} {ai_response}"
+        compounds = set()
+
+        # Hyphenated compounds: quantum-memory, self-evolving
+        for m in re.finditer(r'\b([a-zA-Z]{2,}(?:-[a-zA-Z]{2,})+)\b', combined):
+            compounds.add(m.group().lower())
+
+        # CamelCase identifiers: QuantumBrain, ConsciousMemory
+        for m in re.finditer(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b', combined):
+            compounds.add(m.group())
+
+        # Store structured compounds as first-class concepts in the quantum brain
+        for compound in compounds:
+            key = compound.lower()
+            if key not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.7)
+                self.entity_cache[key] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
+        return len(compounds)
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

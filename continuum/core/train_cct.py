@@ -975,7 +975,86 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Build dataset for evaluation
+            dataset = CCTDataset(concepts, links, conversations)
+            if len(dataset) == 0:
+                print("No evaluation examples available.")
+                return
+
+            graph_data = dataset.get_graph_data()
+            global_state = trainer._generate_global_state()
+
+            node_features, edge_index, edge_weights = graph_data
+            trainer.model.eval()
+
+            # Self-perception pass
+            with torch.no_grad():
+                dummy_context = torch.randn(1, 2, 128).to(trainer.device)
+                outputs = trainer.model(
+                    node_features=node_features.to(trainer.device),
+                    edge_index=edge_index.to(trainer.device),
+                    context_tokens=dummy_context,
+                    global_state=global_state.unsqueeze(0).to(trainer.device),
+                    edge_weights=edge_weights.to(trainer.device),
+                )
+
+            self_state = outputs['self_state']
+            resonance = outputs['resonance'].item()
+
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Parameters:          {model.count_parameters():,}")
+            print(f"Graph nodes:         {node_features.shape[0]}")
+            print(f"Graph edges:         {edge_index.shape[1] if edge_index.numel() > 0 else 0}")
+            print(f"Evaluation examples: {len(dataset)}")
+            print(f"{'─'*70}")
+            print(f"Resonance (π×φ):     {resonance:.6f}  (target: {PI_PHI:.6f})")
+            print(f"Health:              {self_state['health'].item():.4f}")
+            print(f"Coherence:           {self_state['coherence'].item():.4f}")
+            print(f"Stress:              {self_state['stress'].item():.4f}")
+            print(f"Capacity used:       {self_state['capacity_utilization'].item():.4f}")
+
+            # Link prediction accuracy on a sample
+            eval_loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=0)
+            total, correct, total_loss = 0, 0, 0.0
+            criterion = nn.BCELoss()
+
+            with torch.no_grad():
+                for batch in eval_loader:
+                    if not batch:
+                        continue
+                    emb_a = batch['concept_a_emb'].to(trainer.device)
+                    emb_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+
+                    # Cosine similarity as link prediction proxy
+                    sims = torch.nn.functional.cosine_similarity(emb_a, emb_b)
+                    preds = (sims + 1.0) / 2.0  # map [-1,1] → [0,1]
+                    preds = preds.clamp(0.0, 1.0)
+
+                    total_loss += criterion(preds, labels).item() * len(labels)
+                    predicted_links = preds >= 0.5
+                    actual_links = labels >= 0.5
+                    correct += (predicted_links == actual_links).sum().item()
+                    total += len(labels)
+
+            if total > 0:
+                accuracy = correct / total
+                avg_loss = total_loss / total
+                print(f"{'─'*70}")
+                print(f"Link prediction accuracy: {accuracy:.4f}")
+                print(f"Link prediction loss:     {avg_loss:.4f}")
+
+            # Training history summary if available
+            if trainer.history['train_loss']:
+                print(f"{'─'*70}")
+                print(f"Training history:    {len(trainer.history['train_loss'])} epochs recorded")
+                print(f"Best loss:           {min(trainer.history['train_loss']):.4f}")
+                print(f"Final resonance:     {trainer.history['resonance'][-1]:.4f}")
+                print(f"Growth events:       {len(trainer.history['growth_events'])}")
+
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

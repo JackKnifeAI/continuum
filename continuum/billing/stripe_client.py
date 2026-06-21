@@ -69,7 +69,8 @@ class StripeClient:
         self,
         api_key: Optional[str] = None,
         webhook_secret: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        payment_failed_callback: Optional[Any] = None,
     ):
         """
         Initialize Stripe client.
@@ -78,9 +79,13 @@ class StripeClient:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
             mock_mode: Force mock mode (useful for testing without Stripe)
+            payment_failed_callback: Optional async callable(info: dict) invoked on payment
+                failure; use it to send email/Slack/etc. without coupling this client to
+                any specific notification transport.
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
+        self._payment_failed_callback = payment_failed_callback
 
         # Determine if we should run in mock mode
         self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
@@ -568,9 +573,67 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        customer_email = invoice.get('customer_email')
+
+        logger.error(
+            "Payment failed for invoice %s: customer=%s amount=%.2f attempt=%d",
+            invoice_id, customer_id, amount_due / 100, attempt_count,
+        )
+
+        # Dunning stage based on how many times payment has been attempted.
+        # Stripe's Smart Retries handle the actual re-charge scheduling; we
+        # decide what *we* do at each stage (notification urgency, access).
+        if attempt_count == 1:
+            action = "notify_first_failure"
+            logger.warning("First payment failure for customer %s – sending initial notification", customer_id)
+        elif attempt_count == 2:
+            action = "notify_second_failure"
+            logger.warning("Second payment failure for customer %s – sending follow-up notification", customer_id)
+        else:
+            action = "notify_final_failure"
+            logger.error(
+                "Repeated payment failures (%d attempts) for customer %s – escalating",
+                attempt_count, customer_id,
+            )
+
+        # Dispatch to the registered notification callback (email, Slack, etc.).
+        # This keeps the Stripe client transport-agnostic.
+        if self._payment_failed_callback is not None:
+            failure_info: Dict[str, Any] = {
+                "invoice_id": invoice_id,
+                "customer_id": customer_id,
+                "customer_email": customer_email,
+                "subscription_id": subscription_id,
+                "amount_due_cents": amount_due,
+                "attempt_count": attempt_count,
+                "next_payment_attempt": next_payment_attempt,
+                "action": action,
+            }
+            try:
+                await self._payment_failed_callback(failure_info)
+            except Exception as exc:
+                logger.error("Payment failure callback raised an error: %s", exc)
+
+        result: Dict[str, Any] = {
+            "status": "processed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "action": action,
+        }
+
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.info("Stripe will retry payment at %s", retry_dt.isoformat())
+            result["next_retry_at"] = retry_dt.isoformat()
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
