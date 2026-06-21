@@ -302,16 +302,67 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Decision and compound detection over full exchange
+        combined_text = f"{user_message}\n{ai_response}"
+        decisions = self._detect_decisions(combined_text)
+        compounds = self._detect_compound_concepts(combined_text)
+
+        # Store newly discovered compound concepts in the brain
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """Detect decision/commitment statements in text."""
+        decision_pattern = re.compile(
+            r'\b(?:will|shall|must|going\s+to|decided?\s+to|plan(?:ning)?\s+to'
+            r'|intend(?:s|ing)?\s+to|have\s+to|need\s+to|let\'?s)\b',
+            re.IGNORECASE,
+        )
+        sentences = re.split(r'[.!?\n]+', text)
+        return [s.strip() for s in sentences if s.strip() and decision_pattern.search(s)]
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts (hyphenated or adjacent significant words)."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        compounds: set = set()
+
+        # Hyphenated compounds (e.g. "self-evolving", "quantum-protected")
+        for m in re.finditer(r'\b[a-zA-Z]{2,}(?:-[a-zA-Z]{2,})+\b', text):
+            compounds.add(m.group().lower())
+
+        # Adjacent significant-word bigrams
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        for i in range(len(tokens) - 1):
+            if tokens[i] not in stop_words and tokens[i + 1] not in stop_words:
+                compounds.add(f"{tokens[i]} {tokens[i + 1]}")
+
+        return list(compounds)
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
