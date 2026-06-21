@@ -80,6 +80,27 @@ class QuantumConsciousMemory:
     5. Native spreading activation (no need for graph traversal)
     """
 
+    _STOP_WORDS: frozenset = frozenset({
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    })
+
+    # Patterns that signal a decision was made in text
+    _DECISION_PATTERNS: List[str] = [
+        r"\b(?:i|we)\s+(?:will|shall|decided?|chose?|opted?)\s+(?:to\s+)?(?:\w+(?:\s+\w+){0,3})",
+        r"\blet'?s\s+(?:go\s+with|use|adopt|implement)\s+(?:\w+(?:\s+\w+){0,2})",
+        r"\b(?:going|planning)\s+to\s+(?:\w+(?:\s+\w+){0,3})",
+        r"\b(?:the\s+)?(?:decision|choice)\s+(?:is|was)\s+(?:to\s+)?(?:\w+(?:\s+\w+){0,3})",
+    ]
+
     def __init__(self, tenant_id: str = "default", brain_size: int = 65536,
                  db_path: Path = None):
         """
@@ -304,14 +325,40 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compounds(combined_text)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision statements in text using intent-signalling patterns."""
+        count = 0
+        lower = text.lower()
+        for pattern in self._DECISION_PATTERNS:
+            count += len(re.findall(pattern, lower))
+        return count
+
+    def _detect_compounds(self, text: str) -> int:
+        """Count unique compound concepts (adjacent non-stop-word bigrams) in text."""
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        count = 0
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in self._STOP_WORDS and w2 not in self._STOP_WORDS:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    count += 1
+        return count
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
@@ -339,21 +386,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
