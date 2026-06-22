@@ -300,15 +300,37 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Decision extraction: find decision statements and store as typed entities
+        combined_text = f"{user_message} {ai_response}"
+        decisions = self._extract_decisions(combined_text)
+        for decision in decisions:
+            key = f"decision:{decision[:50]}"
+            if key.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(key, activation=1.0)
+                self.entity_cache[key.lower()] = addr
+                self.name_cache[addr] = key
+                self._store_entity_metadata(addr, key, "decision", decision)
+
+        # Compound concept detection: store adjacent non-stop-word bigrams
+        compounds = self._extract_compounds(combined_text)
+        compounds_new = 0
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_new += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_new,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,40 +352,67 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    _STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
+    # Patterns that signal a decision was made in the text
+    _DECISION_PATTERNS = [
+        r"(?:i|we)\s+(?:decided?|chose?|agreed?|resolved?)\s+(?:to\s+)?\w[\w\s]{5,50}",
+        r"(?:let'?s|let us)\s+\w[\w\s]{3,40}",
+        r"the\s+(?:decision|plan|choice)\s+(?:is|was)\s+\w[\w\s]{3,40}",
+        r"(?:i'?m|we'?re|i am|we are)\s+going\s+to\s+\w[\w\s]{5,50}",
+        r"(?:i|we)\s+will\s+(?:use|implement|build|create|switch|move|adopt)\s+\w[\w\s]{3,40}",
+    ]
+
     def _extract_concepts(self, text: str) -> List[str]:
-        """
-        Extract concepts from text.
-
-        Simple extraction - can be enhanced with NLP.
-        """
-        # Clean and tokenize
+        """Extract single-word concepts from text, filtering stop words."""
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
-
-        # Deduplicate while preserving order
-        seen = set()
+        seen: set = set()
         unique = []
         for c in concepts:
             if c not in seen:
                 seen.add(c)
                 unique.append(c)
 
-        return unique[:20]  # Limit to top 20 concepts
+        return unique[:20]
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Detect decision statements using pattern matching against common decision phrases."""
+        decisions = []
+        seen: set = set()
+        for pattern in self._DECISION_PATTERNS:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                decision = match.group(0).strip()
+                if decision not in seen:
+                    seen.add(decision)
+                    decisions.append(decision)
+        return decisions
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """Extract compound (bigram) concepts: adjacent pairs of non-stop content words."""
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds = []
+        seen: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in self._STOP_WORDS and w2 not in self._STOP_WORDS:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
