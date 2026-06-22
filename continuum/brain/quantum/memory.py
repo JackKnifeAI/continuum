@@ -35,6 +35,27 @@ from .core import (
     QuantumBrain,
 )
 
+_STOP_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+    'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+    'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+    'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+    'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+    'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+}
+
+_DECISION_RE = re.compile(
+    r'\b(decided?\s+to|going\s+to|let\s*\'?s\s+\w+|we\s+should|'
+    r'resolved?\s+to|agreed?\s+to|chose\s+to|opted?\s+to|'
+    r'determined?\s+to|committed?\s+to|plan\s+to|intend\s+to|'
+    r'will\s+\w+|shall\s+\w+)\b',
+    re.IGNORECASE,
+)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATACLASSES (matching Continuum's interface)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -304,11 +325,15 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compounds(combined_text)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -339,21 +364,7 @@ class QuantumConsciousMemory:
         # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in _STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
@@ -364,6 +375,40 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count sentences containing decision or commitment language."""
+        sentences = re.split(r'[.!?]+', text)
+        return sum(1 for s in sentences if _DECISION_RE.search(s))
+
+    def _detect_compounds(self, text: str) -> int:
+        """
+        Detect adjacent content-word bigrams as compound concepts.
+
+        Each new compound is stored in the quantum brain as a concept node
+        with entity_type='compound', enabling associative recall of multi-word
+        ideas (e.g. 'quantum memory', 'spreading activation').
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        new_compounds = 0
+        seen: set = set()
+
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 in _STOP_WORDS or w2 in _STOP_WORDS:
+                continue
+            key = f"{w1}_{w2}"
+            if key in seen or key in self.entity_cache:
+                continue
+            seen.add(key)
+            display = f"{w1} {w2}"
+            addr = self.brain.store_concept(display, activation=0.6)
+            self.entity_cache[key] = addr
+            self.name_cache[addr] = display
+            self._store_entity_metadata(addr, display, "compound", "")
+            new_compounds += 1
+
+        return new_compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
