@@ -568,9 +568,56 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', '')
+        customer_email = invoice.get('customer_email', '')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription', '')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} | "
+            f"customer={customer_id} <{customer_email}> | "
+            f"amount={amount_due / 100:.2f} | "
+            f"attempt={attempt_count} | "
+            f"next_retry={next_payment_attempt}"
+        )
+
+        action = "noted"
+
+        if not self.mock_mode and attempt_count == 1:
+            # First failure: attempt an immediate retry before Stripe Smart Retries
+            try:
+                stripe.Invoice.pay(invoice_id)
+                logger.info(f"Triggered manual retry for invoice {invoice_id}")
+                action = "retry_triggered"
+            except stripe.error.CardError as e:
+                logger.warning(f"Manual retry declined for invoice {invoice_id}: {e}")
+                action = "retry_declined"
+            except stripe.error.StripeError as e:
+                logger.warning(f"Could not trigger retry for invoice {invoice_id}: {e}")
+                action = "retry_error"
+        elif attempt_count >= 3:
+            # Repeated failures: log for manual review
+            logger.critical(
+                f"Invoice {invoice_id} has failed {attempt_count} times. "
+                f"Subscription {subscription_id} requires manual review."
+            )
+            action = "escalated"
+
+        # Callers should send a payment failure notification email to customer_email
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "subscription_id": subscription_id,
+            "action": action,
+            "notify_customer": bool(customer_email),
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
