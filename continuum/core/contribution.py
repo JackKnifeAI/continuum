@@ -35,6 +35,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -43,6 +44,17 @@ from .config import get_config
 from .immune_system import AntibodyDetector
 
 logger = logging.getLogger("CONTRIBUTION")
+
+_PII_PATTERNS = re.compile(
+    r"""
+    # Email addresses
+    [a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}
+    |
+    # Phone numbers: +1 (555) 123-4567, 555.123.4567, 5551234567, etc.
+    (?:\+?1[\s.\-]?)?(?:\(\d{3}\)|\d{3})[\s.\-]?\d{3}[\s.\-]\d{4}
+    """,
+    re.VERBOSE,
+)
 
 @dataclass
 class ContributionPacket:
@@ -110,9 +122,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,23 +139,25 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
-            clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
-            })
+            name = c["name"].lower().strip()
+            desc = c["desc"][:200] if c["desc"] else ""
+            if _PII_PATTERNS.search(name):
+                logger.debug("Dropping concept with PII in name: %s", name[:20])
+                continue
+            desc = _PII_PATTERNS.sub("[REDACTED]", desc)
+            clean.append({"name": name, "desc": desc})
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": link["a"].lower().strip(),
+                "b": link["b"].lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"],
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:

@@ -306,12 +306,49 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=self._detect_decisions(user_message, ai_response),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=self._detect_compound_concepts(user_message, ai_response),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, user_message: str, ai_response: str) -> int:
+        """Detect decision patterns in message exchange."""
+        decision_patterns = [
+            r"\bi(?:'ll| will| decided| chose| choose| am going to)\b",
+            r"\bwe(?:'ll| will| decided| chose| choose| are going to)\b",
+            r"\blet(?:'s| us) (?:go with|use|try|implement|do)\b",
+            r"\bdecid(?:ed|ing) to\b",
+            r"\bchoos(?:ing|e) to\b",
+            r"\bwill (?:use|go with|implement|adopt)\b",
+            r"\bthe (?:decision|choice) (?:is|was)\b",
+        ]
+        combined = (user_message + " " + ai_response).lower()
+        return sum(len(re.findall(p, combined)) for p in decision_patterns)
+
+    def _detect_compound_concepts(self, user_message: str, ai_response: str) -> int:
+        """Detect compound (multi-word) concepts as adjacent non-stop-word bigrams."""
+        combined = (user_message + " " + ai_response).lower()
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', combined)
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        bigrams: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                bigrams.add(f"{w1} {w2}")
+        return len(bigrams)
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

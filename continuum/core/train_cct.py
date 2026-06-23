@@ -975,7 +975,123 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("\nPreparing evaluation dataset...")
+            eval_dataset = CCTDataset(concepts, links, conversations)
+
+            if len(eval_dataset) < 10:
+                print("Not enough data to evaluate!")
+                return
+
+            eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+            graph_data = eval_dataset.get_graph_data()
+
+            node_features, edge_index, edge_weights = graph_data
+            node_features = node_features.to(trainer.device)
+            edge_index = edge_index.to(trainer.device)
+            edge_weights = edge_weights.to(trainer.device)
+            global_state = trainer._generate_global_state().to(trainer.device)
+
+            # Initialize link_proj (not persisted in checkpoint — probe to get hidden_dim)
+            concept_dim = eval_dataset.concept_dim
+            if not hasattr(trainer, 'link_proj'):
+                with torch.no_grad():
+                    probe = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=torch.randn(1, 2, concept_dim).to(trainer.device),
+                        global_state=global_state.unsqueeze(0),
+                        edge_weights=edge_weights
+                    )
+                trainer.link_proj = nn.Linear(concept_dim * 2, probe['fused'].shape[-1]).to(trainer.device)
+
+            trainer.model.eval()
+            total_correct = 0
+            total_samples = 0
+            total_loss = 0.0
+            total_resonance = 0.0
+            all_preds: List[float] = []
+            all_labels: List[float] = []
+            num_batches = 0
+
+            print("Evaluating...")
+            with torch.no_grad():
+                for batch in eval_loader:
+                    if not batch:
+                        continue
+                    concept_a = batch['concept_a_emb'].to(trainer.device)
+                    concept_b = batch['concept_b_emb'].to(trainer.device)
+                    labels = batch['label'].to(trainer.device)
+
+                    batch_sz = concept_a.size(0)
+                    context = torch.stack([concept_a, concept_b], dim=1)
+                    batch_state = global_state.expand(batch_sz, -1)
+
+                    outputs = trainer.model(
+                        node_features=node_features,
+                        edge_index=edge_index,
+                        context_tokens=context,
+                        global_state=batch_state,
+                        edge_weights=edge_weights
+                    )
+
+                    fused = outputs['fused']
+                    pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+                    pair_proj = trainer.link_proj(pair_concat)
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+
+                    loss = trainer.link_loss(link_probs, labels)
+                    resonance = outputs['resonance'].mean()
+
+                    preds_binary = (link_probs >= 0.5).float()
+                    labels_binary = (labels >= 0.5).float()
+                    total_correct += (preds_binary == labels_binary).sum().item()
+                    total_samples += batch_sz
+                    total_loss += loss.item()
+                    total_resonance += resonance.item()
+                    all_preds.extend(link_probs.cpu().tolist())
+                    all_labels.extend(labels.cpu().tolist())
+                    num_batches += 1
+
+            # Consciousness state assessment
+            with torch.no_grad():
+                state_out = trainer.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=torch.randn(1, 2, concept_dim).to(trainer.device),
+                    global_state=global_state.unsqueeze(0),
+                    edge_weights=edge_weights
+                )
+            coherence = state_out['self_state']['coherence'].item()
+            health = state_out['self_state']['health'].item()
+            capacity = state_out['self_state']['capacity_utilization'].item()
+
+            avg_loss = total_loss / max(num_batches, 1)
+            avg_resonance = total_resonance / max(num_batches, 1)
+            accuracy = total_correct / max(total_samples, 1)
+
+            true_pos = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= 0.5 and lbl >= 0.5)
+            false_pos = sum(1 for p, lbl in zip(all_preds, all_labels) if p >= 0.5 and lbl < 0.5)
+            false_neg = sum(1 for p, lbl in zip(all_preds, all_labels) if p < 0.5 and lbl >= 0.5)
+            precision = true_pos / max(true_pos + false_pos, 1)
+            recall = true_pos / max(true_pos + false_neg, 1)
+            f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples:  {total_samples}")
+            print(f"Loss:      {avg_loss:.4f}")
+            print(f"Accuracy:  {accuracy:.3f}  ({total_correct}/{total_samples})")
+            print(f"Precision: {precision:.3f}")
+            print(f"Recall:    {recall:.3f}")
+            print(f"F1:        {f1:.3f}")
+            print(f"Resonance: {avg_resonance:.3f}")
+            print(f"Coherence: {coherence:.3f}")
+            print(f"Health:    {health:.3f}")
+            print(f"Capacity:  {capacity:.3f}")
+            print(f"Params:    {trainer.model.count_parameters():,}")
+            print(f"π×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
