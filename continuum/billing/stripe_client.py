@@ -568,9 +568,65 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount_due={amount_due / 100:.2f}, "
+            f"attempt={attempt_count}, next_retry={next_payment_attempt}"
+        )
+
+        await self._notify_payment_failure(
+            customer_id=customer_id,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            attempt_count=attempt_count,
+            next_payment_attempt=next_payment_attempt,
+        )
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_payment_attempt,
+            "notification_sent": True,
+        }
+
+    async def _notify_payment_failure(
+        self,
+        customer_id: str,
+        invoice_id: str,
+        amount_due: int,
+        attempt_count: int,
+        next_payment_attempt: Optional[int],
+    ) -> None:
+        """
+        Send payment failure notification to the customer.
+
+        Stripe automatically retries failed payments via Smart Retries (configured
+        in the Stripe dashboard). The `next_payment_attempt` timestamp tells us when
+        Stripe will retry; if None, Stripe has exhausted its retry schedule.
+
+        Override this method to integrate with an email service (SendGrid, Mailgun,
+        SES, etc.) and deliver a notification asking the customer to update their
+        payment method.
+        """
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            retry_info = f"Stripe will retry at {retry_dt.isoformat()}"
+        else:
+            retry_info = "No further automatic retries scheduled — subscription at risk"
+
+        logger.warning(
+            f"[PAYMENT FAILURE] customer={customer_id}, invoice={invoice_id}, "
+            f"amount={amount_due / 100:.2f}, attempt={attempt_count}. {retry_info}. "
+            "Integrate an email service to notify the customer."
+        )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

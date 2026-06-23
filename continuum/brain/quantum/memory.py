@@ -80,6 +80,19 @@ class QuantumConsciousMemory:
     5. Native spreading activation (no need for graph traversal)
     """
 
+    _STOP_WORDS: frozenset = frozenset({
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    })
+
     def __init__(self, tenant_id: str = "default", brain_size: int = 65536,
                  db_path: Path = None):
         """
@@ -302,13 +315,27 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Decision extraction
+        decisions = self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+        decisions_detected = len(decisions)
+
+        # Compound concept detection
+        compounds = self._extract_compound_concepts(user_message + " " + ai_response)
+        compounds_found = len(compounds)
+
+        # Store compound concepts as linked pairs in the brain
+        for compound in compounds:
+            parts = compound.split()
+            if all(p in self.entity_cache for p in parts):
+                self.brain.link_concepts(parts[0], parts[1], weight=0.7)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -331,39 +358,72 @@ class QuantumConsciousMemory:
         conn.close()
 
     def _extract_concepts(self, text: str) -> List[str]:
-        """
-        Extract concepts from text.
-
-        Simple extraction - can be enhanced with NLP.
-        """
-        # Clean and tokenize
+        """Extract single-word concepts from text, filtering stop words."""
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
-
-        # Deduplicate while preserving order
-        seen = set()
+        seen: set = set()
         unique = []
         for c in concepts:
             if c not in seen:
                 seen.add(c)
                 unique.append(c)
 
-        return unique[:20]  # Limit to top 20 concepts
+        return unique[:20]
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Detects verb phrases that indicate choices, plans, or commitments
+        made during the conversation.
+        """
+        patterns = [
+            r'\b(?:decided?|deciding)\s+(?:to\s+)?([a-zA-Z]\w*(?:\s+\w+){0,3})',
+            r'\b(?:choosing|chose|chosen)\s+(?:to\s+)?([a-zA-Z]\w*(?:\s+\w+){0,3})',
+            r'\b(?:plan(?:ning)?|going)\s+to\s+([a-zA-Z]\w*(?:\s+\w+){0,3})',
+            r'\b(?:agreed?|resolved?|determined?|opted?)\s+(?:to\s+)?([a-zA-Z]\w*(?:\s+\w+){0,3})',
+            r'\b(?:will|shall)\s+(?:now\s+)?([a-zA-Z]\w*(?:\s+\w+){0,2})\b',
+            r'\bthe\s+(?:decision|choice|plan)\s+is\s+(?:to\s+)?([a-zA-Z]\w*(?:\s+\w+){0,3})',
+        ]
+
+        decisions = []
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            decisions.extend(m.strip() for m in matches if m.strip())
+
+        seen: set = set()
+        unique = []
+        for d in decisions:
+            if d not in seen:
+                seen.add(d)
+                unique.append(d)
+
+        return unique
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """
+        Extract compound (multi-word) concepts as bigrams of meaningful tokens.
+
+        Two consecutive non-stop-word tokens are treated as a compound concept
+        (e.g., "quantum memory", "neural network", "knowledge graph").
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        meaningful = [w for w in words if w not in self._STOP_WORDS]
+
+        compounds = []
+        for i in range(len(meaningful) - 1):
+            compound = f"{meaningful[i]} {meaningful[i + 1]}"
+            compounds.append(compound)
+
+        seen: set = set()
+        unique = []
+        for c in compounds:
+            if c not in seen:
+                seen.add(c)
+                unique.append(c)
+
+        return unique
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
