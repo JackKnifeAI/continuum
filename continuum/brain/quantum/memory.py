@@ -302,16 +302,65 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions and compound concepts across both messages
+        combined_text = user_message + " " + ai_response
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compound_concepts(combined_text)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Count decision statements in text.
+
+        Matches volitional language: commitments, choices, resolutions.
+        """
+        patterns = [
+            r'\b(?:decided?|deciding)\b',
+            r'\b(?:will|shall)\s+\w+',
+            r'\b(?:chose|chosen|choosing)\b',
+            r'\b(?:going\s+to|plan(?:ning)?\s+to|intend(?:ing)?\s+to)\b',
+            r'\b(?:let\'s|let\s+us)\b',
+            r'\b(?:we\s+should|i\'ll|we\'ll|you\'ll)\b',
+            r'\b(?:concluded?|determined?|resolved?|agreed?|opted?)\b',
+            r'\b(?:aim(?:ing)?\s+to|want(?:ing)?\s+to)\b',
+        ]
+        count = sum(len(re.findall(p, text.lower())) for p in patterns)
+        return count
+
+    def _detect_compound_concepts(self, text: str) -> int:
+        """
+        Detect compound (multi-word) concepts as adjacent non-stop-word bigrams.
+
+        Returns the number of unique compound pairs found.
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: set = set()
+        for i in range(len(words) - 1):
+            if words[i] not in stop_words and words[i + 1] not in stop_words:
+                compounds.add(f"{words[i]} {words[i + 1]}")
+        return len(compounds)
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
