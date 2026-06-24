@@ -65,11 +65,15 @@ class StripeClient:
     the client runs in mock mode for development/testing.
     """
 
+    # Number of Stripe retries after which we treat the failure as final
+    MAX_PAYMENT_ATTEMPTS = 4
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         webhook_secret: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        payment_failure_handler: Optional[Any] = None
     ):
         """
         Initialize Stripe client.
@@ -78,9 +82,13 @@ class StripeClient:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
             mock_mode: Force mock mode (useful for testing without Stripe)
+            payment_failure_handler: Optional async callable(invoice_details: dict) invoked on
+                payment failure. Receives structured invoice data so the caller can send email
+                notifications, update internal state, etc.
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
+        self.payment_failure_handler = payment_failure_handler
 
         # Determine if we should run in mock mode
         self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
@@ -568,9 +576,60 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        currency = invoice.get('currency', 'usd')
+        attempt_count = invoice.get('attempt_count', 1)
+        next_retry_ts = invoice.get('next_payment_attempt')
+
+        is_final_failure = (
+            next_retry_ts is None or attempt_count >= self.MAX_PAYMENT_ATTEMPTS
+        )
+
+        amount_display = f"{amount_due / 100:.2f} {currency.upper()}"
+
+        if is_final_failure:
+            logger.error(
+                f"Payment FINAL failure for invoice {invoice_id} "
+                f"(customer={customer_id}, amount={amount_display}, attempts={attempt_count}). "
+                "No further automatic retries scheduled."
+            )
+        else:
+            next_retry_dt = datetime.fromtimestamp(next_retry_ts, tz=timezone.utc)
+            logger.warning(
+                f"Payment failed for invoice {invoice_id} "
+                f"(customer={customer_id}, amount={amount_display}, attempt={attempt_count}). "
+                f"Next retry scheduled at {next_retry_dt.isoformat()}."
+            )
+
+        invoice_details: Dict[str, Any] = {
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "customer_email": customer_email,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "currency": currency,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_retry_ts,
+            "is_final_failure": is_final_failure,
+        }
+
+        if self.payment_failure_handler is not None:
+            try:
+                await self.payment_failure_handler(invoice_details)
+            except Exception as e:
+                logger.error(f"payment_failure_handler raised an error for invoice {invoice_id}: {e}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "is_final_failure": is_final_failure,
+            "notification_sent": self.payment_failure_handler is not None,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
