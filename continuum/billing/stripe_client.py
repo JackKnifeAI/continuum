@@ -568,9 +568,59 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer')
+        subscription_id = invoice.get('subscription')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, subscription={subscription_id}, "
+            f"amount={amount_due / 100:.2f}, attempt={attempt_count}"
+        )
+
+        result: Dict[str, Any] = {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+        }
+
+        # Emit structured notification event for downstream email dispatch
+        logger.warning(
+            "NOTIFY_CUSTOMER payment_failed: customer=%s invoice=%s amount=%.2f attempt=%d",
+            customer_id,
+            invoice_id,
+            amount_due / 100,
+            attempt_count,
+        )
+
+        if next_payment_attempt:
+            retry_dt = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc)
+            logger.info(f"Stripe will retry payment at {retry_dt.isoformat()}")
+            result["next_retry_at"] = retry_dt.isoformat()
+        else:
+            # No automatic retry — subscription is likely past_due or unpaid
+            logger.critical(
+                f"No automatic retry scheduled for invoice {invoice_id}. "
+                f"Subscription {subscription_id} requires manual review."
+            )
+            result["action_required"] = "manual_review"
+
+        # Escalate after repeated failures so operators can intervene
+        MAX_RETRIES_BEFORE_ESCALATION = 3
+        if attempt_count >= MAX_RETRIES_BEFORE_ESCALATION:
+            logger.critical(
+                f"Payment failed {attempt_count} times for subscription {subscription_id}. "
+                "Consider canceling or pausing the subscription."
+            )
+            result["escalated"] = True
+
+        return result
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
