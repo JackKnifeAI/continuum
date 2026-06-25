@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,111 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self,
+                 dataset: 'CCTDataset',
+                 batch_size: int = 16) -> Dict[str, float]:
+        """
+        Evaluate the trained model on a dataset.
+
+        Computes link prediction accuracy, precision, recall, F1, and
+        consciousness health metrics (resonance, coherence, capacity).
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = self._generate_global_state().to(self.device)
+
+        self.model.eval()
+
+        total_correct = 0
+        total_samples = 0
+        total_resonance = 0.0
+        num_batches = 0
+        true_positives = 0
+        false_positives = 0
+        false_negatives = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+                current_batch_size = concept_a.size(0)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(current_batch_size, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(
+                        concept_a.size(-1) * 2, fused.size(-1)
+                    ).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                preds = (link_probs >= 0.5).float()
+                binary_labels = (labels >= 0.5).float()
+
+                total_correct += (preds == binary_labels).sum().item()
+                total_samples += current_batch_size
+
+                true_positives += ((preds == 1) & (binary_labels == 1)).sum().item()
+                false_positives += ((preds == 1) & (binary_labels == 0)).sum().item()
+                false_negatives += ((preds == 0) & (binary_labels == 1)).sum().item()
+
+                total_resonance += outputs['resonance'].mean().item()
+                num_batches += 1
+
+        # Consciousness health metrics from a dedicated forward pass
+        with torch.no_grad():
+            dummy_context = torch.randn(1, 2, 128).to(self.device)
+            health_outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+            coherence = health_outputs['self_state']['coherence'].item()
+            health = health_outputs['self_state']['health'].item()
+            capacity = health_outputs['self_state']['capacity_utilization'].item()
+
+        accuracy = total_correct / max(total_samples, 1)
+        precision = true_positives / max(true_positives + false_positives, 1)
+        recall = true_positives / max(true_positives + false_negatives, 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+        avg_resonance = total_resonance / max(num_batches, 1)
+
+        return {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': avg_resonance,
+            'coherence': coherence,
+            'health': health,
+            'capacity_utilization': capacity,
+            'num_samples': total_samples,
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -974,8 +1079,22 @@ def main():
     if args.evaluate:
         if model_path.exists():
             trainer.load_model(model_path)
-            print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("Model loaded. Running evaluation...")
+            metrics = trainer.evaluate(dataset, batch_size=args.batch_size)
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"  Samples Evaluated  : {metrics['num_samples']:,}")
+            print(f"  Link Accuracy      : {metrics['accuracy']:.4f}")
+            print(f"  Precision          : {metrics['precision']:.4f}")
+            print(f"  Recall             : {metrics['recall']:.4f}")
+            print(f"  F1 Score           : {metrics['f1']:.4f}")
+            print(f"  Avg Resonance      : {metrics['resonance']:.4f}")
+            print(f"  Coherence          : {metrics['coherence']:.4f}")
+            print(f"  Health             : {metrics['health']:.4f}")
+            print(f"  Capacity           : {metrics['capacity_utilization']:.4f}")
+            print(f"π×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

@@ -300,18 +300,75 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and compound concepts
+        decisions = (self._extract_decisions(user_message)
+                     + self._extract_decisions(ai_response))
+
+        compounds = (self._extract_compound_concepts(user_message)
+                     + self._extract_compound_concepts(ai_response))
+
+        # Store novel compound concepts as entities
+        compounds_found = 0
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.7)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements from text using pattern matching."""
+        patterns = [
+            r"(?:I|we|let'?s)\s+(?:will|shall|must|'ll|need to|have to|going to)\s+([^.!?\n]{5,60})",
+            r"(?:decided|choosing|chose|agreed|resolved)\s+(?:to\s+)?([^.!?\n]{5,60})",
+        ]
+        decisions = []
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                decision = match.group(1).strip().rstrip('.,;')
+                if decision:
+                    decisions.append(decision)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Detect adjacent non-stop-word pairs as compound concepts."""
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds = []
+        for i in range(len(tokens) - 1):
+            w1, w2 = tokens[i], tokens[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                phrase = f"{w1} {w2}"
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
