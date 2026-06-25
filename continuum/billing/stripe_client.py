@@ -568,9 +568,65 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount=${amount_due / 100:.2f}, "
+            f"attempt={attempt_count}"
+        )
+
+        await self._send_payment_failure_notification(invoice)
+
+        retry_attempted = False
+        MAX_RETRY_ATTEMPTS = 3
+        if attempt_count < MAX_RETRY_ATTEMPTS and not self.mock_mode:
+            try:
+                stripe.Invoice.pay(invoice_id)
+                logger.info(f"Retry payment triggered for invoice {invoice_id} (attempt {attempt_count + 1})")
+                retry_attempted = True
+            except stripe.error.StripeError as e:
+                logger.warning(f"Retry payment failed for invoice {invoice_id}: {e}")
+        elif attempt_count >= MAX_RETRY_ATTEMPTS:
+            logger.warning(
+                f"Invoice {invoice_id} has exceeded max retry attempts ({MAX_RETRY_ATTEMPTS}). "
+                "Subscription may be canceled by Stripe."
+            )
+
+        return {
+            "status": "failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "retry_attempted": retry_attempted,
+        }
+
+    async def _send_payment_failure_notification(self, invoice: Dict[str, Any]) -> None:
+        """
+        Notify customer of payment failure.
+
+        Override this method to integrate an email or notification service.
+        By default, emits a structured log event that external systems can consume.
+        """
+        customer_id = invoice.get('customer', 'unknown')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_attempt = invoice.get('next_payment_attempt')
+        invoice_url = invoice.get('hosted_invoice_url', '')
+
+        logger.warning(
+            f"PAYMENT_FAILURE_NOTIFICATION: customer={customer_id} "
+            f"amount=${amount_due / 100:.2f} attempt={attempt_count} "
+            f"next_attempt={next_attempt} invoice_url={invoice_url}"
+        )
+        logger.debug(f"Payment failure notification payload: {{"
+                     f"'type': 'payment_failure', 'customer_id': '{customer_id}', "
+                     f"'invoice_id': '{invoice.get('id')}', 'amount_due_cents': {amount_due}, "
+                     f"'attempt_count': {attempt_count}, 'next_attempt_timestamp': {next_attempt}, "
+                     f"'invoice_url': '{invoice_url}'}}")
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
