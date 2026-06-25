@@ -302,13 +302,26 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Detect decisions and compound concepts from the full exchange
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compounds(combined_text)
+
+        # Store compound concepts as first-class entities
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +377,68 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Detects phrases indicating a choice, commitment, or conclusion was reached.
+        """
+        decision_patterns = [
+            r"(?:i|we|you)\s+(?:decided?|chose?|have chosen|agreed?|determined?)\s+(?:to\s+)?(.{10,60}?)(?:\.|,|;|$)",
+            r"(?:let's|let us|going to|we'll|i'll|we will|i will)\s+(.{10,60}?)(?:\.|,|;|$)",
+            r"(?:the decision is|conclusion|resolution|outcome|verdict):\s*(.{10,60}?)(?:\.|,|;|$)",
+            r"(?:confirmed|finalized|settled on|going with|will use|will go with)\s+(.{10,60}?)(?:\.|,|;|$)",
+        ]
+
+        decisions = []
+        for pattern in decision_patterns:
+            matches = re.findall(pattern, text.lower())
+            decisions.extend(m.strip() for m in matches if m.strip())
+
+        return decisions[:10]
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """
+        Extract compound concepts (multi-word meaningful phrases) from text.
+
+        Finds capitalized proper-noun phrases, hyphenated terms, and meaningful
+        adjacent-word bigrams.
+        """
+        compounds = []
+
+        # Capitalized multi-word proper nouns / named entities
+        named = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', text)
+        compounds.extend(named)
+
+        # Hyphenated compound terms (e.g. "quantum-protected", "self-evolving")
+        hyphenated = re.findall(r'\b[a-zA-Z]+-[a-zA-Z]+\b', text)
+        compounds.extend(h for h in hyphenated if len(h) > 6)
+
+        # Meaningful bigrams: adjacent non-stopword words of 4+ chars each
+        stop_words = {
+            'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have',
+            'been', 'will', 'were', 'they', 'their', 'which', 'when',
+        }
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', text)
+        bigrams = [
+            f"{words[i]} {words[i + 1]}"
+            for i in range(len(words) - 1)
+            if words[i].lower() not in stop_words
+            and words[i + 1].lower() not in stop_words
+        ]
+        compounds.extend(bigrams[:15])
+
+        # Deduplicate while preserving order
+        seen: set = set()
+        unique = []
+        for comp in compounds:
+            key = comp.lower()
+            if key not in seen:
+                seen.add(key)
+                unique.append(comp)
+
+        return unique[:10]
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
