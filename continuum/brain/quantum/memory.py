@@ -302,13 +302,17 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._extract_decisions(combined_text)
+        compounds_found = self._extract_compounds(combined_text, list(all_concepts))
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +333,43 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_decisions(self, text: str) -> int:
+        """
+        Detect decision statements in text.
+
+        Matches linguistic markers of commitment, choice, or intent:
+        future-tense actions, explicit choices, collaborative plans.
+        """
+        decision_patterns = [
+            r'\b(?:will|shall)\s+\w+',
+            r'\b(?:decided|deciding|choosing|chose)\b',
+            r'\b(?:going to|plan to|intend to|aim to)\b',
+            r'\bwe (?:should|must|need to)\b',
+            r"\blet'?s\b|\blet us\b",
+            r"\bI'?ll\b|\bwe'?ll\b|\bthey'?ll\b",
+        ]
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text, re.IGNORECASE))
+        return count
+
+    def _extract_compounds(self, text: str, concepts: List[str]) -> int:
+        """
+        Detect compound concepts (multi-word phrases) in text.
+
+        Finds adjacent word pairs where both words are meaningful concepts,
+        e.g. "quantum memory", "neural network", "knowledge graph".
+        Returns the count of unique compound pairs found.
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        compounds: set = set()
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 in concept_set and w2 in concept_set:
+                compounds.add((w1, w2))
+        return len(compounds)
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
