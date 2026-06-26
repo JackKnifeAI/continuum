@@ -302,16 +302,87 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions = self._detect_decisions(user_message + " " + ai_response)
+        compounds = self._detect_compounds(user_message + " " + ai_response)
+
+        # Store compound concepts as linked pairs
+        for compound in compounds:
+            parts = compound.split()
+            if len(parts) == 2:
+                for part in parts:
+                    if part.lower() not in self.entity_cache:
+                        addr = self.brain.store_concept(part, activation=0.8)
+                        self.entity_cache[part.lower()] = addr
+                        self.name_cache[addr] = part
+                        self._store_entity_metadata(addr, part, "concept", "")
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+            if len(parts) == 2:
+                self.brain.link_concepts(parts[0], compound, weight=0.8)
+                self.brain.link_concepts(parts[1], compound, weight=0.8)
+                links_created += 2
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    # Decision signal phrases (imperative / resolution patterns)
+    _DECISION_PATTERNS = re.compile(
+        r'\b(?:'
+        r'decided?\s+to|will\s+use|going\s+to\s+use|chose(?:n)?\s+to|'
+        r'agreed\s+to|let\'s\s+(?:go\s+with|use)|going\s+with|'
+        r'we\s+(?:should|will|must|need\s+to)|'
+        r'the\s+(?:plan|approach|solution|decision|choice)\s+is|'
+        r'I\'ll\s+use|I\'ll\s+go\s+with|switching\s+to|migrating\s+to'
+        r')\b',
+        re.IGNORECASE,
+    )
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """Return sentences that contain a decision signal."""
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        return [s.strip() for s in sentences if self._DECISION_PATTERNS.search(s)]
+
+    def _detect_compounds(self, text: str) -> List[str]:
+        """
+        Detect meaningful two-word compound concepts.
+
+        Looks for adjacent non-stop-word pairs that appear more than once,
+        or that match common compound patterns (adj+noun, noun+noun).
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'how', 'all', 'also',
+        }
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        bigram_counts: Dict[str, int] = {}
+        for w1, w2 in zip(tokens, tokens[1:]):
+            if w1 not in stop_words and w2 not in stop_words:
+                bigram = f"{w1} {w2}"
+                bigram_counts[bigram] = bigram_counts.get(bigram, 0) + 1
+
+        # Keep bigrams that appear at least twice or contain a known concept
+        compounds = [
+            bg for bg, cnt in bigram_counts.items()
+            if cnt >= 2
+            or any(part in self.entity_cache for part in bg.split())
+        ]
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

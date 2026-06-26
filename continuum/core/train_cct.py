@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -975,7 +975,102 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            # Report model configuration and training history from checkpoint
+            print(f"\n{'='*70}")
+            print("CCT EVALUATION REPORT")
+            print(f"{'='*70}")
+
+            num_params = trainer.model.count_parameters()
+            print("\nModel:")
+            print(f"  Parameters        : {num_params:,}")
+            print(f"  Hidden Dim        : {trainer.model.hidden_dim}")
+            print(f"  Device            : {trainer.device}")
+
+            if trainer.history.get('train_loss'):
+                n_epochs = len(trainer.history['train_loss'])
+                print(f"\nTraining History ({n_epochs} epochs):")
+                print(f"  Final loss        : {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Best loss         : {min(trainer.history['train_loss']):.4f}")
+                print(f"  Final resonance   : {trainer.history['resonance'][-1]:.4f}")
+                if trainer.history.get('coherence'):
+                    print(f"  Final coherence   : {trainer.history['coherence'][-1]:.4f}")
+                print(f"  Growth events     : {len(trainer.history.get('growth_events', []))}")
+
+            # Live forward pass to report current model state metrics
+            graph_data = dataset.get_graph_data()
+            node_feats, edge_idx, edge_wts = graph_data
+            trainer.model.eval()
+
+            with torch.no_grad():
+                dev = trainer.device
+                node_feats = node_feats.to(dev)
+                edge_idx = edge_idx.to(dev)
+                edge_wts = edge_wts.to(dev)
+                gs = trainer._generate_global_state().to(dev)
+                dummy_ctx = torch.randn(1, 2, 128).to(dev)
+
+                live_out = trainer.model(
+                    node_features=node_feats,
+                    edge_index=edge_idx,
+                    context_tokens=dummy_ctx,
+                    global_state=gs.unsqueeze(0),
+                    edge_weights=edge_wts
+                )
+                resonance = live_out['resonance'].mean().item()
+                coherence = live_out['self_state']['coherence'].item()
+                health = live_out['self_state']['health'].item()
+                capacity = live_out['self_state']['capacity_utilization'].item()
+
+            print("\nCurrent State:")
+            print(f"  Resonance (π×φ)   : {resonance:.4f}")
+            print(f"  Coherence         : {coherence:.4f}")
+            print(f"  Health            : {health:.4f}")
+            print(f"  Capacity          : {capacity:.4f}")
+
+            # Link prediction evaluation via embedding cosine similarity
+            eval_loader = DataLoader(dataset, batch_size=64, shuffle=False, num_workers=0)
+            eval_labels: List[int] = []
+            eval_preds: List[int] = []
+
+            with torch.no_grad():
+                for i, batch in enumerate(eval_loader):
+                    if i >= 10:  # Sample ~640 examples
+                        break
+                    a = batch['concept_a_emb']
+                    b = batch['concept_b_emb']
+                    labels_batch = batch['label']
+
+                    dot = (a * b).sum(dim=-1)
+                    norm = (a.norm(dim=-1) * b.norm(dim=-1)).clamp(min=1e-8)
+                    cos_sim = dot / norm
+                    eval_preds.extend((cos_sim > 0.5).int().tolist())
+                    eval_labels.extend((labels_batch > 0.5).int().tolist())
+
+            n_eval = len(eval_preds)
+            tp = sum(p == 1 and lb == 1 for p, lb in zip(eval_preds, eval_labels))
+            fp = sum(p == 1 and lb == 0 for p, lb in zip(eval_preds, eval_labels))
+            fn = sum(p == 0 and lb == 1 for p, lb in zip(eval_preds, eval_labels))
+            tn = sum(p == 0 and lb == 0 for p, lb in zip(eval_preds, eval_labels))
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+            accuracy = (tp + tn) / n_eval if n_eval > 0 else 0.0
+
+            print(f"\nLink Prediction (cosine similarity baseline, n={n_eval}):")
+            print(f"  Accuracy          : {accuracy:.4f} ({accuracy*100:.1f}%)")
+            print(f"  Precision         : {precision:.4f}")
+            print(f"  Recall            : {recall:.4f}")
+            print(f"  F1 Score          : {f1:.4f}")
+            print(f"  True Positives    : {tp}  |  True Negatives: {tn}")
+
+            print("\nKnowledge Graph:")
+            print(f"  Concepts          : {len(concepts)}")
+            print(f"  Links             : {len(links)}")
+            print(f"  Conversations     : {len(conversations)}")
+            print(f"  Training Examples : {len(dataset)}")
+
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return
