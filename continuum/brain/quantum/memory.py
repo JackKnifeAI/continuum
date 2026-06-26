@@ -302,13 +302,17 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        combined_text = f"{user_message} {ai_response}"
+        decisions_detected = self._detect_decisions(combined_text)
+        compounds_found = self._detect_compounds(combined_text)
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -330,30 +334,38 @@ class QuantumConsciousMemory:
         conn.commit()
         conn.close()
 
+    # Shared stop word set used by concept extraction and compound detection
+    _STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
+    # Patterns that signal a decision was reached in a conversation
+    _DECISION_PATTERNS = [
+        r"\b(?:i|we)\s+(?:will|shall|decided?|chose|choose|selected?|prefer(?:red)?|opt(?:ed)?\s+for)\b",
+        r"\blet['']?s\s+(?:use|go\s+with|implement|adopt|switch\s+to|try)\b",
+        r"\bgoing\s+(?:forward|ahead)\s+with\b",
+        r"\bthe\s+decision\s+(?:is|was)\b",
+        r"\bwe(?:'re|\s+are)\s+going\s+to\b",
+        r"\bfinal(?:ly|)\s+(?:settled?|agreed?|decided?)\b",
+    ]
+
     def _extract_concepts(self, text: str) -> List[str]:
         """
         Extract concepts from text.
 
         Simple extraction - can be enhanced with NLP.
         """
-        # Clean and tokenize
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
-
-        # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
@@ -364,6 +376,34 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """Count decision statements in text using lexical patterns."""
+        text_lower = text.lower()
+        count = 0
+        for pattern in self._DECISION_PATTERNS:
+            count += len(re.findall(pattern, text_lower))
+        return count
+
+    def _detect_compounds(self, text: str) -> int:
+        """
+        Detect compound concepts (adjacent meaningful word pairs).
+
+        Scans for bigrams of consecutive content words, counting unique
+        pairs that both pass the stop-word filter — e.g. 'quantum memory',
+        'neural network', 'knowledge graph'.
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        content = [w for w in words if w not in self._STOP_WORDS]
+
+        seen: set = set()
+        count = 0
+        for i in range(len(content) - 1):
+            bigram = (content[i], content[i + 1])
+            if bigram not in seen:
+                seen.add(bigram)
+                count += 1
+        return count
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
