@@ -65,11 +65,15 @@ class StripeClient:
     the client runs in mock mode for development/testing.
     """
 
+    # After this many failed payment attempts, cancel the subscription immediately
+    MAX_PAYMENT_ATTEMPTS_BEFORE_CANCEL = 4
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         webhook_secret: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        payment_failure_callback: Optional[Any] = None,
     ):
         """
         Initialize Stripe client.
@@ -78,9 +82,13 @@ class StripeClient:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
             mock_mode: Force mock mode (useful for testing without Stripe)
+            payment_failure_callback: Optional async callable(invoice, attempt_count, next_retry)
+                called on payment failure for email/alerting. Signature:
+                async def cb(invoice: dict, attempt_count: int, next_retry: Optional[int]) -> None
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
+        self.payment_failure_callback = payment_failure_callback
 
         # Determine if we should run in mock mode
         self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
@@ -567,10 +575,53 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """Handle invoice.payment_failed event with retry-aware escalation."""
+        invoice_id = invoice.get('id', 'unknown')
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        next_retry = invoice.get('next_payment_attempt')  # Unix timestamp or None
+        subscription_id = invoice.get('subscription')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} "
+            f"(customer={customer_id}, attempt={attempt_count}, "
+            f"amount={amount_due}, email={customer_email})"
+        )
+
+        # Invoke external notification callback (e.g. send email) if configured
+        if self.payment_failure_callback is not None:
+            try:
+                await self.payment_failure_callback(invoice, attempt_count, next_retry)
+            except Exception as cb_err:
+                logger.error(f"Payment failure callback raised an error: {cb_err}")
+
+        # After exceeding the retry threshold, cancel the subscription immediately
+        # rather than leaving it in past_due indefinitely.
+        if attempt_count >= self.MAX_PAYMENT_ATTEMPTS_BEFORE_CANCEL and subscription_id:
+            logger.warning(
+                f"Invoice {invoice_id} has failed {attempt_count} times — "
+                f"canceling subscription {subscription_id} immediately."
+            )
+            try:
+                if not self.mock_mode:
+                    await self.cancel_subscription(subscription_id, at_period_end=False)
+                else:
+                    logger.info(f"[MOCK] Would cancel subscription {subscription_id}")
+            except Exception as cancel_err:
+                logger.error(
+                    f"Failed to cancel subscription {subscription_id} after max retries: {cancel_err}"
+                )
+
+        return {
+            "status": "failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "next_retry": next_retry,
+            "subscription_id": subscription_id,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

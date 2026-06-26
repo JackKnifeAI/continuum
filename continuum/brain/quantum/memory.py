@@ -302,16 +302,76 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        # Decision extraction: detect decision language in both messages
+        decisions_detected = self._extract_decisions(user_message + " " + ai_response)
+
+        # Compound concept detection: find multi-word phrases from adjacent concepts
+        compounds = self._extract_compound_concepts(
+            user_message + " " + ai_response, list(all_concepts)
+        )
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, text: str) -> int:
+        """Count decision statements in text using linguistic pattern matching."""
+        decision_patterns = [
+            r'\b(?:decided?|deciding|chose|chosen|choosing|selected?|opted?)\b',
+            r'\bwill\s+(?:use|implement|build|create|add|remove|change|keep|make|do)\b',
+            r'\bgoing\s+to\s+\w+',
+            r'\bplan(?:ning)?\s+to\s+\w+',
+            r'\b(?:agreed?|concluded?|determined?|resolved?)\s+(?:to\s+)?\w+',
+            r'\b(?:should|must|need\s+to)\s+\w+',
+            r'\blet(?:\'s|us)\s+\w+',
+            r'\bthe\s+(?:decision|choice|approach|strategy)\s+is\b',
+        ]
+        count = 0
+        text_lower = text.lower()
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, text_lower))
+        return count
+
+    def _extract_compound_concepts(self, text: str, concepts: List[str]) -> List[str]:
+        """Find adjacent concept pairs and triplets that form compound phrases."""
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds: List[str] = []
+        seen: set = set()
+
+        # Bigrams
+        for i in range(len(words) - 1):
+            if words[i] in concept_set and words[i + 1] in concept_set:
+                compound = f"{words[i]} {words[i + 1]}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        # Trigrams
+        for i in range(len(words) - 2):
+            if (words[i] in concept_set
+                    and words[i + 1] in concept_set
+                    and words[i + 2] in concept_set):
+                compound = f"{words[i]} {words[i + 1]} {words[i + 2]}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
