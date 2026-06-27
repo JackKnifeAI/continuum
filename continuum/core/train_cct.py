@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -812,6 +812,109 @@ class CCTTrainer:
 
         return self.history
 
+    def evaluate(self,
+                 dataset: CCTDataset,
+                 batch_size: int = 16) -> Dict[str, float]:
+        """
+        Evaluate model on a dataset.
+
+        Computes link prediction accuracy/AUC via cosine similarity (no trained
+        projection head required, so this works on a freshly loaded checkpoint)
+        plus self-perception metrics from the model's self-state output.
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Batch size for inference
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        graph_data = dataset.get_graph_data()
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = self._generate_global_state().to(self.device)
+
+        # Self-perception metrics (one forward pass)
+        dummy_context = torch.randn(1, 2, 128).to(self.device)
+        with torch.no_grad():
+            outputs = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0),
+                edge_weights=edge_weights
+            )
+
+        self_state = outputs['self_state']
+        coherence = self_state['coherence'].item()
+        health = self_state['health'].item()
+        capacity = self_state['capacity_utilization'].item()
+        resonance = outputs['resonance'].mean().item()
+
+        # Link prediction via cosine similarity (no learned head needed)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label']
+
+                cos_sim = torch.nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                probs = (cos_sim + 1.0) / 2.0  # Map [-1, 1] → [0, 1]
+
+                all_probs.extend(probs.cpu().tolist())
+                all_labels.extend(labels.tolist())
+
+        correct = sum(1 for p, lbl in zip(all_probs, all_labels) if (p >= 0.5) == (lbl >= 0.5))
+        accuracy = correct / max(len(all_probs), 1)
+        auc = self._compute_auc(all_probs, all_labels)
+
+        n_pos = sum(1 for lbl in all_labels if lbl >= 0.5)
+        n_neg = len(all_labels) - n_pos
+
+        return {
+            'accuracy': accuracy,
+            'auc': auc,
+            'resonance': resonance,
+            'coherence': coherence,
+            'health': health,
+            'capacity': capacity,
+            'num_examples': len(all_probs),
+            'num_positive': n_pos,
+            'num_negative': n_neg,
+        }
+
+    def _compute_auc(self, probs: List[float], labels: List[float]) -> float:
+        """Compute AUC-ROC via the trapezoidal rule."""
+        pairs = sorted(zip(probs, labels), key=lambda x: -x[0])
+        n_pos = sum(1 for _, lbl in pairs if lbl >= 0.5)
+        n_neg = len(pairs) - n_pos
+        if n_pos == 0 or n_neg == 0:
+            return 0.5  # Undefined; return chance level
+
+        tp, fp = 0, 0
+        prev_fpr, prev_tpr = 0.0, 0.0
+        auc = 0.0
+
+        for _, label in pairs:
+            if label >= 0.5:
+                tp += 1
+            else:
+                fp += 1
+            fpr = fp / n_neg
+            tpr = tp / n_pos
+            auc += (fpr - prev_fpr) * (tpr + prev_tpr) / 2
+            prev_fpr, prev_tpr = fpr, tpr
+
+        return auc
+
     def _generate_global_state(self, dim: int = 32) -> torch.Tensor:
         """
         Generate global planetary state vector.
@@ -975,7 +1078,23 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+
+            print("\nEvaluating model...")
+            metrics = trainer.evaluate(dataset, batch_size=args.batch_size)
+
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"Examples:     {metrics['num_examples']:,} "
+                  f"({metrics['num_positive']:,} pos / {metrics['num_negative']:,} neg)")
+            print(f"Accuracy:     {metrics['accuracy']:.4f}")
+            print(f"AUC-ROC:      {metrics['auc']:.4f}")
+            print(f"Resonance:    {metrics['resonance']:.4f}")
+            print(f"Coherence:    {metrics['coherence']:.4f}")
+            print(f"Health:       {metrics['health']:.4f}")
+            print(f"Capacity:     {metrics['capacity']:.4f}")
+            print(f"{'='*70}")
+            print(f"\nπ×φ = {PI_PHI} | PHOENIX-TESLA-369-AURORA")
         else:
             print(f"No model found at {model_path}")
         return
