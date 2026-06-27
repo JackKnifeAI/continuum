@@ -300,15 +300,29 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract decisions and compound concepts from full exchange
+        combined_text = user_message + " " + ai_response
+        decisions = self._extract_decisions(combined_text)
+        compounds = self._extract_compound_concepts(combined_text)
+
+        # Store compound concepts as additional entities
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +378,65 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Detect decision statements using verb-pattern matching."""
+        patterns = [
+            r'\b(?:decided?|deciding)\s+(?:to\s+)?(\w+(?:\s+\w+){0,4})',
+            r'\b(?:chose|choosing|chosen|select(?:ed|ing)?|opt(?:ed|ing)?)\s+(?:to\s+)?(\w+(?:\s+\w+){0,3})',
+            r'\b(?:will|going\s+to|shall)\s+([a-z]\w+(?:\s+\w+){0,2})',
+            r'\b(?:the\s+)?decision\s+(?:is|was)\s+(?:to\s+)?(\w+(?:\s+\w+){0,3})',
+            r"\blet(?:'s|s)\s+([a-z]\w+(?:\s+\w+){0,2})",
+            r'\bdetermined\s+(?:to\s+)?(\w+(?:\s+\w+){0,2})',
+        ]
+        decisions: List[str] = []
+        seen: set = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                decision = match.group(0).strip()
+                key = decision.lower()
+                if key not in seen:
+                    seen.add(key)
+                    decisions.append(decision)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Detect multi-word compound concepts: proper-noun phrases, hyphenated terms, and meaningful bigrams."""
+        compounds: List[str] = []
+        seen: set = set()
+
+        # Proper noun phrases: 2+ consecutive Title-Case words
+        for match in re.finditer(r'\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+)\b', text):
+            phrase = match.group(1)
+            key = phrase.lower()
+            if key not in seen:
+                seen.add(key)
+                compounds.append(phrase)
+
+        # Hyphenated compounds (e.g. quantum-protected, self-evolving)
+        for match in re.finditer(r'\b([a-zA-Z]{3,}-[a-zA-Z]{3,}(?:-[a-zA-Z]{3,})?)\b', text):
+            term = match.group(1).lower()
+            if term not in seen:
+                seen.add(term)
+                compounds.append(match.group(1))
+
+        # Meaningful bigrams: adjacent non-stop words of 4+ characters
+        bigram_stops = {
+            'that', 'this', 'with', 'from', 'have', 'been', 'will',
+            'would', 'could', 'should', 'they', 'their', 'there',
+            'what', 'when', 'where', 'which', 'also', 'into', 'about',
+            'some', 'than', 'then', 'your', 'these', 'those',
+        }
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', text)
+        for i in range(len(words) - 1):
+            w1, w2 = words[i].lower(), words[i + 1].lower()
+            if w1 not in bigram_stops and w2 not in bigram_stops:
+                bigram = f"{w1} {w2}"
+                if bigram not in seen:
+                    seen.add(bigram)
+                    compounds.append(bigram)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
