@@ -302,16 +302,75 @@ class QuantumConsciousMemory:
 
         coherence_after = self.brain.coherence_score()
 
+        decisions_detected = self._extract_decisions(user_message, ai_response)
+        compounds_found = self._extract_compound_concepts(
+            concept_list, user_message + " " + ai_response
+        )
+
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_decisions(self, user_message: str, ai_response: str) -> int:
+        """Count decision statements in a conversation turn."""
+        decision_patterns = [
+            r'\b(?:decided?|choosing|chose|selected?|opted?)\b',
+            r'\b(?:will|shall|going\s+to|plan\s+to|intend\s+to)\s+\w+',
+            r"\b(?:let's|let\s+us|we\s+should|we\s+must|we\s+need\s+to)\s+\w+",
+            r'\b(?:the\s+decision|our\s+approach|the\s+plan|the\s+strategy)\s+is\b',
+            r'\b(?:agreed?\s+to|committed?\s+to|resolved?\s+to)\b',
+        ]
+        combined = user_message + " " + ai_response
+        count = 0
+        for pattern in decision_patterns:
+            count += len(re.findall(pattern, combined, re.IGNORECASE))
+        return count
+
+    def _extract_compound_concepts(self, concepts: List[str], text: str) -> int:
+        """Detect and register compound concepts; return count of new ones found."""
+        compounds_found = 0
+
+        # CamelCase compound terms (e.g. QuantumBrain, NeuralNetwork)
+        for term in re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b', text):
+            if term.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(term, activation=1.2)
+                self.entity_cache[term.lower()] = addr
+                self.name_cache[addr] = term
+                self._store_entity_metadata(addr, term, "compound", f"CamelCase: {term}")
+                compounds_found += 1
+
+        # Hyphenated compounds (e.g. error-correction, self-evolving)
+        for term in re.findall(r'\b[a-zA-Z]+-[a-zA-Z]+(?:-[a-zA-Z]+)*\b', text):
+            if len(term) > 4 and term.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(term, activation=1.1)
+                self.entity_cache[term.lower()] = addr
+                self.name_cache[addr] = term
+                self._store_entity_metadata(addr, term, "compound", f"Hyphenated: {term}")
+                compounds_found += 1
+
+        # Adjacent concept bigrams — two known concepts appearing side-by-side
+        concept_set = {c.lower() for c in concepts}
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        for i in range(len(words) - 1):
+            if words[i] in concept_set and words[i + 1] in concept_set:
+                compound = f"{words[i]} {words[i + 1]}"
+                if compound not in self.entity_cache:
+                    addr = self.brain.store_concept(compound, activation=1.3)
+                    self.entity_cache[compound] = addr
+                    self.name_cache[addr] = compound
+                    self._store_entity_metadata(
+                        addr, compound, "compound", f"Bigram: {compound}"
+                    )
+                    compounds_found += 1
+
+        return compounds_found
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
