@@ -35,12 +35,28 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from .config import get_config
 from .immune_system import AntibodyDetector
+
+# PII patterns: match but do not capture surrounding context
+_PII_PATTERNS: List[re.Pattern] = [
+    re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),  # email
+    re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),                  # phone (US)
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                               # SSN
+    re.compile(r"\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6011)[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),  # credit card
+    re.compile(r"\b[A-Z]{2}\d{6,9}\b"),                                 # passport-style ID
+]
+
+def _scrub_pii(text: str) -> str:
+    """Replace detected PII patterns with a placeholder."""
+    for pattern in _PII_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
 
 logger = logging.getLogger("CONTRIBUTION")
 
@@ -110,9 +126,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for lnk in links:
+            concept_names.add(lnk["a"])
+            concept_names.add(lnk["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,10 +143,9 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
             clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
+                "name": _scrub_pii(c["name"].lower().strip()),
+                "desc": _scrub_pii(c["desc"][:200]) if c["desc"] else "",
             })
         return clean
 
@@ -138,12 +153,12 @@ class ContributionManager:
         """Normalize links."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": lnk["a"].lower().strip(),
+                "b": lnk["b"].lower().strip(),
+                "w": round(lnk["w"], 4),
+                "t": lnk["t"],
             }
-            for l in links
+            for lnk in links
         ]
 
     def _get_anonymous_id(self) -> str:

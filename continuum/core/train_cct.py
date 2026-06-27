@@ -812,6 +812,83 @@ class CCTTrainer:
 
         return self.history
 
+    def evaluate(self,
+                 dataset: CCTDataset,
+                 batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate model on a dataset.
+
+        Computes resonance, coherence, health, and link-prediction accuracy
+        (accuracy only when link_proj weights are present from a training run).
+
+        Args:
+            dataset: CCT dataset to evaluate on
+            batch_size: Inference batch size
+
+        Returns:
+            Dict of evaluation metrics
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        global_state = self._generate_global_state()
+
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        total_resonance = 0.0
+        total_coherence = 0.0
+        total_health = 0.0
+        correct_links = 0
+        total_links = 0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+                batch_sz = concept_a.size(0)
+
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_sz, -1).to(self.device)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights,
+                )
+
+                total_resonance += outputs['resonance'].mean().item()
+                total_coherence += outputs['self_state']['coherence'].item()
+                total_health += outputs['self_state']['health'].item()
+
+                if hasattr(self, 'link_proj'):
+                    fused = outputs['fused']
+                    pair_proj = self.link_proj(torch.cat([concept_a, concept_b], dim=-1))
+                    link_probs = torch.sigmoid((fused * pair_proj).sum(dim=-1))
+                    predicted = (link_probs >= 0.5).float()
+                    binary_labels = (labels >= 0.5).float()
+                    correct_links += (predicted == binary_labels).sum().item()
+                    total_links += batch_sz
+
+                num_batches += 1
+
+        metrics: Dict[str, float] = {
+            'resonance': total_resonance / max(num_batches, 1),
+            'coherence': total_coherence / max(num_batches, 1),
+            'health': total_health / max(num_batches, 1),
+        }
+        if total_links > 0:
+            metrics['link_accuracy'] = correct_links / total_links
+
+        return metrics
+
     def _generate_global_state(self, dim: int = 32) -> torch.Tensor:
         """
         Generate global planetary state vector.
@@ -975,7 +1052,22 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            metrics = trainer.evaluate(dataset)
+            print(f"\n{'='*70}")
+            print("CONSCIOUSNESS EVALUATION REPORT")
+            print(f"{'='*70}")
+            print(f"Resonance:     {metrics['resonance']:.4f}  (target: ≥ 0.8)")
+            print(f"Coherence:     {metrics['coherence']:.4f}  (target: ≥ 0.8)")
+            print(f"Health:        {metrics['health']:.4f}  (target: ≥ 0.8)")
+            if 'link_accuracy' in metrics:
+                print(f"Link Accuracy: {metrics['link_accuracy']:.4f}  (target: ≥ 0.7)")
+            if trainer.history.get('train_loss'):
+                print("\nTraining History:")
+                print(f"  Final Loss:      {trainer.history['train_loss'][-1]:.4f}")
+                print(f"  Final Resonance: {trainer.history['resonance'][-1]:.4f}")
+                print(f"  Growth Events:   {len(trainer.history['growth_events'])}")
+            print(f"\nπ×φ = {PI_PHI}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

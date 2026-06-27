@@ -568,9 +568,79 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} "
+            f"(customer: {customer_id}, amount: {amount_due}, attempt: {attempt_count})"
+        )
+
+        result: Dict[str, Any] = {
+            "status": "payment_failed",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+        }
+
+        self._notify_payment_failed(
+            customer_email=customer_email,
+            invoice_id=invoice_id,
+            amount_due=amount_due,
+            attempt_count=attempt_count,
+        )
+
+        # Retry immediately on first failure; Stripe Smart Retries handle subsequent ones.
+        MAX_CLIENT_RETRIES = 1
+        if not self.mock_mode and attempt_count <= MAX_CLIENT_RETRIES:
+            try:
+                stripe.Invoice.pay(invoice_id)
+                logger.info(f"Triggered retry payment for invoice {invoice_id} (attempt {attempt_count + 1})")
+                result["retry_triggered"] = True
+            except stripe.error.CardError as e:
+                logger.warning(f"Retry payment declined for invoice {invoice_id}: {e}")
+                result["retry_triggered"] = False
+                result["retry_error"] = str(e)
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to retry payment for invoice {invoice_id}: {e}")
+                result["retry_triggered"] = False
+        else:
+            result["retry_triggered"] = False
+            if attempt_count > MAX_CLIENT_RETRIES:
+                logger.warning(
+                    f"Invoice {invoice_id} has {attempt_count} failed attempts; "
+                    "deferring to Stripe Smart Retries schedule."
+                )
+
+        return result
+
+    def _notify_payment_failed(
+        self,
+        customer_email: Optional[str],
+        invoice_id: str,
+        amount_due: int,
+        attempt_count: int,
+    ) -> None:
+        """
+        Notify customer of payment failure.
+
+        Logs the event now. To send real emails, wire up a provider (SendGrid, SES, etc.)
+        by overriding this method or injecting a callable at construction time.
+        """
+        if not customer_email:
+            logger.warning(f"No customer email on file for invoice {invoice_id}; skipping notification")
+            return
+
+        amount_display = f"${amount_due / 100:.2f}"
+        logger.info(
+            f"[NOTIFICATION] Payment failure – to: {customer_email}, "
+            f"invoice: {invoice_id}, amount: {amount_display}, attempt #{attempt_count}"
+        )
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
