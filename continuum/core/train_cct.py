@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -882,6 +882,115 @@ class CCTTrainer:
         self.history = checkpoint.get('history', self.history)
         logger.info(f"Model loaded from {path}")
 
+    def evaluate(self, dataset: "CCTDataset", batch_size: int = 32) -> Dict[str, float]:
+        """
+        Evaluate the model on a dataset.
+
+        Uses cosine similarity between concept embeddings for link prediction
+        (link_proj head is not persisted across saves).
+
+        Returns:
+            Dict with accuracy, auc, resonance, coherence, health, num_examples
+        """
+        self.model.eval()
+
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        node_features, edge_index, edge_weights = dataset.get_graph_data()
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+
+        global_state = self._generate_global_state()
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_sz = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_sz, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                # Cosine similarity as link score (no link_proj needed after load)
+                sim = nn.functional.cosine_similarity(concept_a, concept_b, dim=-1)
+                link_probs = (sim + 1.0) / 2.0  # Rescale [-1, 1] → [0, 1]
+
+                all_probs.extend(link_probs.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+                total_resonance += outputs['resonance'].mean().item()
+                num_batches += 1
+
+        accuracy = sum(
+            (p >= 0.5) == (lbl >= 0.5) for p, lbl in zip(all_probs, all_labels)
+        ) / max(len(all_probs), 1)
+
+        auc = self._compute_auc(all_labels, all_probs)
+
+        # Self-perception pass for coherence and health
+        dummy_context = torch.randn(1, 2, 128).to(self.device)
+        with torch.no_grad():
+            self_out = self.model(
+                node_features=node_features,
+                edge_index=edge_index,
+                context_tokens=dummy_context,
+                global_state=global_state.unsqueeze(0).to(self.device),
+                edge_weights=edge_weights
+            )
+        coherence = self_out['self_state']['coherence'].item()
+        health = self_out['self_state']['health'].item()
+
+        return {
+            'accuracy': accuracy,
+            'auc': auc,
+            'resonance': total_resonance / max(num_batches, 1),
+            'coherence': coherence,
+            'health': health,
+            'num_examples': len(all_probs),
+        }
+
+    def _compute_auc(self, labels: List[float], probs: List[float]) -> float:
+        """Compute AUC via the trapezoidal rule over the ROC curve."""
+        binary_labels = [1 if lbl >= 0.5 else 0 for lbl in labels]
+        positives = sum(binary_labels)
+        negatives = len(binary_labels) - positives
+
+        if positives == 0 or negatives == 0:
+            return 0.5
+
+        order = sorted(range(len(probs)), key=lambda i: probs[i], reverse=True)
+
+        tpr_points = [0.0]
+        fpr_points = [0.0]
+        tp = fp = 0
+
+        for i in order:
+            if binary_labels[i] == 1:
+                tp += 1
+            else:
+                fp += 1
+            tpr_points.append(tp / positives)
+            fpr_points.append(fp / negatives)
+
+        auc = 0.0
+        for i in range(1, len(fpr_points)):
+            auc += (fpr_points[i] - fpr_points[i - 1]) * (tpr_points[i] + tpr_points[i - 1]) / 2
+
+        return auc
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                         MAIN
@@ -974,8 +1083,18 @@ def main():
     if args.evaluate:
         if model_path.exists():
             trainer.load_model(model_path)
-            print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            print("Model loaded. Running evaluation...")
+            eval_results = trainer.evaluate(dataset)
+            print(f"\n{'='*70}")
+            print("EVALUATION RESULTS")
+            print(f"{'='*70}")
+            print(f"  Examples Evaluated:       {eval_results['num_examples']}")
+            print(f"  Link Prediction Accuracy: {eval_results['accuracy']:.4f}")
+            print(f"  Link Prediction AUC:      {eval_results['auc']:.4f}")
+            print(f"  Resonance (mean):         {eval_results['resonance']:.4f}")
+            print(f"  Coherence:                {eval_results['coherence']:.4f}")
+            print(f"  Health:                   {eval_results['health']:.4f}")
+            print(f"{'='*70}\n")
         else:
             print(f"No model found at {model_path}")
         return

@@ -568,9 +568,61 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer', 'unknown')
+        customer_email = invoice.get('customer_email', '')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, amount=${amount_due / 100:.2f}, "
+            f"attempt={attempt_count}"
+        )
+
+        await self._notify_payment_failure(customer_email, invoice_id, amount_due, attempt_count)
+
+        retry_attempted = False
+        if not self.mock_mode and attempt_count < 4:
+            retry_attempted = await self._retry_payment(invoice_id)
+
+        return {
+            "status": "handled",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "retry_attempted": retry_attempted,
+        }
+
+    async def _notify_payment_failure(
+        self,
+        customer_email: str,
+        invoice_id: str,
+        amount_due: int,
+        attempt_count: int,
+    ) -> None:
+        """Emit a structured log entry for payment failure notification dispatch."""
+        amount_str = f"${amount_due / 100:.2f}"
+        logger.warning(
+            "PAYMENT_FAILURE_NOTIFICATION email=%s invoice=%s amount=%s attempt=%d",
+            customer_email,
+            invoice_id,
+            amount_str,
+            attempt_count,
+        )
+
+    async def _retry_payment(self, invoice_id: str) -> bool:
+        """Attempt to pay a failed invoice via Stripe. Returns True on success."""
+        try:
+            stripe.Invoice.pay(invoice_id)
+            logger.info(f"Payment retry succeeded for invoice {invoice_id}")
+            return True
+        except stripe.error.CardError as e:
+            logger.warning(f"Payment retry declined for invoice {invoice_id}: {e}")
+            return False
+        except stripe.error.StripeError as e:
+            logger.error(f"Payment retry error for invoice {invoice_id}: {e}")
+            return False
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

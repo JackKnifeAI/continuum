@@ -300,15 +300,62 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Extract and store decisions from the exchange
+        decision_list = (
+            self._extract_decisions(user_message)
+            + self._extract_decisions(ai_response)
+        )
+        seen_decisions: set = set()
+        unique_decisions = []
+        for d in decision_list:
+            if d.lower() not in seen_decisions:
+                seen_decisions.add(d.lower())
+                unique_decisions.append(d)
+        decisions_detected = len(unique_decisions)
+
+        for decision in unique_decisions:
+            dkey = f"decision:{decision[:50].lower()}"
+            if dkey not in self.entity_cache:
+                addr = self.brain.store_concept(dkey, activation=0.8)
+                self.entity_cache[dkey] = addr
+                self.name_cache[addr] = dkey
+                self._store_entity_metadata(addr, dkey, "decision", decision)
+
+        # Extract and store compound concepts (proper noun phrases, hyphenated terms)
+        compound_list = (
+            self._extract_compound_concepts(user_message)
+            + self._extract_compound_concepts(ai_response)
+        )
+        seen_compounds: set = set()
+        unique_compounds = []
+        for comp in compound_list:
+            if comp.lower() not in seen_compounds:
+                seen_compounds.add(comp.lower())
+                unique_compounds.append(comp)
+        compounds_found = len(unique_compounds)
+
+        for compound in unique_compounds:
+            ckey = compound.lower()
+            if ckey not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.9)
+                self.entity_cache[ckey] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+            else:
+                addr = self.entity_cache[ckey]
+                self.brain.cells[addr].activation = min(
+                    1.0, self.brain.cells[addr].activation + 0.15
+                )
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +411,49 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """Extract decision statements using commitment pattern matching."""
+        patterns = [
+            r'\b(?:I|we|they)\s+(?:decided|chose|agreed|concluded|determined|resolved|committed)\s+(?:to\s+)?([^.!?\n]{5,80})',
+            r'\blet\'s\s+([^.!?\n]{5,60})',
+            r'\bwe(?:\'re|\s+are)\s+going\s+to\s+([^.!?\n]{5,60})',
+            r'\bwe\s+(?:will|shall)\s+([^.!?\n]{5,60})',
+            r'\bI\s+will\s+([^.!?\n]{5,60})',
+            r'\bthe\s+(?:plan|approach|strategy|decision)\s+(?:is|will\s+be)\s+(?:to\s+)?([^.!?\n]{5,80})',
+        ]
+        decisions = []
+        seen: set = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                decision = match.group(1).strip().rstrip('.,;:')
+                key = decision.lower()
+                if len(decision) > 5 and key not in seen:
+                    seen.add(key)
+                    decisions.append(decision)
+        return decisions
+
+    def _extract_compound_concepts(self, text: str) -> List[str]:
+        """Extract multi-word compound concepts (proper noun phrases, hyphenated terms)."""
+        compounds = []
+        seen: set = set()
+
+        # Proper noun phrases: 2-3 consecutive capitalized words
+        for match in re.finditer(r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,2})\b', text):
+            phrase = match.group(1)
+            key = phrase.lower()
+            if key not in seen and len(phrase) > 5:
+                seen.add(key)
+                compounds.append(phrase)
+
+        # Hyphenated compounds (e.g. "self-evolving", "error-correction")
+        for match in re.finditer(r'\b([a-zA-Z]{3,}-[a-zA-Z]{3,}(?:-[a-zA-Z]{3,})?)\b', text):
+            phrase = match.group(1).lower()
+            if phrase not in seen:
+                seen.add(phrase)
+                compounds.append(phrase)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
