@@ -300,18 +300,110 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions from the exchange
+        decisions = self._detect_decisions(user_message + " " + ai_response)
+        for decision_text in decisions:
+            if decision_text.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(decision_text, activation=0.9)
+                self.entity_cache[decision_text.lower()] = addr
+                self.name_cache[addr] = decision_text
+                self._store_entity_metadata(addr, decision_text, "decision", "")
+
+        # Detect compound concepts from the combined concept list
+        compounds = self._detect_compounds(
+            user_message + " " + ai_response, list(all_concepts)
+        )
+        for compound in compounds:
+            if compound.lower() not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.7)
+                self.entity_cache[compound.lower()] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+                concepts_extracted += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision statements in a block of text.
+
+        Looks for linguistic markers indicating a choice or commitment was made.
+        """
+        patterns = [
+            r"\b(?:I|we|you)\s+(?:decided?|will|should|must|plan(?:ned)?|agreed?)\s+(?:to\s+)?([^.!?\n]{5,60})",
+            r"\blet(?:'s| us)\s+([^.!?\n]{5,60})",
+            r"\b(?:decision|choice|conclusion)(?:\s+is|\s+was|\s*:)\s*([^.!?\n]{5,60})",
+            r"\bgoing\s+to\s+([^.!?\n]{5,60})",
+        ]
+        decisions: List[str] = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text, re.IGNORECASE):
+                cleaned = match.strip().rstrip(".,;")
+                if 5 < len(cleaned) < 80 and cleaned.lower() not in {d.lower() for d in decisions}:
+                    decisions.append(cleaned)
+        return decisions[:5]
+
+    def _detect_compounds(self, text: str, single_concepts: List[str]) -> List[str]:
+        """
+        Detect compound concepts from text using bigrams and surface patterns.
+
+        Looks for:
+        - Adjacent meaningful-word bigrams where both words are known concepts
+        - CamelCase identifiers (e.g. QuantumBrain)
+        - Hyphenated terms (e.g. self-evolving)
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        concept_set = set(single_concepts)
+        compounds: List[str] = []
+        seen: set = set()
+
+        # Bigrams of co-occurring known concepts
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words and w1 in concept_set and w2 in concept_set:
+                compound = f"{w1}_{w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        # CamelCase identifiers
+        for token in re.findall(r'\b[A-Z][a-z]+(?:[A-Z][a-zA-Z]+)+\b', text):
+            key = token.lower()
+            if key not in seen:
+                seen.add(key)
+                compounds.append(token)
+
+        # Hyphenated terms
+        for token in re.findall(r'\b[a-zA-Z]{2,}-[a-zA-Z]{2,}\b', text):
+            key = token.lower()
+            if key not in seen:
+                seen.add(key)
+                compounds.append(token)
+
+        return compounds[:10]
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
