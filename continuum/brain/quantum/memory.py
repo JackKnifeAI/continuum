@@ -304,14 +304,86 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        # Detect decisions and compound concepts
+        decisions = self._detect_decisions(user_message + " " + ai_response)
+
+        compounds = self._detect_compound_concepts(user_message + " " + ai_response)
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=0.8)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision markers from text.
+
+        Matches linguistic patterns that signal choices, plans, or commitments.
+        """
+        patterns = [
+            r'\b(?:decided?|choosing?|chose|opted?)\s+(?:to\s+)?(\w+(?:\s+\w+){0,4})',
+            r'\bgoing\s+to\s+(\w+(?:\s+\w+){0,3})',
+            r'\bplan(?:ning)?\s+to\s+(\w+(?:\s+\w+){0,3})',
+            r'\bcommit(?:ted)?\s+to\s+(\w+(?:\s+\w+){0,3})',
+            r'\bwill\s+(\w+(?:\s+\w+){0,3})',
+        ]
+        seen: set = set()
+        decisions: List[str] = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text, re.IGNORECASE):
+                key = match.lower().strip()
+                if key and key not in seen:
+                    seen.add(key)
+                    decisions.append(match.strip())
+        return decisions
+
+    def _detect_compound_concepts(self, text: str) -> List[str]:
+        """
+        Detect multi-word compound concepts (bigrams and trigrams of content words).
+        """
+        stop_words = {
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+        }
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        seen: set = set()
+        compounds: List[str] = []
+
+        for i in range(len(words) - 1):
+            w1, w2 = words[i], words[i + 1]
+            if w1 not in stop_words and w2 not in stop_words:
+                phrase = f"{w1} {w2}"
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+
+        for i in range(len(words) - 2):
+            w1, w2, w3 = words[i], words[i + 1], words[i + 2]
+            if w1 not in stop_words and w2 not in stop_words and w3 not in stop_words:
+                phrase = f"{w1} {w2} {w3}"
+                if phrase not in seen:
+                    seen.add(phrase)
+                    compounds.append(phrase)
+
+        return compounds
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):

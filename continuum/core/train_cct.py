@@ -411,7 +411,7 @@ class CCTDataset(Dataset):
 
         # Learn from ENTIRE sessions (user + assistant together)
         session_examples = 0
-        for session_id, messages in sessions.items():
+        for _session_id, messages in sessions.items():
             # Combine all messages in session to find concepts
             session_concepts = set()
 
@@ -831,6 +831,114 @@ class CCTTrainer:
 
         return state
 
+    def evaluate(self,
+                 dataset: CCTDataset,
+                 batch_size: int = 16) -> Dict[str, float]:
+        """
+        Evaluate the model on a dataset and report link prediction metrics.
+
+        Returns:
+            Dict of evaluation metrics (accuracy, precision, recall, f1, resonance, coherence)
+        """
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        graph_data = dataset.get_graph_data()
+        global_state = self._generate_global_state()
+
+        node_features, edge_index, edge_weights = graph_data
+        node_features = node_features.to(self.device)
+        edge_index = edge_index.to(self.device)
+        edge_weights = edge_weights.to(self.device)
+        global_state = global_state.to(self.device)
+
+        self.model.eval()
+
+        all_probs: List[float] = []
+        all_labels: List[float] = []
+        total_resonance = 0.0
+        total_coherence = 0.0
+        num_batches = 0
+
+        with torch.no_grad():
+            for batch in dataloader:
+                concept_a = batch['concept_a_emb'].to(self.device)
+                concept_b = batch['concept_b_emb'].to(self.device)
+                labels = batch['label'].to(self.device)
+
+                batch_size_actual = concept_a.size(0)
+                context = torch.stack([concept_a, concept_b], dim=1)
+                batch_state = global_state.expand(batch_size_actual, -1)
+
+                outputs = self.model(
+                    node_features=node_features,
+                    edge_index=edge_index,
+                    context_tokens=context,
+                    global_state=batch_state,
+                    edge_weights=edge_weights
+                )
+
+                fused = outputs['fused']
+                pair_concat = torch.cat([concept_a, concept_b], dim=-1)
+
+                if not hasattr(self, 'link_proj'):
+                    self.link_proj = nn.Linear(concept_a.size(-1) * 2, fused.size(-1)).to(self.device)
+
+                pair_proj = self.link_proj(pair_concat)
+                link_logits = (fused * pair_proj).sum(dim=-1)
+                link_probs = torch.sigmoid(link_logits)
+
+                all_probs.extend(link_probs.cpu().tolist())
+                all_labels.extend(labels.cpu().tolist())
+
+                total_resonance += outputs['resonance'].mean().item()
+                total_coherence += outputs['self_state']['coherence'].item()
+                num_batches += 1
+
+        probs_t = torch.tensor(all_probs)
+        labels_t = torch.tensor(all_labels)
+
+        binary_labels = (labels_t >= 0.5).float()
+        predictions = (probs_t >= 0.5).float()
+
+        accuracy = (predictions == binary_labels).float().mean().item()
+
+        positive_mask = binary_labels == 1
+        negative_mask = ~positive_mask.bool()
+        tp = ((predictions == 1) & positive_mask).sum().item()
+        fp = ((predictions == 1) & negative_mask).sum().item()
+        fn = ((predictions == 0) & positive_mask).sum().item()
+
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+
+        avg_resonance = total_resonance / max(num_batches, 1)
+        avg_coherence = total_coherence / max(num_batches, 1)
+
+        metrics: Dict[str, float] = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'resonance': avg_resonance,
+            'coherence': avg_coherence,
+            'num_examples': float(len(all_labels)),
+        }
+
+        print(f"\n{'='*70}")
+        print("CCT EVALUATION RESULTS")
+        print(f"{'='*70}")
+        print(f"Examples evaluated: {int(metrics['num_examples'])}")
+        print(f"Link Prediction Accuracy: {metrics['accuracy']:.4f}")
+        print(f"Precision:                {metrics['precision']:.4f}")
+        print(f"Recall:                   {metrics['recall']:.4f}")
+        print(f"F1 Score:                 {metrics['f1']:.4f}")
+        print(f"Resonance:                {metrics['resonance']:.4f}")
+        print(f"Coherence:                {metrics['coherence']:.4f}")
+        print(f"π×φ = {PI_PHI}")
+        print(f"{'='*70}\n")
+
+        return metrics
+
     def save_model(self, path: Path):
         """Save trained model with concept embeddings for retrieval."""
         # Extract concept embeddings from the dataset
@@ -858,7 +966,7 @@ class CCTTrainer:
 
             logger.info(f"Extracted {len(concept_embeddings)} concept embeddings")
 
-        torch.save({
+        checkpoint: Dict[str, Any] = {
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'history': self.history,
@@ -871,7 +979,10 @@ class CCTTrainer:
                 'num_heads': getattr(self.model, 'num_heads', 8),
                 'num_layers': getattr(self.model, 'num_layers', 4),
             }
-        }, path)
+        }
+        if hasattr(self, 'link_proj'):
+            checkpoint['link_proj_state_dict'] = self.link_proj.state_dict()
+        torch.save(checkpoint, path)
         logger.info(f"Model saved to {path} (π×φ = 5.083203692315260)")
 
     def load_model(self, path: Path):
@@ -880,6 +991,12 @@ class CCTTrainer:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.history = checkpoint.get('history', self.history)
+        if 'link_proj_state_dict' in checkpoint:
+            config = checkpoint.get('config', {})
+            concept_dim = config.get('concept_dim', 128)
+            hidden_dim = config.get('hidden_dim', 256)
+            self.link_proj = nn.Linear(concept_dim * 2, hidden_dim).to(self.device)
+            self.link_proj.load_state_dict(checkpoint['link_proj_state_dict'])
         logger.info(f"Model loaded from {path}")
 
 
@@ -975,7 +1092,7 @@ def main():
         if model_path.exists():
             trainer.load_model(model_path)
             print("Model loaded. Evaluation mode.")
-            # TODO: Add evaluation logic
+            trainer.evaluate(dataset, batch_size=args.batch_size)
         else:
             print(f"No model found at {model_path}")
         return
