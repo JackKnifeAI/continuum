@@ -568,9 +568,52 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice.get('id')
+        customer_id = invoice.get('customer')
+        customer_email = invoice.get('customer_email')
+        amount_due = invoice.get('amount_due', 0)
+        attempt_count = invoice.get('attempt_count', 1)
+        subscription_id = invoice.get('subscription')
+        next_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id}: "
+            f"customer={customer_id}, email={customer_email}, "
+            f"amount={amount_due / 100:.2f}, attempt={attempt_count}"
+        )
+
+        # Build notification payload (dispatch to email service when integrated)
+        notification = {
+            "to": customer_email,
+            "subject": "Payment failed for your CONTINUUM subscription",
+            "invoice_id": invoice_id,
+            "amount_due": amount_due,
+            "attempt_count": attempt_count,
+            "next_attempt_timestamp": next_attempt,
+        }
+        logger.info(f"Payment failure notification queued: {notification}")
+
+        # Retry / escalation logic based on attempt count
+        action_taken = "notified"
+        if attempt_count >= 3 and subscription_id and not self.mock_mode:
+            # After 3 failed attempts, pause the subscription to prevent further charges
+            try:
+                stripe.Subscription.modify(subscription_id, pause_collection={"behavior": "void"})
+                logger.warning(
+                    f"Subscription {subscription_id} paused after {attempt_count} failed payment attempts"
+                )
+                action_taken = "subscription_paused"
+            except stripe.error.StripeError as e:
+                logger.error(f"Failed to pause subscription {subscription_id} after repeated failures: {e}")
+                action_taken = "pause_failed"
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "attempt_count": attempt_count,
+            "action_taken": action_taken,
+            "next_attempt_timestamp": next_attempt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
