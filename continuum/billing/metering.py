@@ -22,6 +22,7 @@ Enforces rate limits based on pricing tier.
 """
 
 import asyncio
+import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -54,6 +55,7 @@ class UsageMetering:
         # In-memory cache for recent usage (flush to storage periodically)
         self._usage_cache: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self._last_flush = datetime.now(timezone.utc)
+        self._usage_table_ready = False
 
     async def record_api_call(
         self,
@@ -242,14 +244,44 @@ class UsageMetering:
         if (now - self._last_flush).total_seconds() > 60:
             await self._flush_cache()
 
+    def _ensure_usage_table(self) -> None:
+        """Create the usage_metrics table on first flush, if it doesn't exist yet."""
+        if self._usage_table_ready:
+            return
+
+        self.storage.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_metrics (
+                cache_key TEXT PRIMARY KEY,
+                metrics TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        self._usage_table_ready = True
+
     async def _flush_cache(self) -> None:
-        """Flush cache to persistent storage"""
-        if self.storage:
+        """Flush in-memory usage cache to persistent storage"""
+        if self.storage and self._usage_cache:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                self._ensure_usage_table()
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                rows = [
+                    (cache_key, json.dumps(dict(metrics)), now_iso)
+                    for cache_key, metrics in self._usage_cache.items()
+                ]
+
+                self.storage.executemany(
+                    """
+                    INSERT OR REPLACE INTO usage_metrics (cache_key, metrics, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    rows
+                )
+
+                logger.debug(f"Flushed {len(rows)} usage cache entries to storage")
+
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -414,6 +446,9 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # tenant_id -> Stripe subscription item ID, populated via register_subscription()
+        self._subscriptions: Dict[str, str] = {}
+        self._running = False
 
     async def report_usage_to_stripe(
         self,
@@ -453,12 +488,44 @@ class UsageReporter:
         except Exception as e:
             logger.error(f"Failed to report usage to Stripe: {e}")
 
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register a tenant's Stripe subscription item so its usage is reported
+        automatically by the background reporting loop.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID to report usage against
+        """
+        self._subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription {subscription_item_id} for tenant {tenant_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """Stop background usage reporting for a tenant (e.g. on cancellation)."""
+        self._subscriptions.pop(tenant_id, None)
+        self._last_report.pop(tenant_id, None)
+
     async def start_background_reporting(self) -> None:
-        """Start background task to report usage periodically"""
-        while True:
+        """Start background task to report usage periodically for all active subscriptions"""
+        self._running = True
+        while self._running:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            if not self._subscriptions:
+                logger.debug("Background usage reporting tick: no active subscriptions registered")
+                continue
+
+            for tenant_id, subscription_item_id in list(self._subscriptions.items()):
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Background usage reporting failed for tenant {tenant_id}: {e}")
+
+            logger.debug(f"Background usage reporting tick: processed {len(self._subscriptions)} subscriptions")
+
+    def stop_background_reporting(self) -> None:
+        """Signal the background reporting loop to stop after its current sleep."""
+        self._running = False
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

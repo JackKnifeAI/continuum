@@ -567,10 +567,46 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """
+        Handle invoice.payment_failed event.
+
+        Stripe automatically retries failed payments according to its dunning
+        schedule (https://stripe.com/docs/billing/revision-recovery). This
+        handler inspects the invoice to determine whether Stripe will retry
+        again or has exhausted its attempts, so callers can decide whether to
+        notify the customer, downgrade their plan, or wait for the next retry.
+
+        Note: this client has no DB or email integration, so it does not send
+        notifications or mutate subscription state itself. Callers (e.g. the
+        webhook route) should inspect the returned `will_retry` flag and act
+        on it (send a dunning email, suspend the tenant, etc.).
+        """
+        customer_id = invoice.get('customer')
+        attempt_count = invoice.get('attempt_count', 0)
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        will_retry = next_payment_attempt is not None
+
+        if will_retry:
+            logger.warning(
+                f"Payment failed for invoice {invoice['id']} (customer {customer_id}), "
+                f"attempt {attempt_count}. Stripe will retry at "
+                f"{datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()}."
+            )
+        else:
+            logger.error(
+                f"Payment failed for invoice {invoice['id']} (customer {customer_id}) "
+                f"after {attempt_count} attempt(s). Stripe has exhausted retries."
+            )
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice['id'],
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "will_retry": will_retry,
+            "next_payment_attempt": next_payment_attempt,
+            "amount_due": invoice.get('amount_due'),
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

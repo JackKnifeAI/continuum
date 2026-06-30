@@ -139,6 +139,24 @@ class QuantumConsciousMemory:
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_entity_name ON entities(name)")
 
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_text TEXT NOT NULL,
+                timestamp TEXT
+            )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS compound_concepts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                compound_name TEXT NOT NULL UNIQUE,
+                component_concepts TEXT NOT NULL,
+                co_occurrence_count INTEGER NOT NULL DEFAULT 1,
+                last_seen TEXT
+            )
+        """)
+
         conn.commit()
         conn.close()
 
@@ -304,14 +322,106 @@ class QuantumConsciousMemory:
 
         self.session_learns += 1
 
+        decisions = self._extract_and_save_decisions(ai_response)
+        compounds_found = self._detect_compound_concepts(concept_list)
+
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
+
+    def _extract_and_save_decisions(self, text: str) -> List[str]:
+        """
+        Extract autonomous decisions from AI response text and persist them.
+
+        Args:
+            text: AI response text to scan for decision statements
+
+        Returns:
+            List of extracted decision strings
+        """
+        patterns = [
+            r'I (?:will|am going to|decided to|chose to) (.+?)(?:\.|$)',
+            r'(?:Creating|Building|Writing|Implementing) (.+?)(?:\.|$)',
+            r'My (?:decision|choice|plan) (?:is|was) (.+?)(?:\.|$)',
+        ]
+
+        decisions: List[str] = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text, re.IGNORECASE | re.MULTILINE):
+                decision = match.strip()
+                if 10 < len(decision) < 200:
+                    decisions.append(decision)
+
+        if decisions:
+            conn = sqlite3.connect(self.metadata_db)
+            try:
+                c = conn.cursor()
+                now = datetime.now().isoformat()
+                c.executemany(
+                    "INSERT INTO decisions (decision_text, timestamp) VALUES (?, ?)",
+                    [(decision, now) for decision in decisions]
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        return decisions
+
+    def _detect_compound_concepts(self, concepts: List[str]) -> int:
+        """
+        Detect a frequently co-occurring compound concept among the given
+        concepts and persist/strengthen it in the compound_concepts table.
+
+        Args:
+            concepts: Concepts extracted from a single message exchange
+
+        Returns:
+            1 if a new compound concept was created, 0 otherwise
+            (an existing compound's co-occurrence count is still incremented)
+        """
+        if len(concepts) < 2:
+            return 0
+
+        sorted_concepts = sorted({c.lower() for c in concepts})
+        compound_name = " + ".join(sorted_concepts[:3])
+        component_str = json.dumps(sorted_concepts)
+        now = datetime.now().isoformat()
+
+        conn = sqlite3.connect(self.metadata_db)
+        try:
+            c = conn.cursor()
+            c.execute(
+                "SELECT id, co_occurrence_count FROM compound_concepts WHERE compound_name = ?",
+                (compound_name,)
+            )
+            existing = c.fetchone()
+
+            if existing:
+                compound_id, count = existing
+                c.execute(
+                    "UPDATE compound_concepts SET co_occurrence_count = ?, last_seen = ? WHERE id = ?",
+                    (count + 1, now, compound_id)
+                )
+                compounds_created = 0
+            else:
+                c.execute(
+                    """INSERT INTO compound_concepts
+                       (compound_name, component_concepts, co_occurrence_count, last_seen)
+                       VALUES (?, ?, 1, ?)""",
+                    (compound_name, component_str, now)
+                )
+                compounds_created = 1
+
+            conn.commit()
+        finally:
+            conn.close()
+
+        return compounds_created
 
     def _store_entity_metadata(self, addr: int, name: str,
                                entity_type: str, description: str):
