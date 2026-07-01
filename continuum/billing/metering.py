@@ -25,7 +25,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Awaitable, Callable, Dict, Optional, Tuple
 
 from .tiers import PricingTier, get_tier_limits
 
@@ -244,16 +244,56 @@ class UsageMetering:
 
     async def _flush_cache(self) -> None:
         """Flush cache to persistent storage"""
-        if self.storage:
+        if self.storage and self._usage_cache:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await asyncio.to_thread(self._write_cache_to_storage)
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
         self._last_flush = datetime.now(timezone.utc)
+
+    def _write_cache_to_storage(self) -> None:
+        """
+        Persist the in-memory usage cache to the storage backend.
+
+        Runs synchronously (called via asyncio.to_thread) since StorageBackend's
+        execute/executemany methods are synchronous. Uses only the generic
+        StorageBackend interface (execute/executemany) so this works against
+        any backend (SQLite, PostgreSQL, Turso, ...).
+        """
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        self.storage.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_metering (
+                cache_key TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                value INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (cache_key, metric)
+            )
+            """
+        )
+
+        rows = [
+            (cache_key, metric, value, updated_at)
+            for cache_key, metrics in self._usage_cache.items()
+            for metric, value in metrics.items()
+        ]
+        if not rows:
+            return
+
+        # Upsert via delete-then-insert: portable across backends without
+        # relying on dialect-specific "ON CONFLICT"/"OR REPLACE" syntax.
+        self.storage.executemany(
+            "DELETE FROM usage_metering WHERE cache_key = ? AND metric = ?",
+            [(cache_key, metric) for cache_key, metric, _, _ in rows]
+        )
+        self.storage.executemany(
+            "INSERT INTO usage_metering (cache_key, metric, value, updated_at) VALUES (?, ?, ?, ?)",
+            rows
+        )
 
 
 class RateLimiter:
@@ -400,7 +440,8 @@ class UsageReporter:
         self,
         metering: UsageMetering,
         stripe_client,
-        report_interval_seconds: int = 3600  # 1 hour
+        report_interval_seconds: int = 3600,  # 1 hour
+        get_active_subscriptions: Optional[Callable[[], Awaitable[Dict[str, str]]]] = None
     ):
         """
         Initialize usage reporter.
@@ -409,10 +450,18 @@ class UsageReporter:
             metering: UsageMetering instance
             stripe_client: StripeClient instance
             report_interval_seconds: How often to report usage
+            get_active_subscriptions: Optional async callable returning a
+                mapping of {tenant_id: stripe_subscription_item_id} for every
+                tenant with metered billing enabled. Required for
+                start_background_reporting() to do anything; there's no
+                tenant-to-subscription-item mapping in the storage schema yet,
+                so callers must supply one (e.g. backed by a future tenants
+                table column or an in-memory registry).
         """
         self.metering = metering
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
+        self.get_active_subscriptions = get_active_subscriptions
         self._last_report: Dict[str, datetime] = {}
 
     async def report_usage_to_stripe(
@@ -457,8 +506,29 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            if self.get_active_subscriptions is None:
+                logger.warning(
+                    "start_background_reporting: no get_active_subscriptions "
+                    "callback configured, skipping usage reporting tick. Pass "
+                    "an async callable returning {tenant_id: subscription_item_id} "
+                    "to UsageReporter to enable this."
+                )
+                continue
+
+            try:
+                subscriptions = await self.get_active_subscriptions()
+            except Exception as e:
+                logger.error(f"Failed to load active subscriptions: {e}")
+                continue
+
+            logger.debug(f"Background usage reporting tick: {len(subscriptions)} subscription(s)")
+
+            for tenant_id, subscription_item_id in subscriptions.items():
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

@@ -20,11 +20,12 @@ Stripe API Client for CONTINUUM
 Handles customer management, subscriptions, usage-based billing, and webhooks.
 """
 
+import inspect
 import logging
 import os
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,8 @@ class StripeClient:
         self,
         api_key: Optional[str] = None,
         webhook_secret: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        on_payment_failed: Optional[Callable[[Dict[str, Any]], Any]] = None,
     ):
         """
         Initialize Stripe client.
@@ -78,9 +80,13 @@ class StripeClient:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
             mock_mode: Force mock mode (useful for testing without Stripe)
+            on_payment_failed: Optional callback invoked with failure details when an
+                invoice.payment_failed webhook is received (e.g. to send a customer
+                email or page billing ops). May be sync or async.
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
+        self.on_payment_failed = on_payment_failed
 
         # Determine if we should run in mock mode
         self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
@@ -567,10 +573,46 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """
+        Handle invoice.payment_failed event.
+
+        Stripe itself owns retry scheduling (Smart Retries / subscription
+        settings), so this just surfaces the failure: it logs the relevant
+        detail and, if the caller registered ``on_payment_failed``, invokes
+        it so the application can notify the customer or page billing ops.
+        """
+        attempt_count = invoice.get("attempt_count")
+        next_attempt = invoice.get("next_payment_attempt")
+        is_final_attempt = next_attempt is None
+
+        failure_info = {
+            "invoice_id": invoice["id"],
+            "customer_id": invoice.get("customer"),
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt,
+            "is_final_attempt": is_final_attempt,
+            "amount_due": invoice.get("amount_due"),
+            "currency": invoice.get("currency"),
+            "hosted_invoice_url": invoice.get("hosted_invoice_url"),
+        }
+
+        logger.error(
+            f"Payment failed for invoice {invoice['id']} "
+            f"(customer={failure_info['customer_id']}, attempt={attempt_count}, "
+            f"final_attempt={is_final_attempt})"
+        )
+
+        if self.on_payment_failed:
+            try:
+                result = self.on_payment_failed(failure_info)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                logger.exception(
+                    f"on_payment_failed callback raised for invoice {invoice['id']}"
+                )
+
+        return {"status": "ok", **failure_info}
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
