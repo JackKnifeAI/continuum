@@ -27,12 +27,45 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 # Import from sibling module
 from .core import (
     PI_PHI,
     QuantumBrain,
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONCEPT EXTRACTION HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Stop words excluded from concept/compound extraction.
+_STOP_WORDS = {
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+    'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+    'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+    'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+    'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+    'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+    'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+}
+
+# Phrases that indicate a sentence is describing a decision.
+_DECISION_TRIGGERS = re.compile(
+    r"\b("
+    r"i'll|we'll|i will|we will|"
+    r"i've decided|we've decided|i have decided|we have decided|decided to|"
+    r"let's|lets|"
+    r"i should|we should|"
+    r"plan to|planning to|"
+    r"going to|"
+    r"opt(?:ed)? to|"
+    r"choose to|chose to"
+    r")\b",
+    re.IGNORECASE,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -133,6 +166,15 @@ class QuantumConsciousMemory:
                 role TEXT,
                 content TEXT,
                 concepts TEXT,
+                timestamp TEXT
+            )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                statement TEXT NOT NULL,
+                source TEXT,
                 timestamp TEXT
             )
         """)
@@ -300,15 +342,56 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect and persist decision statements
+        decision_statements = (
+            self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+        )
+        decisions_detected = 0
+        if decision_statements:
+            conn = sqlite3.connect(self.metadata_db)
+            c = conn.cursor()
+            now = datetime.now().isoformat()
+            for statement in decision_statements:
+                c.execute("""
+                    INSERT INTO decisions (statement, source, timestamp)
+                    VALUES (?, ?, ?)
+                """, (statement, self.tenant_id, now))
+                decisions_detected += 1
+            conn.commit()
+            conn.close()
+
+        # Detect compound concepts (adjacent concept pairs) and store new ones
+        compound_candidates = (
+            self._detect_compounds(user_message, user_concepts)
+            + self._detect_compounds(ai_response, ai_concepts)
+        )
+        compounds_found = 0
+        for compound_name, part_a, part_b in compound_candidates:
+            if compound_name.lower() in self.entity_cache:
+                continue
+
+            addr = self.brain.store_concept(compound_name, activation=1.0)
+            self.entity_cache[compound_name.lower()] = addr
+            self.name_cache[addr] = compound_name
+            self._store_entity_metadata(
+                addr, compound_name, "compound",
+                f"Compound of '{part_a}' + '{part_b}'"
+            )
+
+            if part_a in self.entity_cache and part_b in self.entity_cache:
+                self.brain.link_concepts(part_a, part_b, weight=0.7)
+
+            compounds_found += 1
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -340,20 +423,7 @@ class QuantumConsciousMemory:
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
         # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in _STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
@@ -364,6 +434,49 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Splits text into sentences and returns the ones containing a
+        decision-indicating phrase (e.g. "let's...", "we've decided...",
+        "I'll..."). Heuristic, not full NLU.
+        """
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+
+        decisions = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if sentence and _DECISION_TRIGGERS.search(sentence):
+                decisions.append(sentence)
+
+        return decisions
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> List[Tuple[str, str, str]]:
+        """
+        Detect two-word compound concepts from adjacent concept tokens.
+
+        A compound is formed when two consecutive tokens in the source
+        text (e.g. "quantum brain", "machine learning") both individually
+        qualify as concepts.
+
+        Returns:
+            List of (compound_name, part_a, part_b) tuples.
+        """
+        concept_set = set(concepts)
+        tokens = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds = []
+        seen = set()
+        for word_a, word_b in zip(tokens, tokens[1:]):
+            if word_a in concept_set and word_b in concept_set:
+                compound_name = f"{word_a} {word_b}"
+                if compound_name not in seen:
+                    seen.add(compound_name)
+                    compounds.append((compound_name, word_a, word_b))
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

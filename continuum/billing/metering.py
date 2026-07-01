@@ -244,12 +244,41 @@ class UsageMetering:
 
     async def _flush_cache(self) -> None:
         """Flush cache to persistent storage"""
-        if self.storage:
+        if self.storage and self._usage_cache:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                self.storage.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS usage_metering (
+                        tenant_id TEXT NOT NULL,
+                        period_key TEXT NOT NULL,
+                        metric TEXT NOT NULL,
+                        value INTEGER NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (tenant_id, period_key, metric)
+                    )
+                    """
+                )
+
+                now = datetime.now(timezone.utc).isoformat()
+                rows = [
+                    (tenant_id, period_key, metric, value, now)
+                    for cache_key, metrics in self._usage_cache.items()
+                    for tenant_id, period_key in [cache_key.split(":", 1)]
+                    for metric, value in metrics.items()
+                ]
+
+                if rows:
+                    self.storage.executemany(
+                        """
+                        INSERT INTO usage_metering (tenant_id, period_key, metric, value, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT (tenant_id, period_key, metric)
+                        DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                        """,
+                        rows
+                    )
+
+                logger.debug(f"Flushed {len(rows)} usage records to storage")
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -457,8 +486,33 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            try:
+                subscriptions = await self.stripe_client.list_active_subscriptions()
+            except Exception as e:
+                logger.error(f"Failed to list active subscriptions for usage reporting: {e}")
+                continue
+
+            for subscription in subscriptions:
+                tenant_id = subscription.get("metadata", {}).get("tenant_id")
+                items = subscription.get("items", {}).get("data", [])
+
+                if not tenant_id or not items:
+                    logger.warning(
+                        f"Skipping subscription {subscription.get('id')}: "
+                        "missing tenant_id metadata or subscription items"
+                    )
+                    continue
+
+                try:
+                    await self.report_usage_to_stripe(
+                        tenant_id=tenant_id,
+                        subscription_item_id=items[0]["id"]
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
+
+            logger.debug(f"Background usage reporting tick: {len(subscriptions)} active subscriptions")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

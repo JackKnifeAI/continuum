@@ -24,7 +24,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,8 @@ class StripeClient:
         self,
         api_key: Optional[str] = None,
         webhook_secret: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        on_payment_failed: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
     ):
         """
         Initialize Stripe client.
@@ -78,9 +79,15 @@ class StripeClient:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
             mock_mode: Force mock mode (useful for testing without Stripe)
+            on_payment_failed: Optional async callback invoked with the raw invoice
+                object whenever an invoice.payment_failed webhook is handled. Use
+                this to trigger tenant email notifications, dunning dashboards, or
+                account suspension — StripeClient itself has no tenant/notification
+                infrastructure, so it only surfaces the event.
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
+        self.on_payment_failed = on_payment_failed
 
         # Determine if we should run in mock mode
         self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
@@ -326,6 +333,33 @@ class StripeClient:
             logger.error(f"Failed to list subscriptions for {customer_id}: {e}")
             raise
 
+    async def list_active_subscriptions(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        List all active subscriptions across every customer.
+
+        Used by background usage reporting to find every subscription that
+        needs metered usage reported to Stripe, without having to track a
+        separate tenant -> subscription registry.
+
+        Args:
+            limit: Page size for the underlying Stripe API pagination
+
+        Returns:
+            List of subscription objects (empty in mock mode, since mock
+            subscriptions are not persisted anywhere to list back)
+        """
+        if self.mock_mode:
+            logger.debug("[MOCK] list_active_subscriptions() returning no subscriptions")
+            return []
+
+        try:
+            subscriptions = stripe.Subscription.list(status="active", limit=limit)
+            return list(subscriptions.auto_paging_iter())
+
+        except stripe.error.StripeError as e:
+            logger.error(f"Failed to list active subscriptions: {e}")
+            raise
+
     # Usage-Based Billing
 
     async def report_usage(
@@ -567,10 +601,39 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """
+        Handle invoice.payment_failed event.
+
+        Stripe already schedules its own retry attempts (Smart Retries /
+        dunning, configured in the Stripe Dashboard), so this handler does not
+        duplicate that logic. Instead it surfaces whether another attempt is
+        scheduled and delegates any tenant-facing action (email notification,
+        suspending access, etc.) to `on_payment_failed`, since StripeClient has
+        no tenant registry or notification infrastructure of its own.
+        """
+        attempt_count = invoice.get('attempt_count', 0)
+        next_attempt = invoice.get('next_payment_attempt')
+        will_retry = next_attempt is not None
+
+        logger.error(
+            f"Payment failed for invoice {invoice['id']} "
+            f"(customer: {invoice.get('customer')}, attempt #{attempt_count}, "
+            + (f"next retry at {next_attempt}" if will_retry else "no further retries scheduled")
+            + ")"
+        )
+
+        if self.on_payment_failed:
+            try:
+                await self.on_payment_failed(invoice)
+            except Exception as e:
+                logger.error(f"on_payment_failed callback failed for invoice {invoice['id']}: {e}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice['id'],
+            "attempt_count": attempt_count,
+            "will_retry": will_retry,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
