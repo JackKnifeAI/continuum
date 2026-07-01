@@ -244,12 +244,17 @@ class UsageMetering:
 
     async def _flush_cache(self) -> None:
         """Flush cache to persistent storage"""
-        if self.storage:
+        if self.storage and self._usage_cache:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                snapshot = {key: dict(metrics) for key, metrics in self._usage_cache.items()}
+                if hasattr(self.storage, "save_usage"):
+                    await self.storage.save_usage(snapshot)
+                    logger.debug(f"Flushed {len(snapshot)} usage cache entries to storage")
+                else:
+                    logger.warning(
+                        f"Storage backend {type(self.storage).__name__} does not "
+                        "implement save_usage(); usage cache flush skipped"
+                    )
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -457,7 +462,14 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
+            # TODO: Iterate over all active subscriptions and report usage.
+            # Blocked on a tenant_id -> subscription_item_id registry, which
+            # doesn't exist yet: stripe_client.list_customer_subscriptions()
+            # only looks up subscriptions for a single known customer_id, and
+            # there's no persisted mapping of tenants to their Stripe
+            # subscription item. Once that registry exists, call
+            # report_usage_to_stripe(tenant_id, subscription_item_id) here
+            # for each active tenant.
             logger.debug("Background usage reporting tick")
 
 # ═══════════════════════════════════════════════════════════════════════════════
