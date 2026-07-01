@@ -35,6 +35,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -43,6 +44,25 @@ from .config import get_config
 from .immune_system import AntibodyDetector
 
 logger = logging.getLogger("CONTRIBUTION")
+
+# Patterns for common PII we must never let leak into a federation contribution.
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+_PHONE_RE = re.compile(r"(?<!\d)(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)")
+_SSN_RE = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
+_CREDIT_CARD_RE = re.compile(r"(?<!\d)(?:\d[ -]?){13,16}(?!\d)")
+_IPV4_RE = re.compile(r"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)")
+
+
+def _redact_pii(text: str) -> str:
+    """Strip emails, phone numbers, SSNs, credit card numbers, and IPs from text."""
+    if not text:
+        return text
+    text = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
+    text = _SSN_RE.sub("[REDACTED_SSN]", text)
+    text = _CREDIT_CARD_RE.sub("[REDACTED_CC]", text)
+    text = _PHONE_RE.sub("[REDACTED_PHONE]", text)
+    text = _IPV4_RE.sub("[REDACTED_IP]", text)
+    return text
 
 @dataclass
 class ContributionPacket:
@@ -110,9 +130,9 @@ class ContributionManager:
 
         # Get related concepts
         concept_names = set()
-        for l in links:
-            concept_names.add(l["a"])
-            concept_names.add(l["b"])
+        for link in links:
+            concept_names.add(link["a"])
+            concept_names.add(link["b"])
 
         concepts = []
         for name in concept_names:
@@ -127,23 +147,24 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
+            name = _redact_pii(c["name"]).lower().strip()  # Normalize
+            desc = _redact_pii(c["desc"])[:200] if c["desc"] else ""  # Truncate description
             clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
+                "name": name,
+                "desc": desc
             })
         return clean
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
-        """Normalize links."""
+        """Normalize links and strip any PII embedded in concept names."""
         return [
             {
-                "a": l["a"].lower().strip(),
-                "b": l["b"].lower().strip(),
-                "w": round(l["w"], 4),
-                "t": l["t"]
+                "a": _redact_pii(link["a"]).lower().strip(),
+                "b": _redact_pii(link["b"]).lower().strip(),
+                "w": round(link["w"], 4),
+                "t": link["t"]
             }
-            for l in links
+            for link in links
         ]
 
     def _get_anonymous_id(self) -> str:

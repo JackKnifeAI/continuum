@@ -244,12 +244,38 @@ class UsageMetering:
 
     async def _flush_cache(self) -> None:
         """Flush cache to persistent storage"""
-        if self.storage:
+        if self.storage and self._usage_cache:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                logger.debug(f"Flushing {len(self._usage_cache)} usage cache entries to storage")
+
+                self.storage.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS usage_metering (
+                        cache_key TEXT NOT NULL,
+                        metric TEXT NOT NULL,
+                        value INTEGER NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (cache_key, metric)
+                    )
+                    """
+                )
+
+                now = datetime.now(timezone.utc).isoformat()
+                rows = [
+                    (cache_key, metric, value, now)
+                    for cache_key, metrics in self._usage_cache.items()
+                    for metric, value in metrics.items()
+                ]
+
+                self.storage.executemany(
+                    """
+                    INSERT INTO usage_metering (cache_key, metric, value, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (cache_key, metric)
+                    DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                    """,
+                    rows
+                )
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -457,8 +483,13 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+            # TODO: There is currently no registry mapping tenant_id -> (Stripe
+            # customer_id, subscription_item_id), so we cannot enumerate active
+            # subscriptions here. Once tenants are persisted with their Stripe
+            # identifiers (e.g. a `tenants` table or similar), replace this tick
+            # with a loop that fetches each active subscription and calls
+            # report_usage_to_stripe(tenant_id, subscription_item_id) for it.
+            logger.debug("Background usage reporting tick (no subscription registry wired up yet)")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

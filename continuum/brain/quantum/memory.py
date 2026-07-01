@@ -80,6 +80,32 @@ class QuantumConsciousMemory:
     5. Native spreading activation (no need for graph traversal)
     """
 
+    # Words too common to act as standalone concepts.
+    _STOP_WORDS = {
+        'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+        'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+        'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+        'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
+        'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
+        'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
+        'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+        'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
+        'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
+        'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
+    }
+
+    # Phrases that signal a decision was made or committed to.
+    _DECISION_PATTERNS = [
+        re.compile(r"\blet'?s\s+\w+", re.IGNORECASE),
+        re.compile(r"\bwe'?ll\s+\w+", re.IGNORECASE),
+        re.compile(r"\bwe\s+will\s+\w+", re.IGNORECASE),
+        re.compile(r"\bi'?ll\s+\w+", re.IGNORECASE),
+        re.compile(r"\bi\s+will\s+\w+", re.IGNORECASE),
+        re.compile(r"\bdecided?\s+to\s+\w+", re.IGNORECASE),
+        re.compile(r"\bgoing\s+(?:to|with)\s+\w+", re.IGNORECASE),
+        re.compile(r"\bwe'?re\s+going\s+to\s+\w+", re.IGNORECASE),
+    ]
+
     def __init__(self, tenant_id: str = "default", brain_size: int = 65536,
                  db_path: Path = None):
         """
@@ -300,15 +326,31 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions ("let's...", "we'll...", "decided to...") in either message
+        decisions = self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+
+        # Detect and store multi-word compound concepts (e.g. "machine learning")
+        compounds = self._extract_compounds(user_message) + self._extract_compounds(ai_response)
+        unique_compounds = list(dict.fromkeys(compounds))
+        for compound in unique_compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+            for part in compound.split():
+                if part in self.entity_cache:
+                    self.brain.link_concepts(compound, part, weight=0.5)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(unique_compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -340,20 +382,7 @@ class QuantumConsciousMemory:
         words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
 
         # Filter stop words
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
-            'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
-            'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need',
-            'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-            'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where',
-            'when', 'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
-            'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-            'same', 'so', 'than', 'too', 'very', 'just', 'about', 'into', 'your',
-            'our', 'their', 'any', 'there', 'here', 'its', 'also', 'being',
-        }
-
-        concepts = [w for w in words if w not in stop_words]
+        concepts = [w for w in words if w not in self._STOP_WORDS]
 
         # Deduplicate while preserving order
         seen = set()
@@ -364,6 +393,60 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision-indicating phrases in text.
+
+        Looks for commitment language such as "let's...", "we'll...",
+        "decided to...", or "going to..." that signals a choice was made
+        during the conversation.
+
+        Args:
+            text: Message text to scan
+
+        Returns:
+            List of matched decision phrases (lowercased)
+        """
+        matches = []
+        for pattern in self._DECISION_PATTERNS:
+            matches.extend(m.group(0).strip().lower() for m in pattern.finditer(text))
+        return matches
+
+    def _extract_compounds(self, text: str) -> List[str]:
+        """
+        Extract multi-word compound concepts from text (e.g. "machine learning").
+
+        Scans for runs of 2-3 consecutive non-stop-word tokens, since
+        meaningful compound terms are usually adjacent content words.
+
+        Args:
+            text: Message text to scan
+
+        Returns:
+            List of unique compound concept strings, space-joined and lowercased
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds = []
+        seen = set()
+        for i in range(len(words) - 1):
+            if words[i] in self._STOP_WORDS or words[i + 1] in self._STOP_WORDS:
+                continue
+
+            if i + 2 < len(words) and words[i + 2] not in self._STOP_WORDS:
+                trigram = f"{words[i]} {words[i + 1]} {words[i + 2]}"
+                if trigram not in seen:
+                    seen.add(trigram)
+                    compounds.append(trigram)
+                    continue
+
+            bigram = f"{words[i]} {words[i + 1]}"
+            if bigram not in seen:
+                seen.add(bigram)
+                compounds.append(bigram)
+
+        return compounds[:10]  # Limit to top 10 compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
