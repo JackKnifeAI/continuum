@@ -300,15 +300,32 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decisions (lexical markers like "let's", "decided to")
+        decisions = self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+
+        # Detect and register compound concepts (e.g. "quantum" + "memory")
+        compounds = (
+            self._detect_compounds(user_message, list(all_concepts))
+            + self._detect_compounds(ai_response, list(all_concepts))
+        )
+        compounds = list(dict.fromkeys(compounds))  # dedupe, preserve order
+
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +346,44 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    # Lexical markers that signal a decision was made in a message
+    _DECISION_PATTERNS = [
+        re.compile(r"\b(?:i|we)\s+(?:decided|chose|opted)\s+to\b", re.IGNORECASE),
+        re.compile(r"\b(?:i'll|i will|we'll|we will|let's|lets)\b", re.IGNORECASE),
+        re.compile(r"\bgoing (?:to|with)\b", re.IGNORECASE),
+        re.compile(r"\b(?:i've|we've) decided\b", re.IGNORECASE),
+    ]
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text using lexical markers.
+
+        Simple heuristic - splits into sentences and keeps the ones
+        containing a decision marker (e.g. "let's", "decided to").
+        """
+        sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+        return [s for s in sentences if s and any(p.search(s) for p in self._DECISION_PATTERNS)]
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect compound concepts: adjacent words in the original text
+        that are each individually recognized concepts (e.g. "quantum"
+        followed by "memory" becomes the compound "quantum_memory").
+        """
+        concept_set = {c.lower() for c in concepts}
+        words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
+
+        compounds = []
+        seen = set()
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1}_{w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     def _extract_concepts(self, text: str) -> List[str]:
         """

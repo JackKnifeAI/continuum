@@ -25,7 +25,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from .tiers import PricingTier, get_tier_limits
 
@@ -242,14 +242,44 @@ class UsageMetering:
         if (now - self._last_flush).total_seconds() > 60:
             await self._flush_cache()
 
+    def _ensure_usage_table(self) -> None:
+        """Create the usage_metering table if it doesn't already exist"""
+        self.storage.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_metering (
+                cache_key TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                value INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (cache_key, metric)
+            )
+            """
+        )
+
     async def _flush_cache(self) -> None:
         """Flush cache to persistent storage"""
-        if self.storage:
+        if self.storage and self._usage_cache:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                self._ensure_usage_table()
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                rows = [
+                    (cache_key, metric, value, now_iso)
+                    for cache_key, metrics in self._usage_cache.items()
+                    for metric, value in metrics.items()
+                ]
+
+                if rows:
+                    self.storage.executemany(
+                        """
+                        INSERT INTO usage_metering (cache_key, metric, value, updated_at)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(cache_key, metric)
+                        DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                        """,
+                        rows,
+                    )
+                    logger.debug(f"Flushed {len(rows)} usage metrics to storage")
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -400,7 +430,10 @@ class UsageReporter:
         self,
         metering: UsageMetering,
         stripe_client,
-        report_interval_seconds: int = 3600  # 1 hour
+        report_interval_seconds: int = 3600,  # 1 hour
+        subscription_provider: Optional[
+            Callable[[], Awaitable[List[Tuple[str, str]]]]
+        ] = None
     ):
         """
         Initialize usage reporter.
@@ -409,10 +442,17 @@ class UsageReporter:
             metering: UsageMetering instance
             stripe_client: StripeClient instance
             report_interval_seconds: How often to report usage
+            subscription_provider: Optional async callable returning the list of
+                active ``(tenant_id, subscription_item_id)`` pairs to report usage
+                for. Required for `start_background_reporting` to do anything;
+                there's no built-in tenant/subscription registry in CONTINUUM, so
+                the caller must supply one backed by their own store (e.g. a
+                database table mapping tenants to their Stripe subscription items).
         """
         self.metering = metering
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
+        self.subscription_provider = subscription_provider
         self._last_report: Dict[str, datetime] = {}
 
     async def report_usage_to_stripe(
@@ -457,8 +497,26 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            if self.subscription_provider is None:
+                logger.warning(
+                    "start_background_reporting: no subscription_provider configured, "
+                    "skipping tick (nothing to report)"
+                )
+                continue
+
+            try:
+                subscriptions = await self.subscription_provider()
+            except Exception as e:
+                logger.error(f"Failed to fetch active subscriptions: {e}")
+                continue
+
+            # report_usage_to_stripe catches and logs its own errors, so a failure
+            # for one tenant doesn't stop the rest of the batch from reporting.
+            for tenant_id, subscription_item_id in subscriptions:
+                await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+
+            logger.debug(f"Background usage reporting tick: {len(subscriptions)} subscription(s)")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
