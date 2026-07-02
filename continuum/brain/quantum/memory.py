@@ -260,6 +260,11 @@ class QuantumConsciousMemory:
 
         all_concepts = set(user_concepts + ai_concepts)
 
+        decisions_detected = (self._detect_decisions(user_message) +
+                              self._detect_decisions(ai_response))
+        compounds_found = (self._detect_compounds(user_message, user_concepts) +
+                           self._detect_compounds(ai_response, ai_concepts))
+
         c.execute("""
             INSERT INTO messages (role, content, concepts, timestamp)
             VALUES ('user', ?, ?, ?)
@@ -306,9 +311,9 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +369,36 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Count decision statements in text using lexical patterns.
+
+        Simple heuristic - matches phrases that typically signal a
+        decision was reached (e.g. "let's", "decided to", "going with").
+        """
+        pattern = re.compile(
+            r"\b(?:let'?s|we'?ll|we will|i'?ll|i will|decided to|"
+            r"going with|should use|we'?ve chosen|the plan is)\b",
+            re.IGNORECASE,
+        )
+        return len(pattern.findall(text))
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> int:
+        """
+        Count compound concepts: pairs of extracted concept words that
+        appear adjacent to each other in the source text (e.g. "quantum
+        brain", "machine learning").
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds = set()
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compounds.add((w1, w2))
+
+        return len(compounds)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

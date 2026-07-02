@@ -568,9 +568,33 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        attempt_count = invoice.get('attempt_count')
+        next_payment_attempt = invoice.get('next_payment_attempt')
+        customer_id = invoice.get('customer')
+
+        logger.error(
+            f"Payment failed for invoice {invoice['id']} "
+            f"(customer: {customer_id}, attempt: {attempt_count}, "
+            f"next_attempt: {next_payment_attempt}, "
+            f"amount_due: {invoice.get('amount_due')})"
+        )
+
+        # Stripe automatically retries per the account's retry schedule
+        # (next_payment_attempt is set while retries remain). No further
+        # action is taken here: this codebase does not yet have a
+        # notification service or a tenant-record persistence layer wired
+        # into webhook handlers (see the other _handle_* methods above,
+        # which are equally log-only). Wiring in dunning emails or
+        # suspending tenant access on final failure requires those two
+        # pieces to exist first.
+        return {
+            "status": "ok",
+            "invoice_id": invoice['id'],
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_payment_attempt,
+            "will_retry": next_payment_attempt is not None,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
