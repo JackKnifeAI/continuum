@@ -300,15 +300,38 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Decision extraction: sentences that commit to a course of action
+        decisions = (
+            self._extract_decisions(user_message)
+            + self._extract_decisions(ai_response)
+        )
+
+        # Compound concept detection: concept words adjacent in the source
+        # text (e.g. "quantum memory") are registered as their own entity
+        # and linked more strongly than incidentally co-occurring concepts.
+        compounds = set(
+            self._extract_compounds(user_message, user_concepts)
+            + self._extract_compounds(ai_response, ai_concepts)
+        )
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
+            w1, w2 = compound.split(" ", 1)
+            self.brain.link_concepts(w1, w2, weight=1.0)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +387,49 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    # Phrases that typically signal a decision being committed to
+    _DECISION_MARKERS = (
+        "i'll", "i will", "we'll", "we will", "let's", "lets",
+        "going to", "decided to", "decide to", "we should",
+        "i've decided", "plan to", "will go with", "opted for",
+    )
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Detect sentences that signal a decision being made.
+
+        Simple heuristic: split into sentences and keep the ones
+        containing a decision-marker phrase (e.g. "let's", "decided to").
+        """
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+
+        decisions = []
+        for sentence in sentences:
+            lowered = sentence.lower()
+            if any(marker in lowered for marker in self._DECISION_MARKERS):
+                decisions.append(sentence.strip())
+
+        return decisions
+
+    def _extract_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect compound concepts: two concept words that appear
+        adjacent to each other in the source text (e.g. "quantum memory").
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        seen = set()
+        compounds = []
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

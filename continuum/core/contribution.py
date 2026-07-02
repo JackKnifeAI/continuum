@@ -35,6 +35,7 @@ Usage:
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -43,6 +44,12 @@ from .config import get_config
 from .immune_system import AntibodyDetector
 
 logger = logging.getLogger("CONTRIBUTION")
+
+# PII patterns scrubbed from concept names/descriptions before federation upload.
+_PII_PATTERNS = {
+    "EMAIL": re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
+    "PHONE": re.compile(r"(?<!\d)(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\d)"),
+}
 
 @dataclass
 class ContributionPacket:
@@ -127,12 +134,20 @@ class ContributionManager:
         """Remove PII and tenant info."""
         clean = []
         for c in concepts:
-            # TODO: Run PII detector (e.g., regex for emails/phones)
+            desc = c["desc"][:200] if c["desc"] else "" # Truncate description
             clean.append({
-                "name": c["name"].lower().strip(), # Normalize
-                "desc": c["desc"][:200] if c["desc"] else "" # Truncate description
+                "name": self._scrub_pii(c["name"]).lower().strip(), # Normalize
+                "desc": self._scrub_pii(desc)
             })
         return clean
+
+    def _scrub_pii(self, text: str) -> str:
+        """Redact emails/phone numbers so raw PII never leaves the node."""
+        if not text:
+            return text
+        for label, pattern in _PII_PATTERNS.items():
+            text = pattern.sub(f"[REDACTED_{label}]", text)
+        return text
 
     def _sanitize_links(self, links: List[Dict]) -> List[Dict]:
         """Normalize links."""

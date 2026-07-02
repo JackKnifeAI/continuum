@@ -25,11 +25,32 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .tiers import PricingTier, get_tier_limits
 
 logger = logging.getLogger(__name__)
+
+# Schema for persisted usage metrics. Compatible with the SQLite/Postgres/Turso
+# backends in continuum.storage, all of which implement StorageBackend.execute()
+# and support the `INSERT ... ON CONFLICT DO UPDATE` upsert syntax.
+_USAGE_METRICS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS usage_metrics (
+    tenant_id TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    value INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, period_key, metric)
+)
+"""
+
+_USAGE_METRICS_UPSERT = """
+INSERT INTO usage_metrics (tenant_id, period_key, metric, value, updated_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (tenant_id, period_key, metric)
+DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+"""
 
 
 class UsageMetering:
@@ -43,12 +64,16 @@ class UsageMetering:
     - Extraction operations
     """
 
-    def __init__(self, storage_backend=None):
+    def __init__(self, storage_backend: Optional[Any] = None):
         """
         Initialize usage metering.
 
         Args:
-            storage_backend: Optional storage backend (defaults to in-memory)
+            storage_backend: Optional storage backend implementing the
+                continuum.storage.base.StorageBackend contract (`execute`).
+                When provided, the in-memory usage cache is periodically
+                persisted to a `usage_metrics` table. Defaults to in-memory
+                only (no persistence across restarts).
         """
         self.storage = storage_backend
         # In-memory cache for recent usage (flush to storage periodically)
@@ -246,10 +271,21 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                self.storage.execute(_USAGE_METRICS_SCHEMA)
+
+                updated_at = datetime.now(timezone.utc).isoformat()
+                rows = [
+                    (tenant_id, period_key, metric, value, updated_at)
+                    for cache_key, metrics in self._usage_cache.items()
+                    for tenant_id, _, period_key in [cache_key.partition(":")]
+                    for metric, value in metrics.items()
+                ]
+
+                if rows:
+                    self.storage.executemany(_USAGE_METRICS_UPSERT, rows)
+                    logger.info(f"Flushed {len(rows)} usage metric(s) to storage")
+
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -457,8 +493,42 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+            await self._report_all_active_subscriptions()
+
+    async def _report_all_active_subscriptions(self) -> None:
+        """Report usage to Stripe for every tenant with an active subscription"""
+        try:
+            subscriptions = await self.stripe_client.list_active_subscriptions()
+        except Exception as e:
+            logger.error(f"Failed to list active subscriptions for usage reporting: {e}")
+            return
+
+        reported = 0
+        for subscription in subscriptions:
+            customer = subscription.get('customer')
+            tenant_id = (
+                customer.get('metadata', {}).get('tenant_id')
+                if isinstance(customer, dict) else None
+            )
+            items = subscription.get('items', {}).get('data', [])
+
+            if not tenant_id or not items:
+                logger.warning(
+                    f"Skipping subscription {subscription.get('id')}: "
+                    "missing tenant_id or subscription items"
+                )
+                continue
+
+            try:
+                await self.report_usage_to_stripe(tenant_id, items[0]['id'])
+                reported += 1
+            except Exception as e:
+                logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
+
+        logger.debug(
+            f"Background usage reporting tick: reported usage for "
+            f"{reported}/{len(subscriptions)} subscription(s)"
+        )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
