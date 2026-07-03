@@ -568,9 +568,37 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        attempt_count = invoice.get('attempt_count', 0)
+        next_attempt = invoice.get('next_payment_attempt')
+
+        logger.error(
+            f"Payment failed for invoice {invoice_id} "
+            f"(customer: {customer_id}, attempt: {attempt_count}, "
+            f"amount_due: {invoice.get('amount_due')})"
+        )
+
+        if next_attempt:
+            next_attempt_at = datetime.fromtimestamp(next_attempt, tz=timezone.utc)
+            logger.info(f"Stripe will retry invoice {invoice_id} at {next_attempt_at.isoformat()}")
+        else:
+            logger.warning(
+                f"No further retries scheduled for invoice {invoice_id}; "
+                f"subscription is at risk of cancellation"
+            )
+
+        # NOTE: Stripe's Smart Retries already handles retry scheduling (see
+        # `next_payment_attempt` above). Customer-facing failure notifications
+        # (email/in-app) still need a notification service integration, which
+        # doesn't exist yet in this codebase - wire one up here once available.
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "next_payment_attempt": next_attempt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

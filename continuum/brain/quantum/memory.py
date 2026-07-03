@@ -35,6 +35,13 @@ from .core import (
     QuantumBrain,
 )
 
+# Phrases that signal a decision or commitment was made in a message
+_DECISION_PATTERN = re.compile(
+    r"\b(?:decided to|decide to|we should|we will|let's|going to|will use|"
+    r"chose to|choose to|opted for|agreed to|agree to|plan to|planning to)\b",
+    re.IGNORECASE,
+)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATACLASSES (matching Continuum's interface)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -300,15 +307,30 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Detect decision language (e.g. "decided to", "let's", "will use")
+        decisions_detected = (self._detect_decisions(user_message) +
+                               self._detect_decisions(ai_response))
+
+        # Detect compound concepts (adjacent concept pairs, e.g. "quantum brain")
+        compounds = set(self._detect_compounds(user_message, user_concepts))
+        compounds.update(self._detect_compounds(ai_response, ai_concepts))
+
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=decisions_detected,
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +386,50 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> int:
+        """
+        Detect decision-indicating language in text.
+
+        Counts phrases that signal a choice or commitment was made
+        (e.g. "decided to", "let's", "will use", "opted for").
+
+        Args:
+            text: Text to scan for decision language
+
+        Returns:
+            Number of decision phrases found
+        """
+        return len(_DECISION_PATTERN.findall(text))
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect multi-word compound concepts.
+
+        A compound is two extracted concepts that also appear adjacent
+        to each other in the original text, e.g. "quantum brain" from
+        the concepts "quantum" and "brain".
+
+        Args:
+            text: Original text the concepts were extracted from
+            concepts: Concepts already extracted from that text
+
+        Returns:
+            List of unique compound concept strings ("word1 word2")
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds = []
+        seen = set()
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
