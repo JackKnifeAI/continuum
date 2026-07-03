@@ -25,11 +25,19 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Awaitable, Callable, Dict, Optional, Protocol, Tuple
 
 from .tiers import PricingTier, get_tier_limits
 
 logger = logging.getLogger(__name__)
+
+
+class UsageStorageBackend(Protocol):
+    """Interface a `storage_backend` passed to `UsageMetering` must implement."""
+
+    async def save_usage(self, usage_cache: Dict[str, Dict[str, int]]) -> None:
+        """Persist a snapshot of the current usage cache."""
+        ...
 
 
 class UsageMetering:
@@ -43,12 +51,13 @@ class UsageMetering:
     - Extraction operations
     """
 
-    def __init__(self, storage_backend=None):
+    def __init__(self, storage_backend: Optional[UsageStorageBackend] = None):
         """
         Initialize usage metering.
 
         Args:
-            storage_backend: Optional storage backend (defaults to in-memory)
+            storage_backend: Optional storage backend (defaults to in-memory).
+                Must implement `UsageStorageBackend.save_usage`.
         """
         self.storage = storage_backend
         # In-memory cache for recent usage (flush to storage periodically)
@@ -243,13 +252,16 @@ class UsageMetering:
             await self._flush_cache()
 
     async def _flush_cache(self) -> None:
-        """Flush cache to persistent storage"""
+        """Flush cache to persistent storage.
+
+        The in-memory cache remains the source of truth for reads (rate
+        limiting, storage gauges); this only mirrors it for durability, so
+        the cache is intentionally not cleared afterwards.
+        """
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await self.storage.save_usage(dict(self._usage_cache))
+                logger.debug(f"Flushed {len(self._usage_cache)} usage entries to storage")
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -453,12 +465,34 @@ class UsageReporter:
         except Exception as e:
             logger.error(f"Failed to report usage to Stripe: {e}")
 
-    async def start_background_reporting(self) -> None:
-        """Start background task to report usage periodically"""
+    async def start_background_reporting(
+        self,
+        get_active_subscriptions: Callable[[], Awaitable[Dict[str, str]]],
+    ) -> None:
+        """
+        Start background task to report usage periodically.
+
+        Args:
+            get_active_subscriptions: Async callable returning a mapping of
+                tenant_id -> Stripe subscription_item_id for every tenant
+                that should be metered on this tick. There is no built-in
+                subscription registry in this codebase, so the caller is
+                responsible for supplying the current set (e.g. from a
+                tenant/subscription database).
+        """
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            try:
+                subscriptions = await get_active_subscriptions()
+            except Exception as e:
+                logger.error(f"Failed to fetch active subscriptions: {e}")
+                continue
+
+            for tenant_id, subscription_item_id in subscriptions.items():
+                await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+
+            logger.debug(f"Background usage reporting tick: reported {len(subscriptions)} subscriptions")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

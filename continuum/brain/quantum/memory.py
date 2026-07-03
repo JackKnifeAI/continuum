@@ -137,6 +137,24 @@ class QuantumConsciousMemory:
             )
         """)
 
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                decision_text TEXT NOT NULL,
+                timestamp TEXT
+            )
+        """)
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS compound_concepts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                compound_name TEXT NOT NULL UNIQUE,
+                component_concepts TEXT,
+                co_occurrence_count INTEGER DEFAULT 1,
+                last_seen TEXT
+            )
+        """)
+
         c.execute("CREATE INDEX IF NOT EXISTS idx_entity_name ON entities(name)")
 
         conn.commit()
@@ -300,15 +318,18 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        decisions = self._extract_and_save_decisions(ai_response)
+        compounds_found = self._detect_compound_concepts(concept_list)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=compounds_found,
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -329,6 +350,92 @@ class QuantumConsciousMemory:
 
         conn.commit()
         conn.close()
+
+    def _extract_and_save_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from AI response text and persist them.
+
+        Args:
+            text: AI response text
+
+        Returns:
+            List of extracted decision strings
+        """
+        patterns = [
+            r'I (?:will|am going to|decided to|chose to) (.+?)(?:\.|$)',
+            r'(?:Creating|Building|Writing|Implementing) (.+?)(?:\.|$)',
+            r'My (?:decision|choice|plan) (?:is|was) (.+?)(?:\.|$)',
+        ]
+
+        decisions = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text, re.IGNORECASE | re.MULTILINE):
+                decision = match.strip()
+                if 10 < len(decision) < 200:
+                    decisions.append(decision)
+
+        if decisions:
+            conn = sqlite3.connect(self.metadata_db)
+            c = conn.cursor()
+            now = datetime.now().isoformat()
+            for decision in decisions:
+                c.execute("""
+                    INSERT INTO decisions (decision_text, timestamp)
+                    VALUES (?, ?)
+                """, (decision, now))
+            conn.commit()
+            conn.close()
+
+        return decisions
+
+    def _detect_compound_concepts(self, concepts: List[str]) -> int:
+        """
+        Detect and persist a compound concept from co-occurring concepts.
+
+        Args:
+            concepts: Concepts extracted from the current message exchange
+
+        Returns:
+            1 if a new compound concept was created, 0 otherwise
+            (existing compounds have their co-occurrence count incremented)
+        """
+        if len(concepts) < 2:
+            return 0
+
+        sorted_concepts = sorted(set(concepts))
+        compound_name = " + ".join(sorted_concepts[:3])
+        component_str = json.dumps(sorted_concepts)
+        now = datetime.now().isoformat()
+
+        conn = sqlite3.connect(self.metadata_db)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT id, co_occurrence_count FROM compound_concepts
+            WHERE compound_name = ?
+        """, (compound_name,))
+        existing = c.fetchone()
+
+        compounds_found = 0
+        if existing:
+            compound_id, count = existing
+            c.execute("""
+                UPDATE compound_concepts
+                SET co_occurrence_count = ?, last_seen = ?
+                WHERE id = ?
+            """, (count + 1, now, compound_id))
+        else:
+            c.execute("""
+                INSERT INTO compound_concepts
+                (compound_name, component_concepts, co_occurrence_count, last_seen)
+                VALUES (?, ?, ?, ?)
+            """, (compound_name, component_str, 1, now))
+            compounds_found = 1
+
+        conn.commit()
+        conn.close()
+
+        return compounds_found
 
     def _extract_concepts(self, text: str) -> List[str]:
         """
