@@ -25,7 +25,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .tiers import PricingTier, get_tier_limits
 
@@ -246,14 +246,62 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
                 logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                await self._ensure_usage_table()
+
+                rows = [
+                    (cache_key, metric, value)
+                    for cache_key, metrics in self._usage_cache.items()
+                    for metric, value in metrics.items()
+                ]
+
+                if rows:
+                    cache_keys = sorted({row[0] for row in rows})
+                    placeholders = ", ".join("?" for _ in cache_keys)
+                    await self._storage_execute(
+                        f"DELETE FROM usage_metrics WHERE cache_key IN ({placeholders})",
+                        tuple(cache_keys)
+                    )
+
+                    now = datetime.now(timezone.utc).isoformat()
+                    await self._storage_executemany(
+                        "INSERT INTO usage_metrics (cache_key, metric, value, updated_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        [(cache_key, metric, value, now) for cache_key, metric, value in rows]
+                    )
+
+                logger.debug(f"Flushed {len(rows)} usage metrics to storage")
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
         self._last_flush = datetime.now(timezone.utc)
+
+    async def _ensure_usage_table(self) -> None:
+        """Create the usage_metrics table in the storage backend if it doesn't exist"""
+        await self._storage_execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_metrics (
+                cache_key TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                value INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (cache_key, metric)
+            )
+            """
+        )
+
+    async def _storage_execute(self, sql: str, params: Optional[Tuple] = None):
+        """Run a statement on the storage backend, supporting both sync and async backends"""
+        result = self.storage.execute(sql, params)
+        if asyncio.iscoroutine(result):
+            result = await result
+        return result
+
+    async def _storage_executemany(self, sql: str, params_list: List[Tuple]) -> None:
+        """Run a batched statement on the storage backend, supporting both sync and async backends"""
+        result = self.storage.executemany(sql, params_list)
+        if asyncio.iscoroutine(result):
+            await result
 
 
 class RateLimiter:
@@ -414,6 +462,29 @@ class UsageReporter:
         self.stripe_client = stripe_client
         self.report_interval = report_interval_seconds
         self._last_report: Dict[str, datetime] = {}
+        # tenant_id -> Stripe subscription item ID, for background reporting
+        self._active_subscriptions: Dict[str, str] = {}
+
+    def register_subscription(self, tenant_id: str, subscription_item_id: str) -> None:
+        """
+        Register a tenant's subscription item so background reporting includes it.
+
+        Args:
+            tenant_id: Tenant identifier
+            subscription_item_id: Stripe subscription item ID to report usage against
+        """
+        self._active_subscriptions[tenant_id] = subscription_item_id
+        logger.debug(f"Registered subscription for {tenant_id}: {subscription_item_id}")
+
+    def unregister_subscription(self, tenant_id: str) -> None:
+        """
+        Remove a tenant from background usage reporting (e.g. on cancellation).
+
+        Args:
+            tenant_id: Tenant identifier
+        """
+        self._active_subscriptions.pop(tenant_id, None)
+        logger.debug(f"Unregistered subscription for {tenant_id}")
 
     async def report_usage_to_stripe(
         self,
@@ -457,8 +528,12 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            subscriptions = dict(self._active_subscriptions)
+            logger.debug(f"Background usage reporting tick: {len(subscriptions)} active subscriptions")
+
+            for tenant_id, subscription_item_id in subscriptions.items():
+                await self.report_usage_to_stripe(tenant_id, subscription_item_id)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI

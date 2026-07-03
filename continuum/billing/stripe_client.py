@@ -24,7 +24,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,8 @@ class StripeClient:
         self,
         api_key: Optional[str] = None,
         webhook_secret: Optional[str] = None,
-        mock_mode: bool = False
+        mock_mode: bool = False,
+        payment_failure_handler: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
     ):
         """
         Initialize Stripe client.
@@ -78,9 +79,15 @@ class StripeClient:
             api_key: Stripe secret key (defaults to STRIPE_SECRET_KEY env var)
             webhook_secret: Stripe webhook signing secret (defaults to STRIPE_WEBHOOK_SECRET)
             mock_mode: Force mock mode (useful for testing without Stripe)
+            payment_failure_handler: Optional async callback invoked with the raw invoice
+                whenever an invoice.payment_failed webhook is processed (e.g. to send a
+                dunning email or page an on-call). Stripe itself owns retry scheduling
+                (see the invoice's `next_payment_attempt`); this hook is purely for
+                side effects like notification.
         """
         self.api_key = api_key or os.getenv('STRIPE_SECRET_KEY')
         self.webhook_secret = webhook_secret or os.getenv('STRIPE_WEBHOOK_SECRET')
+        self.payment_failure_handler = payment_failure_handler
 
         # Determine if we should run in mock mode
         self.mock_mode = mock_mode or not STRIPE_AVAILABLE or not self.api_key
@@ -567,10 +574,47 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """
+        Handle invoice.payment_failed event.
+
+        Stripe's own subscription billing already schedules payment retries
+        (see the invoice's `next_payment_attempt`); a missing value means this
+        was the final attempt and the subscription will move to `past_due`/
+        `unpaid`. This handler surfaces that retry state and, if a
+        `payment_failure_handler` callback was configured, delegates
+        notification (e.g. dunning email, on-call page) to it.
+        """
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        attempt_count = invoice.get('attempt_count', 0)
+        next_attempt = invoice.get('next_payment_attempt')
+        final_attempt = next_attempt is None
+
+        if final_attempt:
+            logger.error(
+                f"Payment failed for invoice {invoice_id} (customer: {customer_id}): "
+                f"final attempt ({attempt_count} total), no further retries scheduled"
+            )
+        else:
+            next_attempt_at = datetime.fromtimestamp(next_attempt, tz=timezone.utc).isoformat()
+            logger.warning(
+                f"Payment failed for invoice {invoice_id} (customer: {customer_id}): "
+                f"attempt {attempt_count}, next retry at {next_attempt_at}"
+            )
+
+        if self.payment_failure_handler:
+            try:
+                await self.payment_failure_handler(invoice)
+            except Exception as e:
+                logger.error(f"payment_failure_handler raised an exception for invoice {invoice_id}: {e}")
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "final_attempt": final_attempt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

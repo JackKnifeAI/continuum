@@ -251,6 +251,8 @@ class QuantumConsciousMemory:
         """
         coherence_before = self.brain.coherence_score()
 
+        decisions = self._extract_decisions(user_message) + self._extract_decisions(ai_response)
+
         # Store messages
         conn = sqlite3.connect(self.metadata_db)
         c = conn.cursor()
@@ -259,6 +261,11 @@ class QuantumConsciousMemory:
         ai_concepts = self._extract_concepts(ai_response)
 
         all_concepts = set(user_concepts + ai_concepts)
+
+        compounds = (
+            self._detect_compounds(user_message, user_concepts) +
+            self._detect_compounds(ai_response, ai_concepts)
+        )
 
         c.execute("""
             INSERT INTO messages (role, content, concepts, timestamp)
@@ -291,6 +298,18 @@ class QuantumConsciousMemory:
                 self.brain.cells[addr].activation = min(1.0,
                     self.brain.cells[addr].activation + 0.1)
 
+        # Store compound concepts (e.g. "quantum brain") and bind their parts tightly
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
+            for part in compound.split():
+                if part in self.entity_cache:
+                    self.brain.link_concepts(compound, part, weight=0.8)
+
         # Create links (Hebbian: fire together, wire together)
         links_created = 0
         concept_list = list(all_concepts)
@@ -306,9 +325,9 @@ class QuantumConsciousMemory:
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +383,66 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    # Phrases that signal a decision was made or is being committed to
+    _DECISION_PATTERNS = [
+        re.compile(r"\b(?:i|we)(?:'ll|'ve| will| have| decided(?: to)?| chose(?: to)?"
+                   r"| are going to| plan to)\s+([^.!?\n]{3,120})", re.IGNORECASE),
+        re.compile(r"\blet'?s\s+([^.!?\n]{3,120})", re.IGNORECASE),
+        re.compile(r"\b(?:decision|conclusion|verdict)\s*:\s*([^.!?\n]{3,120})", re.IGNORECASE),
+        re.compile(r"\b(?:i|we) (?:should|must|need to)\s+([^.!?\n]{3,120})", re.IGNORECASE),
+    ]
+
+    def _extract_decisions(self, text: str) -> List[str]:
+        """
+        Extract decision statements from text.
+
+        Looks for commitment language ("we decided to...", "let's...",
+        "decision: ...") that marks a concrete choice being made.
+
+        Args:
+            text: Message text to scan
+
+        Returns:
+            List of decision statement snippets found (may be empty)
+        """
+        decisions: List[str] = []
+        for pattern in self._DECISION_PATTERNS:
+            for match in pattern.finditer(text):
+                snippet = match.group(1).strip()
+                if snippet:
+                    decisions.append(snippet)
+        return decisions
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect multi-word compound concepts from adjacent concept words.
+
+        Two extracted concepts that appear next to each other in the
+        source text (e.g. "quantum brain") are treated as a single
+        compound concept, since they carry more meaning together than
+        either word does alone.
+
+        Args:
+            text: Original message text (used to check adjacency)
+            concepts: Concepts already extracted from this text
+
+        Returns:
+            List of unique compound concept strings ("word1 word2")
+        """
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        compounds: List[str] = []
+        seen = set()
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS
