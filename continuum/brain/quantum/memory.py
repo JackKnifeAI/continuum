@@ -300,15 +300,37 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Decision extraction: flag decision-like statements in either side
+        # of the exchange (not stored as entities, just counted/logged)
+        decisions = self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+
+        # Compound concept detection: adjacent concept words treated as a
+        # single higher-order concept (e.g. "machine learning")
+        compounds = list(dict.fromkeys(
+            self._detect_compounds(user_message, user_concepts) +
+            self._detect_compounds(ai_response, ai_concepts)
+        ))
+
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
+            for word in compound.split():
+                if word in self.entity_cache:
+                    self.brain.link_concepts(compound, word, weight=0.5)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +386,67 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision statements in text via pattern matching.
+
+        Looks for common decision-making phrasing ("I'll...", "let's...",
+        "decided to...", etc). Heuristic only - not full NLU.
+
+        Args:
+            text: Text to scan for decisions
+
+        Returns:
+            List of matched decision phrases (lowercase)
+        """
+        decision_patterns = [
+            r"\b(?:i|we)\s+(?:decided|chose|will|plan|need|want)\s+to\s+\w+",
+            r"\blet'?s\s+\w+",
+            r"\b(?:i|we)'ll\s+\w+",
+            r"\bgoing\s+to\s+\w+",
+            r"\b(?:decision|conclusion)\s*:\s*\S+",
+        ]
+
+        lowered = text.lower()
+        matches: List[str] = []
+        for pattern in decision_patterns:
+            matches.extend(re.findall(pattern, lowered))
+
+        return matches
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect multi-word compound concepts from adjacent extracted words.
+
+        Two extracted concepts that appear next to each other in the source
+        text (e.g. "machine learning") are treated as a single compound
+        concept, since together they carry more meaning than either word
+        alone.
+
+        Args:
+            text: Original text the concepts were extracted from
+            concepts: Concepts already extracted via `_extract_concepts`
+
+        Returns:
+            List of unique compound concept strings ("word1 word2")
+        """
+        if len(concepts) < 2:
+            return []
+
+        concept_set = set(concepts)
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+
+        seen = set()
+        compounds: List[str] = []
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

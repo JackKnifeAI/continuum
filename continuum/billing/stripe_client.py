@@ -567,10 +567,47 @@ class StripeClient:
         return {"status": "ok", "invoice_id": invoice['id']}
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        """
+        Handle invoice.payment_failed event.
+
+        Stripe retries a failed invoice automatically (per the account's
+        "smart retries" dunning schedule) before finally marking the
+        subscription `past_due`/`unpaid`. `next_payment_attempt` is set
+        while Stripe is still retrying and is `None` once retries are
+        exhausted, which is the signal that the customer needs to act.
+
+        This method does not send email itself - CONTINUUM has no mailer
+        configured yet - but it returns a structured result identifying
+        the customer/subscription and whether this was the final attempt,
+        so an API layer wired up with a notification provider can act on it.
+        """
+        customer_id = invoice.get("customer")
+        subscription_id = invoice.get("subscription")
+        attempt_count = invoice.get("attempt_count", 0)
+        next_payment_attempt = invoice.get("next_payment_attempt")
+        is_final_attempt = next_payment_attempt is None
+
+        if is_final_attempt:
+            logger.error(
+                f"Payment failed for invoice {invoice['id']} (customer: {customer_id}) - "
+                f"final attempt #{attempt_count}, no further retries scheduled"
+            )
+        else:
+            retry_at = datetime.fromtimestamp(next_payment_attempt, tz=timezone.utc).isoformat()
+            logger.warning(
+                f"Payment failed for invoice {invoice['id']} (customer: {customer_id}) - "
+                f"attempt #{attempt_count}, Stripe will retry at {retry_at}"
+            )
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice["id"],
+            "customer_id": customer_id,
+            "subscription_id": subscription_id,
+            "attempt_count": attempt_count,
+            "is_final_attempt": is_final_attempt,
+            "next_payment_attempt": next_payment_attempt,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""
