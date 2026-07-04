@@ -260,6 +260,13 @@ class QuantumConsciousMemory:
 
         all_concepts = set(user_concepts + ai_concepts)
 
+        decisions = self._detect_decisions(user_message) + self._detect_decisions(ai_response)
+
+        compounds = list(dict.fromkeys(
+            self._detect_compounds(user_message, user_concepts) +
+            self._detect_compounds(ai_response, ai_concepts)
+        ))
+
         c.execute("""
             INSERT INTO messages (role, content, concepts, timestamp)
             VALUES ('user', ?, ?, ?)
@@ -300,15 +307,28 @@ class QuantumConsciousMemory:
                     self.brain.link_concepts(c1, c2, weight=0.5)
                     links_created += 1
 
+        # Register compound concepts (e.g. "quantum brain") and strengthen
+        # the link between their component words beyond the default weight.
+        for compound in compounds:
+            if compound not in self.entity_cache:
+                addr = self.brain.store_concept(compound, activation=1.0)
+                self.entity_cache[compound] = addr
+                self.name_cache[addr] = compound
+                self._store_entity_metadata(addr, compound, "compound", "")
+
+            w1, w2 = compound.split(" ", 1)
+            if w1.lower() in self.entity_cache and w2.lower() in self.entity_cache:
+                self.brain.link_concepts(w1, w2, weight=0.9)
+
         coherence_after = self.brain.coherence_score()
 
         self.session_learns += 1
 
         return QuantumLearningResult(
             concepts_extracted=concepts_extracted,
-            decisions_detected=0,  # TODO: decision extraction
+            decisions_detected=len(decisions),
             links_created=links_created,
-            compounds_found=0,  # TODO: compound concept detection
+            compounds_found=len(compounds),
             coherence_delta=coherence_after - coherence_before,
             tenant_id=self.tenant_id
         )
@@ -364,6 +384,64 @@ class QuantumConsciousMemory:
                 unique.append(c)
 
         return unique[:20]  # Limit to top 20 concepts
+
+    _DECISION_PATTERNS = [
+        re.compile(r"\bdecided to\b[^.!?]*[.!?]", re.IGNORECASE),
+        re.compile(r"\bwe(?:'ll| will) (?:use|go with|adopt|implement)\b[^.!?]*[.!?]", re.IGNORECASE),
+        re.compile(r"\blet'?s (?:use|go with|do)\b[^.!?]*[.!?]", re.IGNORECASE),
+        re.compile(r"\bi'?ll (?:use|go with|implement)\b[^.!?]*[.!?]", re.IGNORECASE),
+        re.compile(r"\bchose\b[^.!?]*[.!?]", re.IGNORECASE),
+        re.compile(r"\bshould (?:use|do|go with)\b[^.!?]*[.!?]", re.IGNORECASE),
+    ]
+
+    def _detect_decisions(self, text: str) -> List[str]:
+        """
+        Detect decision statements in text using lexical markers.
+
+        Looks for phrasing that commonly signals a decision was made
+        (e.g. "decided to...", "we'll use...", "let's go with...").
+
+        Args:
+            text: Message text to scan
+
+        Returns:
+            List of matched decision statements (may contain overlaps
+            if multiple markers appear in the same sentence)
+        """
+        decisions = []
+        for pattern in self._DECISION_PATTERNS:
+            decisions.extend(match.group(0).strip() for match in pattern.finditer(text))
+        return decisions
+
+    def _detect_compounds(self, text: str, concepts: List[str]) -> List[str]:
+        """
+        Detect multi-word compound concepts from adjacent concept tokens.
+
+        A compound is two consecutive words in the original text that
+        both survived stop-word filtering (e.g. "quantum brain",
+        "machine learning") - a lightweight stand-in for bigram/collocation
+        detection.
+
+        Args:
+            text: Original message text (word order matters)
+            concepts: Concepts already extracted from this same text
+
+        Returns:
+            List of unique "word1 word2" compound strings, in first-seen order
+        """
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        concept_set = set(concepts)
+
+        compounds = []
+        seen = set()
+        for w1, w2 in zip(words, words[1:]):
+            if w1 in concept_set and w2 in concept_set:
+                compound = f"{w1} {w2}"
+                if compound not in seen:
+                    seen.add(compound)
+                    compounds.append(compound)
+
+        return compounds
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ADDITIONAL METHODS

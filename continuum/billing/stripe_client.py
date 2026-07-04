@@ -326,6 +326,40 @@ class StripeClient:
             logger.error(f"Failed to list subscriptions for {customer_id}: {e}")
             raise
 
+    async def list_active_subscriptions(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        List active subscriptions across all customers, auto-paginating.
+
+        Used by background usage reporting to discover every subscription
+        that may have metered usage to report to Stripe.
+
+        Args:
+            limit: Page size for each Stripe API request
+
+        Returns:
+            List of active subscription objects
+        """
+        if self.mock_mode:
+            logger.debug("[MOCK] No live subscriptions to list in mock mode")
+            return []
+
+        try:
+            subscriptions: List[Dict[str, Any]] = []
+            params: Dict[str, Any] = {"status": "active", "limit": limit}
+
+            while True:
+                page = stripe.Subscription.list(**params)
+                subscriptions.extend(page.data)
+                if not page.has_more:
+                    break
+                params["starting_after"] = page.data[-1].id
+
+            return subscriptions
+
+        except stripe.error.StripeError as e:
+            logger.error(f"Failed to list active subscriptions: {e}")
+            raise
+
     # Usage-Based Billing
 
     async def report_usage(
@@ -568,9 +602,37 @@ class StripeClient:
 
     async def _handle_payment_failed(self, invoice: Dict[str, Any]) -> Dict[str, Any]:
         """Handle invoice.payment_failed event"""
-        logger.error(f"Payment failed for invoice: {invoice['id']}")
-        # TODO: Implement payment failure handling (email notification, retry logic, etc.)
-        return {"status": "ok", "invoice_id": invoice['id']}
+        invoice_id = invoice['id']
+        customer_id = invoice.get('customer')
+        attempt_count = invoice.get('attempt_count', 0)
+        next_attempt = invoice.get('next_payment_attempt')
+        retry_scheduled = next_attempt is not None
+
+        if retry_scheduled:
+            next_attempt_at = datetime.fromtimestamp(next_attempt, tz=timezone.utc).isoformat()
+            logger.warning(
+                f"Payment failed for invoice {invoice_id} (customer {customer_id}, "
+                f"attempt {attempt_count}). Stripe will retry at {next_attempt_at}."
+            )
+        else:
+            logger.error(
+                f"Payment failed for invoice {invoice_id} (customer {customer_id}) "
+                f"after {attempt_count} attempt(s); Stripe has stopped retrying."
+            )
+
+        # TODO: Notify the tenant (email/in-app) and update their account status
+        # (e.g. the `users.status`/`suspended_at` columns in admin_db) once CONTINUUM
+        # has an email/notification service and a tenant-status-update helper.
+        # Neither exists yet in this codebase - this is where that integration
+        # should hook in, keyed off `retry_scheduled` above.
+
+        return {
+            "status": "ok",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "attempt_count": attempt_count,
+            "retry_scheduled": retry_scheduled,
+        }
 
     async def _handle_payment_method_attached(self, payment_method: Dict[str, Any]) -> Dict[str, Any]:
         """Handle payment_method.attached event"""

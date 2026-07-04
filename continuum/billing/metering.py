@@ -25,7 +25,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .tiers import PricingTier, get_tier_limits
 
@@ -246,10 +246,15 @@ class UsageMetering:
         """Flush cache to persistent storage"""
         if self.storage:
             try:
-                # TODO: Implement storage backend flush
-                logger.debug("Flushing usage cache to storage")
-                # await self.storage.save_usage(self._usage_cache)
-                pass
+                save_usage = getattr(self.storage, "save_usage", None)
+                if save_usage is not None:
+                    logger.debug("Flushing usage cache to storage")
+                    await save_usage(dict(self._usage_cache))
+                else:
+                    logger.warning(
+                        f"Storage backend {type(self.storage).__name__} has no "
+                        "save_usage method; skipping usage flush"
+                    )
             except Exception as e:
                 logger.error(f"Failed to flush usage cache: {e}")
 
@@ -457,8 +462,59 @@ class UsageReporter:
         """Start background task to report usage periodically"""
         while True:
             await asyncio.sleep(self.report_interval)
-            # TODO: Iterate over all active subscriptions and report usage
-            logger.debug("Background usage reporting tick")
+
+            try:
+                subscriptions = await self.stripe_client.list_active_subscriptions()
+            except Exception as e:
+                logger.error(f"Failed to list active subscriptions for usage reporting: {e}")
+                continue
+
+            for subscription in subscriptions:
+                tenant_id = await self._resolve_tenant_id(subscription)
+                items = subscription.get('items', {}).get('data', [])
+
+                if not tenant_id or not items:
+                    logger.warning(
+                        f"Skipping subscription {subscription.get('id')}: "
+                        "missing tenant_id or subscription items"
+                    )
+                    continue
+
+                subscription_item_id = items[0]['id']
+                try:
+                    await self.report_usage_to_stripe(tenant_id, subscription_item_id)
+                except Exception as e:
+                    logger.error(f"Failed to report usage for tenant {tenant_id}: {e}")
+
+            logger.debug(f"Background usage reporting tick: processed {len(subscriptions)} subscription(s)")
+
+    async def _resolve_tenant_id(self, subscription: Dict[str, Any]) -> Optional[str]:
+        """
+        Resolve the CONTINUUM tenant ID for a Stripe subscription.
+
+        Looks at the subscription's own metadata first, falling back to the
+        owning customer's metadata (where tenant_id is set at customer creation).
+
+        Args:
+            subscription: Stripe subscription object
+
+        Returns:
+            Tenant ID if found, else None
+        """
+        tenant_id = subscription.get('metadata', {}).get('tenant_id')
+        if tenant_id:
+            return tenant_id
+
+        customer_id = subscription.get('customer')
+        if not customer_id:
+            return None
+
+        try:
+            customer = await self.stripe_client.get_customer(customer_id)
+            return customer.get('metadata', {}).get('tenant_id')
+        except Exception as e:
+            logger.error(f"Failed to resolve tenant for customer {customer_id}: {e}")
+            return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #                              JACKKNIFE AI
