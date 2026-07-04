@@ -25,8 +25,12 @@
 name: Claudia - Autonomous Evolution
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+  # PAUSED (2026-07-03, Alexander's call): the 6-hour schedule ran 707 times
+  # but produced no PR since Jan 10 and no branch since Feb 4 — idle burn on
+  # the Claude account. Manual dispatch below still works; restore the
+  # schedule block to resume autonomous evolution.
+  # schedule:
+  #   - cron: '0 */6 * * *'  # Every 6 hours
   workflow_dispatch:
     inputs:
       max_fixes:
