@@ -3,7 +3,7 @@
 
 # Core documentation framework
 mkdocs>=1.5.0
-mkdocs-material>=9.5.0
+mkdocs-material>=9.7.7
 
 # Plugins
 mkdocs-git-revision-date-localized-plugin>=1.2.0
