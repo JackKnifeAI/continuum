@@ -17,7 +17,7 @@ sentry-sdk[fastapi]>=1.40.0
 # Observability and telemetry
 opentelemetry-api>=1.20.0
 opentelemetry-sdk>=1.20.0
-opentelemetry-instrumentation-fastapi>=0.41b0
+opentelemetry-instrumentation-fastapi>=0.65b0
 prometheus-client>=0.19.0
 
 # Payment processing
