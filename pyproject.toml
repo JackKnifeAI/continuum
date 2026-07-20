@@ -46,7 +46,7 @@ postgres = [
 ]
 redis = [
     "redis>=5.0.0",
-    "hiredis>=2.2.0",
+    "hiredis>=3.4.0",
 ]
 embeddings = [
     "sentence-transformers>=2.2.0",
